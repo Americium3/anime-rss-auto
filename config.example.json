@@ -1,0 +1,38 @@
+{
+  "bgm_user": "your-bangumi-user-id",
+  "mikan_cookie": "<.AspNetCore.Identity.Application cookie from mikanani.me>",
+
+  "qb_url": "http://localhost:8080",
+  "bangumi_library": "X:\\Bangumi",
+
+  "skip_before_season": "2026.04",
+  "purge_dropped_files": true,
+  "ani_grace_hours": 3,
+  "group_priority": [
+    [583, "ANi", ""],
+    [370, "LoliHouse", "LoliHouse"],
+    [615, "Sakurato", ""],
+    [1231, "Kitauji", ""],
+    [203, "Skymoon", ""]
+  ],
+
+  "bgm_access_token": "<365-day personal token, or use OAuth below>",
+  "bgm_client_id": "",
+  "bgm_client_secret": "",
+  "bgm_redirect_uri": "http://localhost",
+  "mark_watched_enabled": true,
+
+  "jellyfin_url": "http://localhost:8096",
+  "jellyfin_api_key": "<jellyfin api key>",
+  "jellyfin_mirror": "X:\\BangumiJF",
+  "jellyfin_mirror_enabled": true,
+  "jellyfin_autolib_enabled": true,
+  "jellyfin_mirror_delete_enabled": true,
+  "jellyfin_tools_dir": "",
+
+  "jfhook_port": 8766,
+  "watch_interval_seconds": 300,
+
+  "webui_host": "127.0.0.1",
+  "webui_port": 8767
+}
