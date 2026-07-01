@@ -1,5 +1,7 @@
 # anime-rss-auto
 
+**English** | [简体中文](README.zh-CN.md)
+
 Fully automated seasonal anime pipeline for Windows:
 
 ```
