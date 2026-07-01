@@ -67,6 +67,7 @@
   }
   .btn.ghost:hover { color: var(--text); }
   .btn.small { padding: 5px 12px; font-size: 12px; }
+  .btn.lang { padding: 6px 13px; font-size: 12px; min-width: 46px; }
 
   /* ---------- stats ---------- */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 26px; }
@@ -167,25 +168,26 @@
       <h1>ANIME&nbsp;AUTOPILOT</h1>
       <small>bangumi · mikan · qBittorrent · jellyfin</small>
     </div>
-    <span class="chip">Season <b id="season">—</b></span>
-    <span class="chip">Last sync <b id="lastsync">—</b></span>
+    <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
+    <span class="chip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
+    <button class="btn ghost lang" id="langbtn" onclick="toggleLang()">中文</button>
     <button class="btn" id="syncbtn" onclick="runSync()">Sync now</button>
   </header>
 
   <div class="stats">
-    <div class="stat"><div class="k">Watching</div><div class="v" id="st-watching">—</div></div>
-    <div class="stat"><div class="k">Subscribed</div><div class="v" id="st-subscribed">—</div></div>
-    <div class="stat"><div class="k">In grace</div><div class="v" id="st-grace">—</div></div>
-    <div class="stat"><div class="k">Jellyfin libraries</div><div class="v" id="st-jf">—</div></div>
+    <div class="stat"><div class="k" data-i18n="watching">Watching</div><div class="v" id="st-watching">—</div></div>
+    <div class="stat"><div class="k" data-i18n="subscribed">Subscribed</div><div class="v" id="st-subscribed">—</div></div>
+    <div class="stat"><div class="k" data-i18n="inGrace">In grace</div><div class="v" id="st-grace">—</div></div>
+    <div class="stat"><div class="k" data-i18n="jfLibraries">Jellyfin libraries</div><div class="v" id="st-jf">—</div></div>
   </div>
 
   <div class="grid" id="cards"></div>
 
-  <div class="section-h">Subgroup priority</div>
+  <div class="section-h" data-i18n="subgroupPriority">Subgroup priority</div>
   <div class="prio" id="prio"></div>
 
   <div class="section-h">
-    Daemon log
+    <span data-i18n="daemonLog">Daemon log</span>
     <button class="btn ghost small" id="logbtn" onclick="toggleLogs()">Show</button>
   </div>
   <div class="logs" id="logs"></div>
@@ -194,6 +196,59 @@
 <div id="toast"></div>
 
 <script>
+// ---------------------------------------------------------------------------
+// i18n: every user-facing string lives here; the code renders through t().
+// Language auto-detects from the browser, is toggleable, and persists.
+// ---------------------------------------------------------------------------
+const I18N = {
+  en: {
+    langBtn: "中文",
+    season: "Season", lastSync: "Last sync", syncNow: "Sync now", syncing: "Syncing…",
+    watching: "Watching", subscribed: "Subscribed", inGrace: "In grace", jfLibraries: "Jellyfin libraries",
+    subgroupPriority: "Subgroup priority", daemonLog: "Daemon log", show: "Show", hide: "Hide",
+    st_subscribed: "Subscribed", st_grace: "ANi grace", st_unresolved: "Awaiting mikan", st_manual: "Manual (legacy)",
+    via: "via", switch: "Switch", waitingAni: "Waiting for ANi", lockBest: "Lock best now",
+    noEpisodes: "Subscribed — no episodes in feed yet",
+    notOnMikan: "Not on mikan yet — checked every 5 min",
+    more: n => `+${n} more`,
+    graceH: h => `grace ${h}h`,
+    backendUnreachable: e => "Backend unreachable: " + e,
+    syncFinished: "Sync pass finished",
+    syncFailStart: e => "Sync failed to start: " + e,
+    openDropdown: "Open the dropdown first to load groups",
+    loadGroupsFail: e => "Could not load subgroups: " + e,
+    switchFail: e => "Switch failed: " + e,
+    failed: e => "Failed: " + e,
+    already_running: "Sync already running",
+    grace_ended: "Grace ended — next sync (≤5 min) locks the best available group",
+    switched: g => `Rule now follows ${g}`,
+  },
+  zh: {
+    langBtn: "EN",
+    season: "季度", lastSync: "上次同步", syncNow: "立即同步", syncing: "同步中…",
+    watching: "在看", subscribed: "已订阅", inGrace: "宽限期", jfLibraries: "Jellyfin 库",
+    subgroupPriority: "字幕组优先级", daemonLog: "守护进程日志", show: "展开", hide: "收起",
+    st_subscribed: "已订阅", st_grace: "ANi 宽限期", st_unresolved: "等待 mikan", st_manual: "手动（旧番）",
+    via: "字幕组", switch: "切换", waitingAni: "等待 ANi", lockBest: "锁定当前最优",
+    noEpisodes: "已订阅 — feed 中暂无剧集",
+    notOnMikan: "mikan 上尚未出现 — 每 5 分钟检查一次",
+    more: n => `其余 ${n} 个`,
+    graceH: h => `宽限 ${h} 小时`,
+    backendUnreachable: e => "后端无法连接：" + e,
+    syncFinished: "本轮同步完成",
+    syncFailStart: e => "同步启动失败：" + e,
+    openDropdown: "请先展开下拉菜单以加载字幕组",
+    loadGroupsFail: e => "字幕组加载失败：" + e,
+    switchFail: e => "切换失败：" + e,
+    failed: e => "操作失败：" + e,
+    already_running: "同步已在进行中",
+    grace_ended: "宽限期已结束 — 下轮同步（≤5 分钟）将锁定当前最优字幕组",
+    switched: g => `规则已切换到 ${g}`,
+  },
+};
+
+let lang = localStorage.getItem("lang") ||
+  ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
 let state = null;
 let logsOpen = false;
 let logsTimer = null;
@@ -201,19 +256,39 @@ let logsTimer = null;
 const $ = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  clearTimeout(t._h);
-  t._h = setTimeout(() => t.classList.remove("show"), 3500);
+function t(key, arg) {
+  const v = (I18N[lang] || I18N.en)[key];
+  return typeof v === "function" ? v(arg) : (v == null ? key : v);
 }
 
-const STATUS_LABEL = {
-  subscribed: "Subscribed",
-  grace: "ANi grace",
-  unresolved: "Awaiting mikan",
-  manual: "Manual (legacy)",
+function setLang(l) {
+  lang = l;
+  localStorage.setItem("lang", l);
+  document.documentElement.lang = (l === "zh" ? "zh-CN" : "en");
+  applyStatic();
+  render();
+}
+function toggleLang() { setLang(lang === "zh" ? "en" : "zh"); }
+
+function applyStatic() {
+  document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+  $("langbtn").textContent = t("langBtn");
+  $("logbtn").textContent = logsOpen ? t("hide") : t("show");
+  const btn = $("syncbtn");
+  if (!btn._busy && !(state && state.sync_running)) btn.textContent = t("syncNow");
+}
+
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(el._h);
+  el._h = setTimeout(() => el.classList.remove("show"), 3500);
+}
+
+const STATUS_KEY = {
+  subscribed: "st_subscribed", grace: "st_grace",
+  unresolved: "st_unresolved", manual: "st_manual",
 };
 
 function fmtCountdown(expires) {
@@ -224,7 +299,7 @@ function fmtCountdown(expires) {
 
 function card(show) {
   const st = show.status;
-  const pill = `<span class="pill ${st}">${STATUS_LABEL[st] || st}</span>`;
+  const pill = `<span class="pill ${st}">${t(STATUS_KEY[st] || "st_unresolved")}</span>`;
   const cover = show.image
     ? `<img src="${esc(show.image)}" loading="lazy" alt="">`
     : `<div class="ph">◌</div>`;
@@ -233,12 +308,12 @@ function card(show) {
   if (show.rule) {
     groupRow = `
       <div class="grouprow">
-        <span>via <b style="color:var(--text)">${esc(show.rule.subgroup_name || "?")}</b></span>
+        <span>${t("via")} <b style="color:var(--text)">${esc(show.rule.subgroup_name || "?")}</b></span>
         <select id="sel-${show.bgm_id}" data-loaded="0"
                 onfocus="loadSubgroups(${show.bgm_id}, ${show.rule.mikan_id}, ${show.rule.subgroup})">
           <option>${esc(show.rule.subgroup_name || "…")}</option>
         </select>
-        <button class="btn ghost small" onclick="switchGroup('${esc(show.rule.name)}', ${show.bgm_id})">Switch</button>
+        <button class="btn ghost small" onclick="switchGroup('${esc(show.rule.name)}', ${show.bgm_id})">${t("switch")}</button>
       </div>`;
   }
 
@@ -246,27 +321,27 @@ function card(show) {
   if (st === "grace" && show.grace) {
     graceRow = `
       <div class="gracebar">
-        <span>Waiting for ANi</span>
+        <span>${t("waitingAni")}</span>
         <span class="cd" data-expires="${show.grace.expires}">${fmtCountdown(show.grace.expires)}</span>
-        <button class="btn ghost small" onclick="endGrace(${show.bgm_id})">Lock best now</button>
+        <button class="btn ghost small" onclick="endGrace(${show.bgm_id})">${t("lockBest")}</button>
       </div>`;
   }
 
   let torrents = "";
   if (show.torrents.length) {
-    torrents = `<div class="torrents">` + show.torrents.slice(0, 4).map(t => {
-      const pct = Math.round(t.progress * 100);
+    torrents = `<div class="torrents">` + show.torrents.slice(0, 4).map(tr => {
+      const pct = Math.round(tr.progress * 100);
       return `<div class="torrent">
-        <div class="tname" title="${esc(t.name)}">${esc(t.name)}</div>
+        <div class="tname" title="${esc(tr.name)}">${esc(tr.name)}</div>
         <div class="bar ${pct >= 100 ? "done" : ""}"><i style="width:${pct}%"></i></div>
       </div>`;
     }).join("") +
-    (show.torrents.length > 4 ? `<div class="empty-note">+${show.torrents.length - 4} more</div>` : "") +
+    (show.torrents.length > 4 ? `<div class="empty-note">${t("more", show.torrents.length - 4)}</div>` : "") +
     `</div>`;
   } else if (st === "subscribed") {
-    torrents = `<div class="empty-note">Subscribed — no episodes in feed yet</div>`;
+    torrents = `<div class="empty-note">${t("noEpisodes")}</div>`;
   } else if (st === "unresolved") {
-    torrents = `<div class="empty-note">Not on mikan yet — checked every 5 min</div>`;
+    torrents = `<div class="empty-note">${t("notOnMikan")}</div>`;
   }
 
   return `<div class="card">
@@ -295,10 +370,10 @@ function render() {
     .map(card).join("");
   $("prio").innerHTML = state.group_priority
     .map((g, i) => `<span class="chip"><b>#${i + 1}</b>${esc(g.name)}</span>`)
-    .join("") + `<span class="chip">grace <b>${state.grace_hours}h</b></span>`;
+    .join("") + `<span class="chip">${t("graceH", state.grace_hours)}</span>`;
   const btn = $("syncbtn");
-  if (state.sync_running) { btn.disabled = true; btn.innerHTML = `<span class="spin">◌</span>&nbsp;Syncing…`; }
-  else if (!btn._busy) { btn.disabled = false; btn.textContent = "Sync now"; }
+  if (state.sync_running) { btn.disabled = true; btn.innerHTML = `<span class="spin">◌</span>&nbsp;${t("syncing")}`; }
+  else if (!btn._busy) { btn.disabled = false; btn.textContent = t("syncNow"); }
 }
 
 async function refresh() {
@@ -306,28 +381,28 @@ async function refresh() {
     state = await (await fetch("/api/overview")).json();
     render();
   } catch (e) {
-    toast("Backend unreachable: " + e.message);
+    toast(t("backendUnreachable", e.message));
   }
 }
 
 async function runSync() {
   const btn = $("syncbtn");
-  btn._busy = true; btn.disabled = true; btn.innerHTML = `<span class="spin">◌</span>&nbsp;Syncing…`;
+  btn._busy = true; btn.disabled = true; btn.innerHTML = `<span class="spin">◌</span>&nbsp;${t("syncing")}`;
   try {
     const r = await (await fetch("/api/sync", { method: "POST" })).json();
-    if (!r.started) { toast(r.reason); }
+    if (!r.started) { toast(t(r.code || "already_running")); }
     const poll = setInterval(async () => {
       const s = await (await fetch("/api/sync/status")).json();
       if (!s.running) {
         clearInterval(poll);
         btn._busy = false;
-        toast("Sync pass finished");
+        toast(t("syncFinished"));
         refresh();
       }
     }, 1500);
   } catch (e) {
-    btn._busy = false; btn.disabled = false; btn.textContent = "Sync now";
-    toast("Sync failed to start: " + e.message);
+    btn._busy = false; btn.disabled = false; btn.textContent = t("syncNow");
+    toast(t("syncFailStart", e.message));
   }
 }
 
@@ -338,9 +413,9 @@ async function endGrace(bgmId) {
       body: JSON.stringify({ bgm_id: bgmId }),
     });
     const d = await r.json();
-    toast(r.ok ? d.note : (d.detail || "failed"));
+    toast(r.ok ? t(d.code || "grace_ended") : (d.detail || t("failed", "")));
     if (r.ok) refresh();
-  } catch (e) { toast("Failed: " + e.message); }
+  } catch (e) { toast(t("failed", e.message)); }
 }
 
 async function loadSubgroups(bgmId, mikanId, currentGid) {
@@ -354,13 +429,13 @@ async function loadSubgroups(bgmId, mikanId, currentGid) {
       .join("");
   } catch (e) {
     sel.dataset.loaded = "0";
-    toast("Could not load subgroups: " + e.message);
+    toast(t("loadGroupsFail", e.message));
   }
 }
 
 async function switchGroup(ruleName, bgmId) {
   const sel = $("sel-" + bgmId);
-  if (!sel || sel.dataset.loaded !== "1") { toast("Open the dropdown first to load groups"); return; }
+  if (!sel || sel.dataset.loaded !== "1") { toast(t("openDropdown")); return; }
   const gid = parseInt(sel.value, 10);
   try {
     const r = await fetch("/api/rule/switch", {
@@ -368,15 +443,15 @@ async function switchGroup(ruleName, bgmId) {
       body: JSON.stringify({ rule_name: ruleName, subgroup: gid }),
     });
     const d = await r.json();
-    toast(r.ok ? d.note : (d.detail || "failed"));
+    toast(r.ok ? t(d.code || "switched", d.group) : (d.detail || t("switchFail", "")));
     if (r.ok) refresh();
-  } catch (e) { toast("Switch failed: " + e.message); }
+  } catch (e) { toast(t("switchFail", e.message)); }
 }
 
 function toggleLogs() {
   logsOpen = !logsOpen;
   $("logs").classList.toggle("open", logsOpen);
-  $("logbtn").textContent = logsOpen ? "Hide" : "Show";
+  $("logbtn").textContent = logsOpen ? t("hide") : t("show");
   if (logsOpen) { pullLogs(); logsTimer = setInterval(pullLogs, 5000); }
   else clearInterval(logsTimer);
 }
@@ -398,6 +473,7 @@ setInterval(() => {
   });
 }, 1000);
 
+setLang(lang);   // apply static labels + <html lang> on first paint
 refresh();
 setInterval(refresh, 30000);
 </script>

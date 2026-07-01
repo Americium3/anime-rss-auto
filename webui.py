@@ -227,7 +227,7 @@ _sync_buf: io.StringIO | None = None
 def api_sync():
     global _sync_running, _sync_buf
     if _sync_running:
-        return {"started": False, "reason": "sync already running"}
+        return {"started": False, "code": "already_running", "reason": "sync already running"}
     _sync_running = True
     _sync_buf = io.StringIO()
 
@@ -271,7 +271,8 @@ def api_grace_expire(body: GraceExpire):
         raise HTTPException(404, "show is not in a grace period")
     grace[key] = 0.0  # expired -> next sync pass locks the best available group
     core.save_grace(grace)
-    return {"ok": True, "note": "grace ended; next sync pass (<=5 min) locks the best available group"}
+    return {"ok": True, "code": "grace_ended",
+            "note": "grace ended; next sync pass (<=5 min) locks the best available group"}
 
 
 class RuleSwitch(BaseModel):
@@ -290,7 +291,9 @@ def api_rule_switch(body: RuleSwitch):
     if not mid:
         raise HTTPException(400, "rule has no mikan feed to switch")
     if old_gid == body.subgroup:
-        return {"ok": True, "note": "already on that subgroup"}
+        return {"ok": True, "code": "switched",
+                "group": _group_names.get(body.subgroup, str(body.subgroup)),
+                "note": "already on that subgroup"}
 
     notes = []
     old_feed = core.feed_url(mid, old_gid)
@@ -333,8 +336,9 @@ def api_rule_switch(body: RuleSwitch):
             except Exception as ex:  # noqa: BLE001
                 notes.append(f"mikan {fn.__name__}: {ex}")
 
-    return {"ok": True, "notes": notes,
-            "note": f"rule now follows {_group_names.get(body.subgroup, body.subgroup)}"}
+    grp = _group_names.get(body.subgroup, str(body.subgroup))
+    return {"ok": True, "code": "switched", "group": grp, "notes": notes,
+            "note": f"rule now follows {grp}"}
 
 
 @app.get("/")

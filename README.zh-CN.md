@@ -1,0 +1,80 @@
+# anime-rss-auto
+
+[English](README.md) | **简体中文**
+
+面向 Windows 的全自动季度番剧流水线：
+
+```
+bangumi.tv（在看列表）
+     │  每 5 分钟轮询
+     ▼
+mikanani.me（解析番剧 → 单一字幕组的 RSS feed）
+     │
+     ▼
+qBittorrent（RSS 自动下载规则，套用你的命名约定）
+     │  硬链接镜像
+     ▼
+Jellyfin（按季度自动建库、季节封面、倒序排列）
+     │  webhook：看完一集
+     ▼
+停止该集做种 + 在 bangumi.tv 上标记该集看过
+```
+
+只要在 bangumi.tv 上把一部番标成**在看**，其余的一切——订阅、下载、
+Jellyfin 建库、看过状态回写——全部自动完成。
+
+## 功能一览
+
+| 模块 | 作用 | 开关 |
+|---|---|---|
+| **sync / watch** | bgm 在看列表 → mikan feed + qB 规则（保存路径 `<库>\<YYYY.MM>\<番名>`、季度标签） | 核心 |
+| **字幕组优先级** | 按你排好的优先级为每部番选一个字幕组；绝不重复下多个组 | `group_priority` |
+| **ANi 宽限期保险丝** | 番剧首次出现在 mikan 时若最高优先组还没发布，先等 N 小时再锁定次优组（等待期漏掉的剧集会从 feed 补抓回来） | `ani_grace_hours` |
+| **对账（reconcile）** | 番剧转为 看过/抛弃 → 删 qB 规则（保留文件）；彻底移出收藏 → 退订 + 删文件 | `purge_dropped_files` |
+| **旧番分界线** | 早于分界季度的番永不触碰——不增、不删 | `skip_before_season` |
+| **mark-watched** | 你在 qB 里暂停一个已完成的种子 → 该集在 bgm 上标看过（基于状态跳变，绝不批量误标） | `mark_watched_enabled` |
+| **Jellyfin 镜像** | 把新剧集硬链接进 `<镜像>\<季度>\<番名>\Season 01\`（0 额外占空间，不碰做种） | `jellyfin_mirror_enabled` |
+| **Jellyfin 自动建库** | 新增季度文件夹 → 自动建库、生成封面、倒序排列 | `jellyfin_autolib_enabled` |
+| **Jellyfin 联动删除** | 源库删掉某季度 → 镜像 + Jellyfin 库一并删除（多重安全闸） | `jellyfin_mirror_delete_enabled` |
+| **jfhook** | Jellyfin Webhook 插件 → 看完一集 → 停该集做种 + bgm 标看过 | `jfhook_port` |
+| **Web 控制面板** | 本地仪表盘：各番状态、宽限倒计时、切换字幕组、下载进度、手动同步、日志（支持中英切换） | `webui.py` |
+
+每个模块都可在配置里独立开关——各取所需。
+
+## 文件
+
+- `anime_rss.py` —— 除面板外的全部功能；纯标准库，单文件。
+  子命令：`list`、`plan`、`apply`、`prune`、`sync`、`watch`、`mark`、`auth`、`jfhook`。
+- `webui.py` + `static/index.html` —— FastAPI 控制面板，`http://127.0.0.1:8767`。
+- `run_watch*.bat/vbs`、`run_webui*.bat/vbs` —— 隐藏窗口自启动脚本
+  （把指向 `.vbs` 的快捷方式放进 `shell:startup` 即可开机自启）。
+
+## 部署
+
+1. 环境要求：Windows、Python 3.11+、开启 Web UI 的 qBittorrent（localhost、
+   免密），以及可选的 Jellyfin + Webhook 插件。
+   面板需要 `pip install fastapi uvicorn`。
+2. 复制 `config.example.json` → `config.local.json`，填入你的值
+   （bgm 用户 id、mikan cookie、Jellyfin API key、各路径）。
+3. 单次运行：`set PYTHONUTF8=1 && python anime_rss.py sync`
+   守护进程：`python anime_rss.py watch`（每 5 分钟同步 + jfhook 监听）。
+4. 面板：`python webui.py` → 浏览器打开 http://127.0.0.1:8767。
+
+bgm token：用 365 天个人令牌（`bgm_access_token`），或用可自动续期的 OAuth——
+在 https://bgm.tv/dev/app 建应用，填 `bgm_client_id`/`bgm_client_secret`，
+执行一次 `python anime_rss.py auth`。
+
+## 本工具自动套用的约定
+
+- qB 保存路径 `<bangumi_library>\<YYYY.MM>\<英文番名>`，标签 `<YYYY.MM>`。
+- 每部番只用一个字幕组——mikan 的 RSS 地址本身就是按组区分的。
+- 季度：01 / 04 / 07 / 10；季度字符串按字典序比较（`2026.04 < 2026.07`）。
+- 破坏性操作（删文件/删规则）只对 `skip_before_season` 及之后的番生效；
+  更早的番对本工具严格只读。
+
+## 安全说明
+
+- `config.local.json` 存放全部密钥，已 gitignore；代码里不硬编码任何敏感信息。
+- Jellyfin 联动删除在源库缺失或为空时拒绝执行（防盘未挂载），删除数量异常时中止。
+- Web 面板默认只绑 127.0.0.1；只有在可信局域网内才建议设 `webui_host: "0.0.0.0"`
+  （面板本身没有鉴权）。
