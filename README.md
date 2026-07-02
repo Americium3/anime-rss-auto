@@ -39,6 +39,7 @@ day it premieres (advance-release / 先行版 dumps are filtered out).
 | **Jellyfin mirror** | hardlinks new episodes into a `<mirror>\<cour>\<show>\Season 01\` tree (0 extra bytes, seeding untouched) | `jellyfin_mirror_enabled` |
 | **Jellyfin autolib** | new cour folder → auto-create a Jellyfin library with a generated cover, newest-first ordering | `jellyfin_autolib_enabled` |
 | **Jellyfin prune** | cour deleted from the source library → mirror + Jellyfin library removed (multiple safety gates) | `jellyfin_mirror_delete_enabled` |
+| **Jellyfin empty-series self-heal** | a mirror-rebuild race can leave a series looking empty in Jellyfin, so playback fails with "Unable to find a valid media source" → one API call per pass finds series with 0 episodes but video on disk and recursively refreshes them (zero cost for healthy shows, guarded against mid-scan storms) | `jellyfin_heal_empty_enabled` |
 | **jfhook** | Jellyfin Webhook plugin → finished an episode → stop seeding it + mark watched on bgm | `jfhook_port` |
 | **web UI** | local dashboard: all bgm-marked shows grouped by collection type (在看/想看/看过/搁置/抛弃) with a type filter, per-show premiere time in **your** local timezone (via AniList), premiere banners, grace countdowns, switch subtitle group, torrent progress, manual sync, logs | `webui.py` |
 

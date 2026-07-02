@@ -34,6 +34,7 @@
   "jellyfin_mirror_enabled": true,
   "jellyfin_autolib_enabled": true,
   "jellyfin_mirror_delete_enabled": true,
+  "jellyfin_heal_empty_enabled": true,
   "jellyfin_tools_dir": "",
 
   "jfhook_port": 8766,

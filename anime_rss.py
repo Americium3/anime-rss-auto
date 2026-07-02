@@ -1555,6 +1555,73 @@ def jellyfin_ensure_libraries() -> int:
     return len(created)
 
 
+def _dir_has_video(path: str) -> bool:
+    """磁盘上该系列文件夹里是否确有视频文件（命中首个即返回，不全量遍历）。"""
+    try:
+        root = Path(path)
+        if not root.exists():
+            return False
+        for f in root.rglob("*"):
+            if f.is_file() and f.suffix.lower() in MIRROR_VIDEO_EXT:
+                return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def jellyfin_heal_empty_series(max_fix: int = 10) -> int:
+    """修复「空系列」竞态：build_mirror 重建镜像时剧集比系列元数据先入库，导致 Series 的
+    PresentationUniqueKey 与子项的 SeriesPresentationUniqueKey 不匹配，Jellyfin 把系列当空壳
+    → 前端显示空系列、点播报「Unable to find a valid media source」（文件其实都在）。
+
+    对策：**一次** API 列出所有系列 + 用户态递归集数，挑出「Jellyfin 认为 0 集但磁盘上确有
+    视频」的系列，对其递归 FullRefresh（重写子项 SeriesPUK）。正常番 count>0 直接跳过，
+    几乎零开销；只在真命中时才刷。返回本轮修复数。
+    """
+    if not JELLYFIN_API_KEY:
+        return 0
+    uid = _jf_user_id()  # RecursiveItemCount 需用户态才会被计算，无 uid 则拿不到计数
+    if not uid:
+        return 0
+    try:
+        _, res = _jf_req("GET", "/Items", params={
+            "userId": uid, "recursive": "true", "includeItemTypes": "Series",
+            "fields": "Path,RecursiveItemCount",
+        })
+    except Exception as ex:  # noqa: BLE001
+        print(f"# jellyfin-heal: 取系列列表失败（不影响）：{ex}")
+        return 0
+    series = (res or {}).get("Items") or []
+    empty = [s for s in series if (s.get("RecursiveItemCount") or 0) == 0]
+    if not empty:
+        return 0  # 绝大多数轮走这里：全程只 1 次列表调用
+    # 安全闸：一大片系列同时为空多半是扫描进行中/API 抖动，别批量刷，等下轮
+    if series and len(empty) > max(5, len(series) // 4):
+        print(f"# jellyfin-heal: {len(empty)}/{len(series)} 系列同时为空，"
+              f"疑似扫描进行中，本轮跳过（安全）")
+        return 0
+    fixed = 0
+    for s in empty:
+        if fixed >= max_fix:
+            break
+        path = s.get("Path")
+        if not path or not _dir_has_video(path):
+            continue  # 磁盘上本就没视频 = 真空系列，不管
+        try:
+            _jf_req("POST", f"/Items/{s['Id']}/Refresh", params={
+                "metadataRefreshMode": "FullRefresh", "imageRefreshMode": "Default",
+                "replaceAllMetadata": "false", "replaceAllImages": "false",
+                "Recursive": "true",
+            })
+            fixed += 1
+            print(f"# jellyfin-heal: 修复空系列 {s.get('Name')}（递归刷新重写 SeriesPUK）")
+        except Exception as ex:  # noqa: BLE001
+            print(f"# jellyfin-heal: 刷新失败 {s.get('Name')}：{ex}")
+    if fixed:
+        print(f"# jellyfin-heal: 本轮修复 {fixed} 个空系列")
+    return fixed
+
+
 def jellyfin_prune_deleted() -> int:
     """让 Jellyfin/BangumiJF 完全镜像 X:\\Bangumi：源里删掉的季度 -> 删 BangumiJF 硬链接 + Jellyfin 库。
 
@@ -1853,6 +1920,13 @@ def run_sync_once(user, cookie, season, purge, token=None):
             mark_watched_pass(token)
         except Exception:  # noqa: BLE001
             print("!!! mark-watched 出错（不影响本轮 sync）：")
+            traceback.print_exc()
+    if CONFIG.get("jellyfin_heal_empty_enabled", True):
+        # 先修上一轮沉淀下来的「空系列」竞态（此时扫描已结束，不与本轮 mirror-sync 抢跑）
+        try:
+            jellyfin_heal_empty_series()
+        except Exception:  # noqa: BLE001
+            print("!!! jellyfin-heal 出错（不影响本轮 sync）：")
             traceback.print_exc()
     if CONFIG.get("jellyfin_mirror_enabled", True):
         try:
