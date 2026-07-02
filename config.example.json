@@ -16,6 +16,12 @@
     [203, "Skymoon", ""]
   ],
 
+  "premiere_watch_enabled": true,
+  "premiere_auto_watch": true,
+  "advance_keywords": ["先行", "予告"],
+  "max_episode_bytes": 2147483648,
+  "rule_must_not_contain": "先行",
+
   "bgm_access_token": "<365-day personal token, or use OAuth below>",
   "bgm_client_id": "",
   "bgm_client_secret": "",
