@@ -3,6 +3,10 @@ plan.json
 seed_states.json
 bgm_token.json
 group_grace.json
+premiere_seen.json
+premiere_notify.json
+premiere_times.json
+airing_cache.json
 *.log
 .codegraph/
 __pycache__/

@@ -52,6 +52,11 @@ PLAN_PATH = Path(__file__).with_name("plan.json")
 CONFIG_PATH = Path(__file__).with_name("config.local.json")
 SEED_STATES_PATH = Path(__file__).with_name("seed_states.json")
 BGM_TOKEN_PATH = Path(__file__).with_name("bgm_token.json")
+# premiere-watch: 想看列表开播检测的状态与面板提醒队列
+NOTIFY_PATH = Path(__file__).with_name("premiere_notify.json")
+PREMIERE_SEEN_PATH = Path(__file__).with_name("premiere_seen.json")
+# 可选人工覆盖：bgm_id(str) -> "YYYY-MM-DD"（bgm 放送日期填错/缺失时才用；正常留空）
+PREMIERE_TIMES_PATH = Path(__file__).with_name("premiere_times.json")
 BGM_AUTHORIZE = "https://bgm.tv/oauth/authorize"
 BGM_OAUTH_TOKEN = "https://bgm.tv/oauth/access_token"
 ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
@@ -300,30 +305,41 @@ def mikan_unsubscribe(cookie: str, bangumi_id: int, subgroup: int | None = None)
 # --------------------------------------------------------------------------- #
 # bangumi.tv
 # --------------------------------------------------------------------------- #
-def bgm_watching(user: str) -> list[dict]:
-    """Return currently-watching (type=3) anime (subject_type=2)."""
+def bgm_collection_subjects(user: str, ctype: int) -> list[dict]:
+    """Anime subjects (subject_type=2) in a user's collection of a given type.
+
+    ctype: 1=想看 2=看过 3=在看 4=搁置 5=抛弃. The cover image url is kept — a
+    harmless extra key for callers (build_plan etc.) that only read name/date.
+    """
     out, offset = [], 0
     while True:
         url = (
             f"{BGM_API}/v0/users/{urllib.parse.quote(user)}/collections"
-            f"?subject_type=2&type=3&limit=50&offset={offset}"
+            f"?subject_type=2&type={ctype}&limit=50&offset={offset}"
         )
         d = json.loads(http_get(url).decode("utf-8", "replace"))
         data = d.get("data", [])
         for x in data:
             s = x.get("subject", {})
+            img = s.get("images") or {}
             out.append(
                 {
                     "bgm_id": x.get("subject_id"),
                     "name": s.get("name", ""),
                     "name_cn": s.get("name_cn", ""),
                     "date": s.get("date", ""),
+                    "image": img.get("common") or img.get("medium") or "",
                 }
             )
         offset += len(data)
         if offset >= d.get("total", 0) or not data:
             break
     return out
+
+
+def bgm_watching(user: str) -> list[dict]:
+    """Return currently-watching (type=3) anime (subject_type=2)."""
+    return bgm_collection_subjects(user, 3)
 
 
 def bgm_collection_type(user: str, subject_id: int) -> int | None:
@@ -419,6 +435,28 @@ def bgm_mark_episode_watched(token: str, episode_id: int) -> None:
     with urllib.request.urlopen(req, timeout=15) as r:
         if r.status not in (200, 202, 204):
             raise RuntimeError(f"bgm PUT episode {episode_id} -> HTTP {r.status}")
+
+
+def bgm_set_collection_type(token: str, subject_id: int, ctype: int) -> None:
+    """Create or modify the user's collection status for a subject. 202 on success.
+
+    ctype: 1=想看 2=看过 3=在看 4=搁置 5=抛弃. Used to auto-promote 想看->在看 when a
+    wished show premieres, so the normal 在看 pipeline starts downloading it.
+    """
+    body = json.dumps({"type": ctype}).encode()
+    req = urllib.request.Request(
+        f"{BGM_API}/v0/users/-/collections/{subject_id}",
+        data=body,
+        method="POST",
+        headers={
+            "User-Agent": UA,
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        if r.status not in (200, 202, 204):
+            raise RuntimeError(f"bgm POST collection {subject_id} -> HTTP {r.status}")
 
 
 _EP_RES = {360, 480, 540, 576, 720, 1080, 1440, 2160}
@@ -597,13 +635,17 @@ def clean_name(name: str) -> str:
     return ILLEGAL_WIN.sub("", name).strip().rstrip(".")
 
 
-def make_rule_def(name: str, season: str, feed: str, must_contain: str) -> dict:
+def make_rule_def(name: str, season: str, feed: str, must_contain: str,
+                  must_not_contain: str | None = None) -> dict:
     save_bs = f"{BANGUMI_LIBRARY}\\{season}\\{name}"
     save_fs = save_bs.replace("\\", "/")
+    if must_not_contain is None:
+        # 名字层排除先行版：qB 规则不支持按大小/日期过滤，故只能拦名字里带「先行」的。
+        must_not_contain = str(CONFIG.get("rule_must_not_contain", "先行"))
     return {
         "enabled": True,
         "mustContain": must_contain,
-        "mustNotContain": "",
+        "mustNotContain": must_not_contain,
         "useRegex": False,
         "episodeFilter": "",
         "smartFilter": False,
@@ -1556,9 +1598,224 @@ def jellyfin_prune_deleted() -> int:
     return deleted
 
 
+# --------------------------------------------------------------------------- #
+# premiere-watch: 想看列表里的番一开播（首集资源上 mikan）-> 面板提醒 + 自动标在看
+# --------------------------------------------------------------------------- #
+# 衔接现有下载管线：把「想看」提升为「在看」后，同一轮的 build_plan 读到的就是
+# 最新在看列表，于是自动建规则开抓——用户零操作。旧番(< SKIP_BEFORE_SEASON)一律
+# 不碰。premiere_seen.json 记已触发过的 bgm_id，防每 5 分钟重复提醒/重复写 bgm。
+# 提醒落到 premiere_notify.json，webui 面板读它展示（用户选的「在 autopilot 里发消息」）。
+
+
+def load_notifications() -> list[dict]:
+    if NOTIFY_PATH.exists():
+        try:
+            return json.loads(NOTIFY_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return []
+    return []
+
+
+def save_notifications(items: list[dict]) -> None:
+    NOTIFY_PATH.write_text(
+        json.dumps(items[-200:], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def add_notification(item: dict) -> None:
+    items = load_notifications()
+    items.append(item)
+    save_notifications(items)
+
+
+def load_premiere_seen() -> set[str]:
+    if PREMIERE_SEEN_PATH.exists():
+        try:
+            return set(json.loads(PREMIERE_SEEN_PATH.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001
+            return set()
+    return set()
+
+
+def save_premiere_seen(seen: set[str]) -> None:
+    PREMIERE_SEEN_PATH.write_text(json.dumps(sorted(seen)), encoding="utf-8")
+
+
+def _premiere_overrides() -> dict:
+    """Optional manual override map bgm_id(str) -> 'YYYY-MM-DD'. Empty when unused."""
+    if PREMIERE_TIMES_PATH.exists():
+        try:
+            return json.loads(PREMIERE_TIMES_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+def bgm_first_airdate(subject_id: int, cache: dict[int, str | None]) -> str | None:
+    """Earliest 本篇 episode airdate 'YYYY-MM-DD' from bgm (= premiere), None if unknown.
+
+    This is the self-maintaining premiere signal: bgm's community fills per-episode
+    airdates weeks ahead, the daemon re-pulls it every pass, so no manual per-season
+    upkeep is needed. Cached per subject within a pass.
+    """
+    if subject_id in cache:
+        return cache[subject_id]
+    out = None
+    try:
+        d = json.loads(
+            http_get(f"{BGM_API}/v0/episodes?subject_id={subject_id}&type=0&limit=100",
+                     retries=2).decode("utf-8", "replace")
+        )
+        dates = [(e.get("airdate") or "").strip() for e in d.get("data", [])]
+        dates = [x for x in dates if re.match(r"\d{4}-\d{2}-\d{2}", x)]
+        if dates:
+            out = min(dates)  # 最早的一集 = 首播日
+    except Exception:  # noqa: BLE001
+        out = None
+    cache[subject_id] = out
+    return out
+
+
+def show_premiere_date(bgm_id: int, subject_date: str, cache: dict[int, str | None]) -> str | None:
+    """Date (YYYY-MM-DD) before which the show must NOT be auto-marked 在看.
+
+    Priority: manual premiere_times.json override > bgm first-episode airdate > bgm
+    subject date. None only when bgm has no date at all (brand-new show); then there is
+    no date gate and the 先行 name/size/pubDate filters are the only guard.
+    """
+    ov = _premiere_overrides().get(str(bgm_id))
+    if ov:
+        return str(ov)[:10]
+    ad = bgm_first_airdate(bgm_id, cache)
+    if ad:
+        return ad
+    sd = (subject_date or "").strip()
+    return sd[:10] if re.match(r"\d{4}-\d{2}-\d{2}", sd) else None
+
+
+def mikan_feed_real_episodes(mikan_id: int, subgroup: int, premiere_date: str | None) -> bool:
+    """True if the chosen-subgroup feed has >=1 *real* episode torrent (not a 先行版).
+
+    An item is rejected when: its title hits an advance-release keyword (先行/予告/…),
+    its file size exceeds max_episode_bytes (default 2GB, i.e. a batch/BD pack), or its
+    torrent pubDate is before the premiere date (a pre-air 先行配信). The 在超市 case is
+    exactly the last kind — clean "- 12" titles, 378MB, but pubDate 06-26 << 首播 07-09,
+    so only the date test catches it.
+    """
+    try:
+        x = http_get(feed_url(mikan_id, subgroup)).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return False
+    kws = [str(k).lower() for k in CONFIG.get("advance_keywords", ["先行", "予告"])]
+    max_bytes = int(CONFIG.get("max_episode_bytes", 2 * 1024 ** 3))
+    for m in re.finditer(r"<item>(.*?)</item>", x, re.S):
+        item = m.group(1)
+        tm = re.search(r"<title>(.*?)</title>", item, re.S)
+        title = html.unescape(tm.group(1)).lower() if tm else ""
+        if any(k in title for k in kws):
+            continue  # 名字带先行/予告
+        sm = (re.search(r'length="(\d+)"', item)
+              or re.search(r"<contentLength>(\d+)</contentLength>", item))
+        if sm and int(sm.group(1)) > max_bytes:
+            continue  # >2GB，疑似合集/BD 包
+        if premiere_date:
+            dm = re.search(r"(\d{4}-\d{2}-\d{2})", item)  # torrent pubDate (ISO)
+            if dm and dm.group(1) < premiere_date:
+                continue  # 开播前发布 = 先行配信
+        return True
+    return False
+
+
+def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = False) -> None:
+    """Detect 想看 shows that just premiered; notify the panel + promote to 在看.
+
+    Two guards keep 先行版 (advance / pre-air releases) out:
+      A) date gate — the show is skipped until today >= its premiere date
+         (`show_premiere_date`: bgm first-ep airdate, self-maintaining), so nothing is
+         marked 在看 before it actually airs. Not recorded as seen -> re-checked next pass.
+      B) real-episode filter — even on/after the date, the chosen subgroup feed must carry
+         >=1 item that is not 先行/予告 by name, <=2GB, and published on/after premiere
+         (`mikan_feed_real_episodes`).
+    Old shows (< SKIP_BEFORE_SEASON) are never touched. When premiere_auto_watch is on and
+    a token is available the show is flipped to 在看, which the same sync pass's build_plan
+    turns into a qB rule automatically. premiere_seen.json prevents re-firing.
+    """
+    try:
+        wishlist = bgm_collection_subjects(user, 1)
+    except Exception as ex:  # noqa: BLE001
+        print(f"# premiere: 读取想看列表失败，跳过：{ex}")
+        return
+    auto = bool(CONFIG.get("premiere_auto_watch", True))
+    seen = load_premiere_seen()
+    air_cache: dict[int, str | None] = {}
+    today = datetime.date.today().isoformat()
+    fired = 0
+    for s in wishlist:
+        gkey = str(s["bgm_id"])
+        if gkey in seen or is_manual_old_show(s["date"]):
+            continue
+        # 防线A：未到开播日绝不标在看（不记 seen，下轮再看）
+        pdate = show_premiere_date(s["bgm_id"], s["date"], air_cache)
+        if pdate and today < pdate:
+            continue
+        try:
+            r = resolve_show(s)
+        except Exception:  # noqa: BLE001
+            continue
+        mid, gid = r["mikan_id"], r["subgroup"]
+        if not mid or not gid or r["confidence"] == "UNRESOLVED":
+            continue  # mikan 还没条目
+        # 防线B：所选组 feed 里必须有≥1条"真正片"（非先行/予告名、≤2GB、开播后发布）
+        if not mikan_feed_real_episodes(mid, gid, pdate):
+            continue
+        title = s["name_cn"] or s["name"]
+        if dry_run:
+            print(f"   [premiere][dry] 会提醒开播 + 标在看: {title} "
+                  f"(bgm {s['bgm_id']}, 开播 {pdate}, mikan {mid}/{r['subgroup_name']})")
+            fired += 1
+            continue
+        promoted = False
+        if auto and token:
+            try:
+                bgm_set_collection_type(token, s["bgm_id"], 3)
+                promoted = True
+                print(f"   [premiere] ✓ 已标在看: {title} (bgm {s['bgm_id']})")
+            except Exception as ex:  # noqa: BLE001
+                print(f"   [premiere] ! 标在看失败 {title}: {ex}")
+        add_notification({
+            "bgm_id": s["bgm_id"],
+            "title": title,
+            "title_jp": s["name"],
+            "date": s["date"],
+            "season": season_of(s["date"]),
+            "premiere_date": pdate,
+            "image": s.get("image", ""),
+            "mikan_id": mid,
+            "subgroup": gid,
+            "subgroup_name": r["subgroup_name"],
+            "detected_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "promoted": promoted,
+            "read": False,
+        })
+        seen.add(gkey)
+        save_premiere_seen(seen)
+        print(f"   [premiere] ✓ 开播提醒已推送: {title}（{r['subgroup_name']}，开播 {pdate}）")
+        fired += 1
+    if dry_run:
+        print(f"# premiere [dry-run]: 命中 {fired} 部（未写 bgm/未记状态）")
+    else:
+        print(f"# premiere: 本轮新开播 {fired} 部")
+
+
 def run_sync_once(user, cookie, season, purge, token=None):
     """One pass: add new 在看, reconcile removed, mark paused eps. Shared by `sync`/`watch`."""
     print(f"=== sync @ {datetime.datetime.now():%Y-%m-%d %H:%M:%S} (user {user}) ===")
+    if CONFIG.get("premiere_watch_enabled", True):
+        try:
+            premiere_watch_pass(user, token)
+        except Exception:  # noqa: BLE001
+            print("!!! premiere-watch 出错（不影响本轮 sync）：")
+            traceback.print_exc()
     plan = build_plan(user, season)
     to_add = [e for e in plan if e["include"] and e.get("feed") and e.get("name")]
     if to_add:
@@ -1603,6 +1860,11 @@ def cmd_sync(args):
 def cmd_mark(args):
     """Standalone mark-watched pass. --dry-run reports resolution without writing."""
     mark_watched_pass(bgm_token(args), dry_run=args.dry_run)
+
+
+def cmd_premiere(args):
+    """Standalone premiere-watch pass over the 想看 list. --dry-run writes nothing."""
+    premiere_watch_pass(args.user, bgm_token(args), dry_run=args.dry_run)
 
 
 def cmd_auth(args):
@@ -1748,6 +2010,13 @@ def main():
     pm.add_argument("--dry-run", action="store_true",
                     help="report resolution for all stopped torrents; no bgm write, no baseline update")
     pm.set_defaults(func=cmd_mark)
+
+    ppre = sub.add_parser("premiere", help="想看列表开播检测：开播->面板提醒+自动标在看")
+    add_user(ppre)
+    add_token(ppre)
+    ppre.add_argument("--dry-run", action="store_true",
+                      help="report what would fire; no bgm write, no state update")
+    ppre.set_defaults(func=cmd_premiere)
 
     pau = sub.add_parser("auth", help="one-time OAuth setup so bgm token auto-renews")
     pau.add_argument("--code", default=None, help="callback ?code= from the authorize redirect")

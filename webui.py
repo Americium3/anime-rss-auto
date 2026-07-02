@@ -21,7 +21,9 @@ import json
 import os
 import re
 import threading
+import time
 import traceback
+import urllib.request
 from pathlib import Path
 
 import uvicorn
@@ -41,6 +43,83 @@ app = FastAPI(title="anime-rss-auto control panel", docs_url=None, redoc_url=Non
 # Caches that survive between polls (mikan pages are slow-ish to fetch).
 _mikan_bgm: dict[int, int | None] = {}          # mikan_id -> bgm_id
 _group_names: dict[int, str] = dict(core.GROUP_NAME)  # subgroup id -> display name
+
+
+# --------------------------------------------------------------------------- #
+# AniList precise airing time (self-maintaining; bgm only gives a date)
+# --------------------------------------------------------------------------- #
+# bgm 只有放送"日期"没有"时间"，故精确到分钟的开播时刻从 AniList 取——它给的是
+# 绝对 unix 时间戳（ep 放送时刻），前端按浏览器本地时区渲染。按标题搜、结果落
+# airing_cache.json，只对当前/即将播的番（在看/想看）查；搜不到就回退 bgm 日期。
+AIRING_CACHE_PATH = ROOT / "airing_cache.json"
+_ANILIST_URL = "https://graphql.anilist.co"
+_ANILIST_Q = ("query($s:String){Media(search:$s,type:ANIME){"
+              "airingSchedule(perPage:8){nodes{episode airingAt}}"
+              "nextAiringEpisode{episode airingAt} startDate{year month day}}}")
+
+
+def _load_airing_cache() -> dict:
+    try:
+        return json.loads(AIRING_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_airing_cache(c: dict) -> None:
+    try:
+        AIRING_CACHE_PATH.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _anilist_media(search: str) -> dict | None:
+    body = json.dumps({"query": _ANILIST_Q, "variables": {"s": search}}).encode()
+    req = urllib.request.Request(
+        _ANILIST_URL, data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json",
+                 "User-Agent": core.UA},
+    )
+    with urllib.request.urlopen(req, timeout=12) as r:
+        d = json.loads(r.read().decode("utf-8", "replace"))
+    return (d.get("data") or {}).get("Media")
+
+
+def show_airing_at(bgm_id: int, jp: str, cn: str, cache: dict) -> int | None:
+    """Unix timestamp of episode 1's broadcast (absolute time), or None if unknown.
+
+    Cached per bgm_id in airing_cache.json. A known time is kept indefinitely; a
+    miss (None) is retried after a day in case AniList adds the schedule later.
+    """
+    key = str(bgm_id)
+    now = int(time.time())
+    ent = cache.get(key)
+    if ent and (ent.get("at") is not None or now - ent.get("t", 0) < 86400):
+        return ent.get("at")
+    at = None
+    for term in (jp, cn):
+        if not term:
+            continue
+        try:
+            m = _anilist_media(term)
+        except Exception:  # noqa: BLE001
+            m = None
+        if not m:
+            continue
+        nodes = (m.get("airingSchedule") or {}).get("nodes") or []
+        ep1 = next((n for n in nodes if n.get("episode") == 1), None)
+        if ep1 and ep1.get("airingAt"):
+            at = int(ep1["airingAt"]); break
+        nx = m.get("nextAiringEpisode")
+        if nx and nx.get("airingAt"):
+            at = int(nx["airingAt"]); break
+        sd = m.get("startDate") or {}
+        if sd.get("year") and sd.get("month") and sd.get("day"):  # JST midnight fallback
+            dt = (datetime.datetime(sd["year"], sd["month"], sd["day"],
+                                    tzinfo=datetime.timezone.utc)
+                  - datetime.timedelta(hours=9))
+            at = int(dt.timestamp()); break
+    cache[key] = {"at": at, "t": now}
+    return at
 
 
 # --------------------------------------------------------------------------- #
@@ -125,6 +204,8 @@ def api_overview():
         if bid:
             rule_of[bid] = (rname, rdef)
 
+    airing_cache = _load_airing_cache()
+    prem_cache: dict[int, str | None] = {}
     out_shows = []
     for s in shows:
         season = core.season_of(s["date"])
@@ -175,7 +256,10 @@ def api_overview():
                 "first_seen": g,
                 "expires": g + core.GRACE_HOURS * 3600,
             }
+        entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
+        entry["airing_at"] = show_airing_at(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
         out_shows.append(entry)
+    _save_airing_cache(airing_cache)
 
     jf_libs = []
     try:
@@ -201,6 +285,62 @@ def api_overview():
     }
 
 
+_collections_cache: dict = {"data": None, "ts": 0.0}
+# bgm collection type -> stable key used by the frontend filter.
+_COLL_TYPES = {3: "watching", 1: "want", 2: "done", 4: "onhold", 5: "dropped"}
+
+
+@app.get("/api/collections")
+def api_collections():
+    """All anime the user has marked on bangumi, grouped by collection type.
+
+    Basic fields for every show; 在看/想看 additionally get a precise airing time
+    (AniList) + bgm premiere date so the panel can show local-timezone premieres.
+    Cached ~2 min — one poll fans out to 5 bgm list calls + a few cached AniList hits.
+    """
+    now = time.time()
+    if _collections_cache["data"] and now - _collections_cache["ts"] < 120:
+        return _collections_cache["data"]
+    user = str(core.CONFIG.get("bgm_user"))
+    airing_cache = _load_airing_cache()
+    prem_cache: dict[int, str | None] = {}
+    groups: dict[str, list] = {}
+    counts: dict[str, int] = {}
+    for t in (3, 1, 2, 4, 5):
+        try:
+            shows = core.bgm_collection_subjects(user, t)
+        except Exception:  # noqa: BLE001
+            shows = []
+        counts[_COLL_TYPES[t]] = len(shows)
+        lst = []
+        for s in shows:
+            e = {
+                "bgm_id": s["bgm_id"],
+                "type": _COLL_TYPES[t],
+                "title": s["name_cn"] or s["name"],
+                "title_jp": s["name"],
+                "date": s["date"],
+                "season": core.season_of(s["date"]),
+                "image": s.get("image", ""),
+                "airing_at": None,
+                "premiere_date": None,
+            }
+            if t in (3, 1):  # 在看/想看：只对当前/即将播的番查精确开播时间
+                e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
+                e["airing_at"] = show_airing_at(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+            lst.append(e)
+        groups[_COLL_TYPES[t]] = lst
+    _save_airing_cache(airing_cache)
+    out = {
+        "groups": groups,
+        "counts": counts,
+        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    _collections_cache["data"] = out
+    _collections_cache["ts"] = now
+    return out
+
+
 @app.get("/api/logs")
 def api_logs(lines: int = 120):
     try:
@@ -216,6 +356,30 @@ def api_subgroups(mikan_id: int):
         return {"subgroups": mikan_subgroups_named(mikan_id)}
     except Exception as ex:  # noqa: BLE001
         raise HTTPException(502, f"mikan fetch failed: {ex}")
+
+
+@app.get("/api/notifications")
+def api_notifications():
+    """Premiere notifications (newest first) written by core.premiere_watch_pass."""
+    items = list(reversed(core.load_notifications()))
+    return {
+        "notifications": items,
+        "unread": sum(1 for i in items if not i.get("read")),
+    }
+
+
+class NotifyRead(BaseModel):
+    bgm_id: int | None = None  # None = mark every notification read
+
+
+@app.post("/api/notifications/read")
+def api_notifications_read(body: NotifyRead):
+    items = core.load_notifications()
+    for it in items:
+        if body.bgm_id is None or it.get("bgm_id") == body.bgm_id:
+            it["read"] = True
+    core.save_notifications(items)
+    return {"ok": True}
 
 
 # --- mutating actions ------------------------------------------------------ #

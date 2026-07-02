@@ -146,6 +146,48 @@
   }
   .logs.open { display: block; }
 
+  /* ---------- premiere notifications ---------- */
+  .premieres { display: flex; flex-direction: column; gap: 12px; }
+  .premieres:not(:empty) { margin-bottom: 26px; }
+  .premiere {
+    display: flex; align-items: center; gap: 14px;
+    background: linear-gradient(135deg, rgba(139,92,246,.16), rgba(34,211,238,.10));
+    border: 1px solid rgba(139,92,246,.35); border-radius: var(--radius);
+    padding: 12px 16px; backdrop-filter: blur(8px);
+    animation: slidein .35s ease;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
+  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: #141821; }
+  .premiere .pcover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .premiere .pbody { flex: 1; min-width: 0; }
+  .premiere .ptitle { font-weight: 640; font-size: 14.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .premiere .ptag { color: var(--accent-b); font-weight: 700; letter-spacing: .04em; }
+  .premiere .psub { color: var(--text-dim); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .premiere .pbadge {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--ok);
+    background: rgba(52,211,153,.14); padding: 2px 9px; border-radius: 999px;
+  }
+
+  /* ---------- collection filter bar + type pills ---------- */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 18px; }
+  .fchip {
+    appearance: none; cursor: pointer; font: inherit; font-size: 12.5px;
+    padding: 6px 14px; border-radius: 999px; color: var(--text-dim);
+    border: 1px solid var(--panel-border); background: var(--panel);
+    transition: color .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .fchip:hover { color: var(--text); border-color: rgba(255,255,255,.16); }
+  .fchip b { color: var(--text); font-family: var(--mono); margin-left: 6px; font-weight: 600; }
+  .fchip.active { color: #0b0d12; background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
+  .fchip.active b { color: #0b0d12; }
+  .pill.watching { color: var(--ok); background: rgba(52,211,153,.12); }
+  .pill.want { color: var(--accent-b); background: rgba(34,211,238,.12); }
+  .pill.done { color: var(--text-dim); background: rgba(148,163,184,.12); }
+  .pill.onhold { color: var(--warn); background: rgba(251,191,36,.12); }
+  .pill.dropped { color: #f87171; background: rgba(248,113,113,.12); }
+  .airline { font-size: 12px; color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .airline .ai { opacity: .7; }
+
   /* ---------- toast ---------- */
   #toast {
     position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -180,6 +222,10 @@
     <div class="stat"><div class="k" data-i18n="inGrace">In grace</div><div class="v" id="st-grace">—</div></div>
     <div class="stat"><div class="k" data-i18n="jfLibraries">Jellyfin libraries</div><div class="v" id="st-jf">—</div></div>
   </div>
+
+  <div class="premieres" id="premieres"></div>
+
+  <div class="filters" id="filters"></div>
 
   <div class="grid" id="cards"></div>
 
@@ -222,6 +268,12 @@ const I18N = {
     already_running: "Sync already running",
     grace_ended: "Grace ended — next sync (≤5 min) locks the best available group",
     switched: g => `Rule now follows ${g}`,
+    premiered: "PREMIERED",
+    nowWatching: "Marked as watching",
+    gotIt: "Got it",
+    all: "All", t_watching: "Watching", t_want: "Plan to watch",
+    t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
+    airsLabel: "Airs",
   },
   zh: {
     langBtn: "EN",
@@ -244,14 +296,34 @@ const I18N = {
     already_running: "同步已在进行中",
     grace_ended: "宽限期已结束 — 下轮同步（≤5 分钟）将锁定当前最优字幕组",
     switched: g => `规则已切换到 ${g}`,
+    premiered: "已开播",
+    nowWatching: "已自动标为在看",
+    gotIt: "知道了",
+    all: "全部", t_watching: "在看", t_want: "想看",
+    t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
+    airsLabel: "开播",
   },
 };
 
 let lang = localStorage.getItem("lang") ||
   ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
 let state = null;
+let collections = null;
+let activeType = "watching";
 let logsOpen = false;
 let logsTimer = null;
+
+const FILTER_ORDER = ["watching", "want", "done", "onhold", "dropped"];
+
+// Local-timezone premiere string; falls back to the bgm date when AniList has no time.
+function fmtLocal(airingAt, premiereDate) {
+  if (airingAt) {
+    const loc = lang === "zh" ? "zh-CN" : "en-US";
+    return new Date(airingAt * 1000).toLocaleString(loc,
+      { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  return premiereDate || "";
+}
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -267,6 +339,7 @@ function setLang(l) {
   document.documentElement.lang = (l === "zh" ? "zh-CN" : "en");
   applyStatic();
   render();
+  if (state) refreshPremieres();
 }
 function toggleLang() { setLang(lang === "zh" ? "en" : "zh"); }
 
@@ -344,15 +417,68 @@ function card(show) {
     torrents = `<div class="empty-note">${t("notOnMikan")}</div>`;
   }
 
+  const when = fmtLocal(show.airing_at, show.premiere_date);
+  const airRow = when ? `<div class="airline"><span class="ai">▸</span>${t("airsLabel")} ${esc(when)}</div>` : "";
+
   return `<div class="card">
     <div class="cover">${cover}</div>
     <div class="card-body">
       <div class="meta">${pill}<span class="season-tag">${esc(show.season || "")}</span></div>
       <h3>${esc(show.title)}</h3>
       <div class="jp">${esc(show.title_jp)}</div>
-      ${groupRow}${graceRow}${torrents}
+      ${airRow}${groupRow}${graceRow}${torrents}
     </div>
   </div>`;
+}
+
+// Compact card for non-在看 collection types (no rule/torrent enrichment).
+function basicCard(s) {
+  const cover = s.image
+    ? `<img src="${esc(s.image)}" loading="lazy" alt="">`
+    : `<div class="ph">◌</div>`;
+  const when = fmtLocal(s.airing_at, s.premiere_date);
+  const airRow = when ? `<div class="airline"><span class="ai">▸</span>${t("airsLabel")} ${esc(when)}</div>` : "";
+  return `<div class="card">
+    <div class="cover">${cover}</div>
+    <div class="card-body">
+      <div class="meta"><span class="pill ${s.type}">${t("t_" + s.type)}</span><span class="season-tag">${esc(s.season || "")}</span></div>
+      <h3>${esc(s.title)}</h3>
+      <div class="jp">${esc(s.title_jp)}</div>
+      ${airRow}
+    </div>
+  </div>`;
+}
+
+function renderFilters() {
+  if (!collections) return;
+  const c = collections.counts || {};
+  const chips = FILTER_ORDER.filter(k => (c[k] || 0) > 0).map(k =>
+    `<button class="fchip ${activeType === k ? "active" : ""}" onclick="setFilter('${k}')">${t("t_" + k)}<b>${c[k]}</b></button>`
+  );
+  const total = FILTER_ORDER.reduce((a, k) => a + (c[k] || 0), 0);
+  chips.push(`<button class="fchip ${activeType === "all" ? "active" : ""}" onclick="setFilter('all')">${t("all")}<b>${total}</b></button>`);
+  $("filters").innerHTML = chips.join("");
+}
+
+function setFilter(k) {
+  activeType = k;
+  renderFilters();
+  renderCards();
+}
+
+function renderCards() {
+  const order = { grace: 0, subscribed: 1, unresolved: 2, manual: 3 };
+  if (activeType === "watching") {
+    if (!state) return;
+    $("cards").innerHTML = state.shows.slice()
+      .sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
+      .map(card).join("");
+  } else if (collections) {
+    const list = activeType === "all"
+      ? FILTER_ORDER.flatMap(k => collections.groups[k] || [])
+      : (collections.groups[activeType] || []);
+    $("cards").innerHTML = list.map(basicCard).join("");
+  }
 }
 
 function render() {
@@ -364,10 +490,8 @@ function render() {
   $("st-subscribed").textContent = shows.filter(s => s.status === "subscribed").length;
   $("st-grace").textContent = shows.filter(s => s.status === "grace").length;
   $("st-jf").innerHTML = `${state.jellyfin.libraries.length} <small>${esc(state.jellyfin.libraries[0] || "")}</small>`;
-  const order = { grace: 0, subscribed: 1, unresolved: 2, manual: 3 };
-  $("cards").innerHTML = shows
-    .slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
-    .map(card).join("");
+  renderFilters();
+  renderCards();
   $("prio").innerHTML = state.group_priority
     .map((g, i) => `<span class="chip"><b>#${i + 1}</b>${esc(g.name)}</span>`)
     .join("") + `<span class="chip">${t("graceH", state.grace_hours)}</span>`;
@@ -380,9 +504,50 @@ async function refresh() {
   try {
     state = await (await fetch("/api/overview")).json();
     render();
+    refreshPremieres();
+    refreshCollections();
   } catch (e) {
     toast(t("backendUnreachable", e.message));
   }
+}
+
+async function refreshCollections() {
+  try {
+    collections = await (await fetch("/api/collections")).json();
+    renderFilters();
+    if (activeType !== "watching") renderCards();
+  } catch (e) { /* transient */ }
+}
+
+async function refreshPremieres() {
+  try {
+    const d = await (await fetch("/api/notifications")).json();
+    const unread = d.notifications.filter(n => !n.read);
+    $("premieres").innerHTML = unread.map(n => {
+      const cover = n.image ? `<img src="${esc(n.image)}" loading="lazy" alt="">` : "";
+      const badge = n.promoted ? `<span class="pbadge">${t("nowWatching")}</span>` : "";
+      const when = (n.detected_at || "").slice(5, 16).replace("T", " ");
+      const sub = [esc(n.title_jp), esc(n.subgroup_name || ""), when].filter(Boolean).join(" · ");
+      return `<div class="premiere">
+        <div class="pcover">${cover}</div>
+        <div class="pbody">
+          <div class="ptitle">🎬 <span class="ptag">${t("premiered")}</span>${esc(n.title)}${badge}</div>
+          <div class="psub">${sub}</div>
+        </div>
+        <button class="btn ghost small" onclick="dismissPremiere(${n.bgm_id})">${t("gotIt")}</button>
+      </div>`;
+    }).join("");
+  } catch (e) { /* transient */ }
+}
+
+async function dismissPremiere(bgmId) {
+  try {
+    await fetch("/api/notifications/read", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bgm_id: bgmId }),
+    });
+    refreshPremieres();
+  } catch (e) { /* transient */ }
 }
 
 async function runSync() {
