@@ -21,13 +21,15 @@ Jellyfin（按季度自动建库、季节封面、倒序排列）
 ```
 
 只要在 bangumi.tv 上把一部番标成**在看**，其余的一切——订阅、下载、
-Jellyfin 建库、看过状态回写——全部自动完成。
+Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**想看**：它会在
+开播当天自动提升为在看（先行版会被过滤掉）。
 
 ## 功能一览
 
 | 模块 | 作用 | 开关 |
 |---|---|---|
 | **sync / watch** | bgm 在看列表 → mikan feed + qB 规则（保存路径 `<库>\<YYYY.MM>\<番名>`、季度标签） | 核心 |
+| **开播自动追（premiere watch）** | 想看列表里的番在开播当天自动提升为在看（以 bgm 第一集放送日为门槛；可用 `premiere_times.json` 覆盖），并在面板弹开播横幅。先行版按名字（先行/予告）、大小（> 2 GB）、开播前发布日期三重剔除 | `premiere_watch_enabled` |
 | **字幕组优先级** | 按你排好的优先级为每部番选一个字幕组；绝不重复下多个组 | `group_priority` |
 | **ANi 宽限期保险丝** | 番剧首次出现在 mikan 时若最高优先组还没发布，先等 N 小时再锁定次优组（等待期漏掉的剧集会从 feed 补抓回来） | `ani_grace_hours` |
 | **对账（reconcile）** | 番剧转为 看过/抛弃 → 删 qB 规则（保留文件）；彻底移出收藏 → 退订 + 删文件 | `purge_dropped_files` |
@@ -37,14 +39,14 @@ Jellyfin 建库、看过状态回写——全部自动完成。
 | **Jellyfin 自动建库** | 新增季度文件夹 → 自动建库、生成封面、倒序排列 | `jellyfin_autolib_enabled` |
 | **Jellyfin 联动删除** | 源库删掉某季度 → 镜像 + Jellyfin 库一并删除（多重安全闸） | `jellyfin_mirror_delete_enabled` |
 | **jfhook** | Jellyfin Webhook 插件 → 看完一集 → 停该集做种 + bgm 标看过 | `jfhook_port` |
-| **Web 控制面板** | 本地仪表盘：各番状态、宽限倒计时、切换字幕组、下载进度、手动同步、日志（支持中英切换） | `webui.py` |
+| **Web 控制面板** | 本地仪表盘：按收藏类型分组显示所有 bgm 标记过的番（在看/想看/看过/搁置/抛弃）并可按类型筛选、每部番显示**你本地时区**的开播时间（经 AniList）、开播横幅、宽限倒计时、切换字幕组、下载进度、手动同步、日志（支持中英切换） | `webui.py` |
 
 每个模块都可在配置里独立开关——各取所需。
 
 ## 文件
 
 - `anime_rss.py` —— 除面板外的全部功能；纯标准库，单文件。
-  子命令：`list`、`plan`、`apply`、`prune`、`sync`、`watch`、`mark`、`auth`、`jfhook`。
+  子命令：`list`、`plan`、`apply`、`prune`、`sync`、`watch`、`mark`、`premiere`、`auth`、`jfhook`。
 - `webui.py` + `static/index.html` —— FastAPI 控制面板，`http://127.0.0.1:8767`。
 - `run_watch*.bat/vbs`、`run_webui*.bat/vbs` —— 隐藏窗口自启动脚本
   （把指向 `.vbs` 的快捷方式放进 `shell:startup` 即可开机自启）。
