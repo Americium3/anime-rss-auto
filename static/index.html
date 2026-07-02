@@ -6,6 +6,7 @@
 <title>Anime Autopilot</title>
 <style>
   :root {
+    color-scheme: dark;
     --bg: #0a0c11;
     --panel: rgba(255,255,255,.035);
     --panel-border: rgba(255,255,255,.08);
@@ -17,8 +18,47 @@
     --ok: #34d399;
     --warn: #fbbf24;
     --muted: #64748b;
+    --media-bg: #141821;
+    --input-bg: #12151d;
+    --log-bg: #0d1017;
+    --log-text: #9aa5b8;
+    --toast-bg: #161a24;
+    --btn-text: #0b0d12;
+    --hover-border: rgba(255,255,255,.16);
+    --track-bg: rgba(255,255,255,.07);
+    --scroll-thumb: rgba(255,255,255,.16);
+    --glow-a: rgba(139,92,246,.14);
+    --glow-b: rgba(34,211,238,.10);
     --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     --radius: 18px;
+  }
+  html[data-theme="light"] {
+    color-scheme: light;
+    --bg: #eef1f7;
+    --panel: rgba(255,255,255,.65);
+    --panel-border: rgba(13,23,40,.10);
+    --text: #16202e;
+    --text-dim: #526074;
+    --text-faint: #7e8a9c;
+    --accent-a: #7c3aed;
+    --accent-b: #0891b2;
+    --ok: #059669;
+    --warn: #b45309;
+    --media-bg: #dfe5ee;
+    --input-bg: #ffffff;
+    --log-bg: #e9edf4;
+    --log-text: #45536a;
+    --toast-bg: #ffffff;
+    --btn-text: #ffffff;
+    --hover-border: rgba(13,23,40,.25);
+    --track-bg: rgba(13,23,40,.08);
+    --scroll-thumb: rgba(13,23,40,.22);
+    --glow-a: rgba(124,58,237,.10);
+    --glow-b: rgba(8,145,178,.08);
+  }
+  html[data-theme="light"] .pill.dropped { color: #dc2626; }
+  html[data-theme="light"] .sched-col.today {
+    background: rgba(8,145,178,.06); border-color: rgba(8,145,178,.30);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -30,8 +70,8 @@
     line-height: 1.5;
     min-height: 100vh;
     background-image:
-      radial-gradient(900px 500px at 85% -10%, rgba(139,92,246,.14), transparent 60%),
-      radial-gradient(700px 400px at -5% 15%, rgba(34,211,238,.10), transparent 60%);
+      radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%),
+      radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
     background-attachment: fixed;
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
@@ -54,7 +94,7 @@
   .chip b { color: var(--text); font-weight: 600; }
   .btn {
     appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600;
-    color: #0b0d12; padding: 8px 18px; border-radius: 999px;
+    color: var(--btn-text); padding: 8px 18px; border-radius: 999px;
     background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
     transition: transform .15s ease, box-shadow .15s ease, opacity .15s;
     box-shadow: 0 4px 18px rgba(99,102,241,.35);
@@ -69,17 +109,6 @@
   .btn.small { padding: 5px 12px; font-size: 12px; }
   .btn.lang { padding: 6px 13px; font-size: 12px; min-width: 46px; }
 
-  /* ---------- stats ---------- */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 26px; }
-  .stat {
-    background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: var(--radius); padding: 16px 18px;
-    backdrop-filter: blur(8px);
-  }
-  .stat .k { color: var(--text-faint); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
-  .stat .v { font-size: 26px; font-weight: 650; margin-top: 2px; }
-  .stat .v small { font-size: 13px; color: var(--text-dim); font-weight: 500; }
-
   /* ---------- show cards ---------- */
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
   .card {
@@ -87,8 +116,9 @@
     border-radius: var(--radius); overflow: hidden; backdrop-filter: blur(8px);
     display: flex; transition: border-color .2s ease, transform .2s ease;
   }
-  .card:hover { border-color: rgba(255,255,255,.16); transform: translateY(-2px); }
-  .cover { width: 112px; min-width: 112px; background: #141821; position: relative; }
+  .card { cursor: pointer; }
+  .card:hover { border-color: var(--hover-border); transform: translateY(-2px); }
+  .cover { width: 112px; min-width: 112px; background: var(--media-bg); position: relative; }
   .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint); font-size: 24px; }
   .card-body { padding: 14px 16px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -100,32 +130,45 @@
     padding: 3px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px;
   }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .pill.subscribed { color: var(--ok); background: rgba(52,211,153,.12); }
   .pill.grace { color: var(--warn); background: rgba(251,191,36,.12); }
   .pill.unresolved { color: var(--text-dim); background: rgba(148,163,184,.12); }
   .pill.unresolved::before { animation: pulse 1.6s ease-in-out infinite; }
   .pill.manual { color: var(--muted); background: rgba(100,116,139,.12); }
   @keyframes pulse { 50% { opacity: .25; } }
-  .season-tag { color: var(--text-faint); font-size: 11px; }
+  /* Season badge: 8 colors = 4 cours × 2 years, same cour same color,
+     palette repeats every two years. */
+  .season-tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .03em;
+    padding: 2px 9px; border-radius: 999px; color: var(--text-faint);
+    background: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .season-tag.s0 { color: #f472b6; }  /* even-year winter  */
+  .season-tag.s1 { color: #fb923c; }  /* even-year spring  */
+  .season-tag.s2 { color: #a3e635; }  /* even-year summer  */
+  .season-tag.s3 { color: #22d3ee; }  /* even-year autumn  */
+  .season-tag.s4 { color: #a78bfa; }  /* odd-year winter   */
+  .season-tag.s5 { color: #facc15; }  /* odd-year spring   */
+  .season-tag.s6 { color: #34d399; }  /* odd-year summer   */
+  .season-tag.s7 { color: #60a5fa; }  /* odd-year autumn   */
+  html[data-theme="light"] .season-tag.s0 { color: #db2777; }
+  html[data-theme="light"] .season-tag.s1 { color: #ea580c; }
+  html[data-theme="light"] .season-tag.s2 { color: #65a30d; }
+  html[data-theme="light"] .season-tag.s3 { color: #0891b2; }
+  html[data-theme="light"] .season-tag.s4 { color: #7c3aed; }
+  html[data-theme="light"] .season-tag.s5 { color: #ca8a04; }
+  html[data-theme="light"] .season-tag.s6 { color: #059669; }
+  html[data-theme="light"] .season-tag.s7 { color: #2563eb; }
 
   .grouprow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); flex-wrap: wrap; }
   .grouprow select {
-    background: #12151d; color: var(--text); border: 1px solid var(--panel-border);
+    background: var(--input-bg); color: var(--text); border: 1px solid var(--panel-border);
     border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; max-width: 170px;
   }
   .gracebar { font-size: 12px; color: var(--warn); display: flex; align-items: center; gap: 10px; }
   .gracebar .cd { font-family: var(--mono); font-size: 12.5px; }
 
-  .torrents { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
-  .torrent { font-size: 11.5px; color: var(--text-dim); }
-  .torrent .tname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.07); margin-top: 3px; overflow: hidden; }
-  .bar i {
-    display: block; height: 100%; border-radius: 4px;
-    background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
-    transition: width .6s ease;
-  }
-  .bar.done i { background: var(--ok); }
+  .readyline { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .readyline.ok { color: var(--ok); }
   .empty-note { color: var(--text-faint); font-size: 12px; font-style: italic; }
 
   /* ---------- sections ---------- */
@@ -139,8 +182,8 @@
   .prio .chip b { margin-right: 6px; color: var(--accent-b); font-family: var(--mono); }
 
   .logs {
-    background: #0d1017; border: 1px solid var(--panel-border); border-radius: var(--radius);
-    font-family: var(--mono); font-size: 11.5px; color: #9aa5b8;
+    background: var(--log-bg); border: 1px solid var(--panel-border); border-radius: var(--radius);
+    font-family: var(--mono); font-size: 11.5px; color: var(--log-text);
     padding: 14px 16px; max-height: 320px; overflow-y: auto; white-space: pre-wrap;
     display: none;
   }
@@ -150,6 +193,7 @@
   .premieres { display: flex; flex-direction: column; gap: 12px; }
   .premieres:not(:empty) { margin-bottom: 26px; }
   .premiere {
+    cursor: pointer;
     display: flex; align-items: center; gap: 14px;
     background: linear-gradient(135deg, rgba(139,92,246,.16), rgba(34,211,238,.10));
     border: 1px solid rgba(139,92,246,.35); border-radius: var(--radius);
@@ -157,7 +201,7 @@
     animation: slidein .35s ease;
   }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
-  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: #141821; }
+  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: var(--media-bg); }
   .premiere .pcover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .premiere .pbody { flex: 1; min-width: 0; }
   .premiere .ptitle { font-weight: 640; font-size: 14.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -176,10 +220,10 @@
     border: 1px solid var(--panel-border); background: var(--panel);
     transition: color .15s ease, border-color .15s ease, background .15s ease;
   }
-  .fchip:hover { color: var(--text); border-color: rgba(255,255,255,.16); }
+  .fchip:hover { color: var(--text); border-color: var(--hover-border); }
   .fchip b { color: var(--text); font-family: var(--mono); margin-left: 6px; font-weight: 600; }
-  .fchip.active { color: #0b0d12; background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
-  .fchip.active b { color: #0b0d12; }
+  .fchip.active { color: var(--btn-text); background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
+  .fchip.active b { color: var(--btn-text); }
   .pill.watching { color: var(--ok); background: rgba(52,211,153,.12); }
   .pill.want { color: var(--accent-b); background: rgba(34,211,238,.12); }
   .pill.done { color: var(--text-dim); background: rgba(148,163,184,.12); }
@@ -188,10 +232,66 @@
   .airline { font-size: 12px; color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
   .airline .ai { opacity: .7; }
 
+  /* ---------- weekly timetable: one vertical column per weekday ---------- */
+  #cards.schedule { display: block; }
+  .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sched-board {
+    display: flex; align-items: flex-start; gap: 12px;
+    overflow-x: auto; padding-bottom: 14px;
+    scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+  }
+  .sched-board::-webkit-scrollbar { height: 8px; }
+  .sched-board::-webkit-scrollbar-track { background: transparent; }
+  .sched-board::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
+  .pill.aired { color: var(--ok); background: rgba(52,211,153,.12); }
+  .pill.upcoming { color: var(--warn); background: rgba(251,191,36,.12); }
+  .sched-col {
+    flex: 0 0 226px; min-width: 226px; max-width: 226px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .sched-day {
+    display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
+    color: var(--text-dim); font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+  }
+  .sched-day::after { content: ""; flex: 1; height: 1px; background: var(--panel-border); }
+  .sched-col.today {
+    background: rgba(34,211,238,.055);
+    border: 1px solid rgba(34,211,238,.28);
+    border-radius: var(--radius);
+    padding: 10px;
+    box-shadow: 0 0 18px rgba(34,211,238,.10);
+  }
+  .sched-col.today .sched-day { color: var(--accent-b); }
+  .sched-col.today .sched-day::after { background: rgba(34,211,238,.35); }
+  .sched-day .today-badge {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--accent-b);
+    background: rgba(34,211,238,.12); padding: 2px 9px; border-radius: 999px; text-transform: none;
+  }
+  .sched-empty { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 4px 2px; }
+  .sched-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 14px; padding: 10px; backdrop-filter: blur(8px);
+    transition: border-color .2s ease;
+  }
+  .sched-item { cursor: pointer; }
+  .sched-item:hover { border-color: var(--hover-border); }
+  .srow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+  .stime { font-family: var(--mono); color: var(--accent-b); font-size: 12.5px; }
+  .scover { width: 34px; min-width: 34px; height: 46px; border-radius: 6px; overflow: hidden; background: var(--media-bg); position: relative; }
+  .scover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint); font-size: 15px; }
+  .sbody { flex: 1; min-width: 0; }
+  .stitle {
+    font-weight: 640; font-size: 13px; line-height: 1.3; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .sbody .jp { margin-top: 2px; }
+
   /* ---------- toast ---------- */
   #toast {
     position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
-    background: #161a24; border: 1px solid var(--panel-border); color: var(--text);
+    background: var(--toast-bg); border: 1px solid var(--panel-border); color: var(--text);
     padding: 10px 20px; border-radius: 12px; font-size: 13px; opacity: 0;
     transition: opacity .25s ease, transform .25s ease; pointer-events: none; max-width: 80vw;
     box-shadow: 0 10px 30px rgba(0,0,0,.5);
@@ -212,16 +312,10 @@
     </div>
     <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
     <span class="chip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
+    <button class="btn ghost lang" id="themebtn" onclick="cycleTheme()">◐</button>
     <button class="btn ghost lang" id="langbtn" onclick="toggleLang()">中文</button>
     <button class="btn" id="syncbtn" onclick="runSync()">Sync now</button>
   </header>
-
-  <div class="stats">
-    <div class="stat"><div class="k" data-i18n="watching">Watching</div><div class="v" id="st-watching">—</div></div>
-    <div class="stat"><div class="k" data-i18n="subscribed">Subscribed</div><div class="v" id="st-subscribed">—</div></div>
-    <div class="stat"><div class="k" data-i18n="inGrace">In grace</div><div class="v" id="st-grace">—</div></div>
-    <div class="stat"><div class="k" data-i18n="jfLibraries">Jellyfin libraries</div><div class="v" id="st-jf">—</div></div>
-  </div>
 
   <div class="premieres" id="premieres"></div>
 
@@ -250,13 +344,12 @@ const I18N = {
   en: {
     langBtn: "中文",
     season: "Season", lastSync: "Last sync", syncNow: "Sync now", syncing: "Syncing…",
-    watching: "Watching", subscribed: "Subscribed", inGrace: "In grace", jfLibraries: "Jellyfin libraries",
     subgroupPriority: "Subgroup priority", daemonLog: "Daemon log", show: "Show", hide: "Hide",
-    st_subscribed: "Subscribed", st_grace: "ANi grace", st_unresolved: "Awaiting mikan", st_manual: "Manual (legacy)",
+    st_grace: "ANi grace", st_unresolved: "Awaiting mikan", st_manual: "Manual (legacy)",
     via: "via", switch: "Switch", waitingAni: "Waiting for ANi", lockBest: "Lock best now",
     noEpisodes: "Subscribed — no episodes in feed yet",
     notOnMikan: "Not on mikan yet — checked every 5 min",
-    more: n => `+${n} more`,
+    epReady: o => `${o.done}/${o.total} episodes ready to watch`,
     graceH: h => `grace ${h}h`,
     backendUnreachable: e => "Backend unreachable: " + e,
     syncFinished: "Sync pass finished",
@@ -274,17 +367,22 @@ const I18N = {
     all: "All", t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
     airsLabel: "Airs",
+    theme_auto: "◐ Auto", theme_dark: "● Dark", theme_light: "○ Light",
+    t_schedule: "Timetable",
+    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    timeTBA: "Time TBA", today: "Today",
+    scheduleEmpty: "No airing-time data yet — it fills in as AniList lookups resolve",
+    sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
   },
   zh: {
     langBtn: "EN",
     season: "季度", lastSync: "上次同步", syncNow: "立即同步", syncing: "同步中…",
-    watching: "在看", subscribed: "已订阅", inGrace: "宽限期", jfLibraries: "Jellyfin 库",
     subgroupPriority: "字幕组优先级", daemonLog: "守护进程日志", show: "展开", hide: "收起",
-    st_subscribed: "已订阅", st_grace: "ANi 宽限期", st_unresolved: "等待 mikan", st_manual: "手动（旧番）",
+    st_grace: "ANi 宽限期", st_unresolved: "等待 mikan", st_manual: "手动（旧番）",
     via: "字幕组", switch: "切换", waitingAni: "等待 ANi", lockBest: "锁定当前最优",
     noEpisodes: "已订阅 — feed 中暂无剧集",
     notOnMikan: "mikan 上尚未出现 — 每 5 分钟检查一次",
-    more: n => `其余 ${n} 个`,
+    epReady: o => `${o.done}/${o.total} 集准备完成，可以观看`,
     graceH: h => `宽限 ${h} 小时`,
     backendUnreachable: e => "后端无法连接：" + e,
     syncFinished: "本轮同步完成",
@@ -302,6 +400,12 @@ const I18N = {
     all: "全部", t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
     airsLabel: "开播",
+    theme_auto: "◐ 跟随系统", theme_dark: "● 深色", theme_light: "○ 浅色",
+    t_schedule: "时刻表",
+    days: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+    timeTBA: "时间待定", today: "今天",
+    scheduleEmpty: "暂无开播时间数据 — AniList 查询完成后会自动补齐",
+    sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
   },
 };
 
@@ -310,6 +414,7 @@ let lang = localStorage.getItem("lang") ||
 let state = null;
 let collections = null;
 let activeType = "watching";
+let schedFilter = "all";   // timetable premiere-status filter: all | aired | upcoming
 let logsOpen = false;
 let logsTimer = null;
 
@@ -343,9 +448,25 @@ function setLang(l) {
 }
 function toggleLang() { setLang(lang === "zh" ? "en" : "zh"); }
 
+// Theme: auto (follow the OS, default) → dark → light, persisted.
+let themeMode = localStorage.getItem("theme") || "auto";
+const themeMedia = window.matchMedia("(prefers-color-scheme: light)");
+function applyTheme() {
+  const eff = themeMode === "auto" ? (themeMedia.matches ? "light" : "dark") : themeMode;
+  document.documentElement.dataset.theme = eff;
+}
+function cycleTheme() {
+  themeMode = themeMode === "auto" ? "dark" : themeMode === "dark" ? "light" : "auto";
+  localStorage.setItem("theme", themeMode);
+  applyTheme();
+  applyStatic();
+}
+themeMedia.addEventListener("change", () => { if (themeMode === "auto") applyTheme(); });
+
 function applyStatic() {
   document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
   $("langbtn").textContent = t("langBtn");
+  $("themebtn").textContent = t("theme_" + themeMode);
   $("logbtn").textContent = logsOpen ? t("hide") : t("show");
   const btn = $("syncbtn");
   if (!btn._busy && !(state && state.sync_running)) btn.textContent = t("syncNow");
@@ -360,9 +481,23 @@ function toast(msg) {
 }
 
 const STATUS_KEY = {
-  subscribed: "st_subscribed", grace: "st_grace",
-  unresolved: "st_unresolved", manual: "st_manual",
+  grace: "st_grace", unresolved: "st_unresolved", manual: "st_manual",
 };
+
+// "YYYY.MM" → s0..s7: 4 cours × 2 years, so the palette repeats every 2 years.
+function seasonClass(season) {
+  const m = /^(\d{4})\.(\d{2})$/.exec(season || "");
+  if (!m) return "";
+  const q = { "01": 0, "04": 1, "07": 2, "10": 3 }[m[2]] ?? 0;
+  return "s" + ((+m[1] % 2) * 4 + q);
+}
+
+// Card click → the show's bangumi subject page. Ignores clicks on the card's
+// own controls (switch button, subgroup dropdown, etc.) so they keep working.
+function openBgm(e, bgmId) {
+  if (e.target.closest("button, select, a")) return;
+  window.open("https://bgm.tv/subject/" + bgmId, "_blank", "noopener");
+}
 
 function fmtCountdown(expires) {
   const s = Math.max(0, Math.floor(expires - Date.now() / 1000));
@@ -372,7 +507,8 @@ function fmtCountdown(expires) {
 
 function card(show) {
   const st = show.status;
-  const pill = `<span class="pill ${st}">${t(STATUS_KEY[st] || "st_unresolved")}</span>`;
+  // "subscribed" is the normal state — only exceptional statuses get a pill.
+  const pill = STATUS_KEY[st] ? `<span class="pill ${st}">${t(STATUS_KEY[st])}</span>` : "";
   const cover = show.image
     ? `<img src="${esc(show.image)}" loading="lazy" alt="">`
     : `<div class="ph">◌</div>`;
@@ -400,33 +536,24 @@ function card(show) {
       </div>`;
   }
 
+  // Episode summary instead of per-torrent rows: "done/total ready to watch".
   let torrents = "";
   if (show.torrents.length) {
-    torrents = `<div class="torrents">` + show.torrents.slice(0, 4).map(tr => {
-      const pct = Math.round(tr.progress * 100);
-      return `<div class="torrent">
-        <div class="tname" title="${esc(tr.name)}">${esc(tr.name)}</div>
-        <div class="bar ${pct >= 100 ? "done" : ""}"><i style="width:${pct}%"></i></div>
-      </div>`;
-    }).join("") +
-    (show.torrents.length > 4 ? `<div class="empty-note">${t("more", show.torrents.length - 4)}</div>` : "") +
-    `</div>`;
+    const done = show.torrents.filter(tr => tr.progress >= 1).length;
+    torrents = `<div class="readyline ${done ? "ok" : ""}">▸ ${t("epReady", { done, total: show.torrents.length })}</div>`;
   } else if (st === "subscribed") {
     torrents = `<div class="empty-note">${t("noEpisodes")}</div>`;
   } else if (st === "unresolved") {
     torrents = `<div class="empty-note">${t("notOnMikan")}</div>`;
   }
 
-  const when = fmtLocal(show.airing_at, show.premiere_date);
-  const airRow = when ? `<div class="airline"><span class="ai">▸</span>${t("airsLabel")} ${esc(when)}</div>` : "";
-
-  return `<div class="card">
+  return `<div class="card" onclick="openBgm(event, ${show.bgm_id})">
     <div class="cover">${cover}</div>
     <div class="card-body">
-      <div class="meta">${pill}<span class="season-tag">${esc(show.season || "")}</span></div>
+      <div class="meta">${pill}<span class="season-tag ${seasonClass(show.season)}">${esc(show.season || "")}</span></div>
       <h3>${esc(show.title)}</h3>
       <div class="jp">${esc(show.title_jp)}</div>
-      ${airRow}${groupRow}${graceRow}${torrents}
+      ${groupRow}${graceRow}${torrents}
     </div>
   </div>`;
 }
@@ -438,10 +565,10 @@ function basicCard(s) {
     : `<div class="ph">◌</div>`;
   const when = fmtLocal(s.airing_at, s.premiere_date);
   const airRow = when ? `<div class="airline"><span class="ai">▸</span>${t("airsLabel")} ${esc(when)}</div>` : "";
-  return `<div class="card">
+  return `<div class="card" onclick="openBgm(event, ${s.bgm_id})">
     <div class="cover">${cover}</div>
     <div class="card-body">
-      <div class="meta"><span class="pill ${s.type}">${t("t_" + s.type)}</span><span class="season-tag">${esc(s.season || "")}</span></div>
+      <div class="meta"><span class="pill ${s.type}">${t("t_" + s.type)}</span><span class="season-tag ${seasonClass(s.season)}">${esc(s.season || "")}</span></div>
       <h3>${esc(s.title)}</h3>
       <div class="jp">${esc(s.title_jp)}</div>
       ${airRow}
@@ -457,6 +584,7 @@ function renderFilters() {
   );
   const total = FILTER_ORDER.reduce((a, k) => a + (c[k] || 0), 0);
   chips.push(`<button class="fchip ${activeType === "all" ? "active" : ""}" onclick="setFilter('all')">${t("all")}<b>${total}</b></button>`);
+  chips.push(`<button class="fchip ${activeType === "schedule" ? "active" : ""}" onclick="setFilter('schedule')">${t("t_schedule")}</button>`);
   $("filters").innerHTML = chips.join("");
 }
 
@@ -466,30 +594,103 @@ function setFilter(k) {
   renderCards();
 }
 
+// Sort key: precise AniList timestamp, else the bgm premiere date; unknown last.
+function airMs(s) {
+  if (s.airing_at) return s.airing_at * 1000;
+  const p = Date.parse(s.premiere_date || s.date || "");
+  return Number.isNaN(p) ? Infinity : p;
+}
+const byAir = (a, b) => airMs(a) - airMs(b);
+
 function renderCards() {
-  const order = { grace: 0, subscribed: 1, unresolved: 2, manual: 3 };
-  if (activeType === "watching") {
+  $("cards").classList.toggle("schedule", activeType === "schedule");
+  if (activeType === "schedule") {
+    renderSchedule();
+  } else if (activeType === "watching") {
     if (!state) return;
-    $("cards").innerHTML = state.shows.slice()
-      .sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
-      .map(card).join("");
+    $("cards").innerHTML = state.shows.slice().sort(byAir).map(card).join("");
   } else if (collections) {
     const list = activeType === "all"
       ? FILTER_ORDER.flatMap(k => collections.groups[k] || [])
       : (collections.groups[activeType] || []);
-    $("cards").innerHTML = list.map(basicCard).join("");
+    $("cards").innerHTML = list.slice().sort(byAir).map(basicCard).join("");
   }
+}
+
+// Premiere status: episode 1's timestamp (or the bgm date) is in the past.
+const hasAired = s => airMs(s) <= Date.now();
+
+// Weekly timetable: watching + plan-to-watch shows, one vertical column per
+// weekday. Columns start at today and wrap around the week; each column is
+// sorted by local time of day. A sub-filter narrows the board by premiere
+// status, and the board scrolls horizontally when it doesn't fit.
+function renderSchedule() {
+  if (!collections) { $("cards").innerHTML = ""; return; }
+  const all = ["watching", "want"].flatMap(k => collections.groups[k] || []);
+  const counts = {
+    all: all.length,
+    aired: all.filter(hasAired).length,
+    upcoming: all.filter(s => !hasAired(s)).length,
+  };
+  const chips = ["all", "aired", "upcoming"].map(k =>
+    `<button class="fchip ${schedFilter === k ? "active" : ""}" onclick="setSchedFilter('${k}')">${t("sched_" + k)}<b>${counts[k]}</b></button>`
+  ).join("");
+
+  const shows = schedFilter === "all" ? all : all.filter(s => hasAired(s) === (schedFilter === "aired"));
+  const days = [[], [], [], [], [], [], []];  // Mon..Sun
+  const tba = [];
+  for (const s of shows) {
+    if (s.airing_at) days[(new Date(s.airing_at * 1000).getDay() + 6) % 7].push(s);
+    else tba.push(s);
+  }
+  const minuteOf = s => { const d = new Date(s.airing_at * 1000); return d.getHours() * 60 + d.getMinutes(); };
+  const today = (new Date().getDay() + 6) % 7;
+  const names = t("days");
+  const col = (name, isToday, list) => {
+    const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
+    const body = list.length ? list.map(schedItem).join("") : `<div class="sched-empty">—</div>`;
+    return `<div class="sched-col ${isToday ? "today" : ""}">
+      <div class="sched-day">${name}${badge}</div>${body}
+    </div>`;
+  };
+  let board = "";
+  for (let off = 0; off < 7; off++) {
+    const i = (today + off) % 7;
+    days[i].sort((a, b) => minuteOf(a) - minuteOf(b) || byAir(a, b));
+    board += col(names[i], off === 0, days[i]);
+  }
+  if (tba.length) board += col(t("timeTBA"), false, tba.slice().sort(byAir));
+  $("cards").innerHTML = `<div class="sched-filters">${chips}</div><div class="sched-board">${board}</div>`;
+}
+
+function setSchedFilter(k) {
+  schedFilter = k;
+  renderCards();
+}
+
+function schedItem(s) {
+  const d = s.airing_at ? new Date(s.airing_at * 1000) : null;
+  const hm = d ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "--:--";
+  const cover = s.image
+    ? `<img src="${esc(s.image)}" loading="lazy" alt="">`
+    : `<div class="ph">◌</div>`;
+  const aired = hasAired(s);
+  const pills = `<span class="pill ${s.type}">${t("t_" + s.type)}</span>`
+    + `<span class="pill ${aired ? "aired" : "upcoming"}">${t(aired ? "sched_aired" : "sched_upcoming")}</span>`;
+  return `<div class="sched-item" onclick="openBgm(event, ${s.bgm_id})">
+    <div class="scover">${cover}</div>
+    <div class="sbody">
+      <div class="srow"><span class="stime">${hm}</span>${pills}</div>
+      <div class="stitle" title="${esc(s.title)}">${esc(s.title)}</div>
+      <div class="jp" title="${esc(s.title_jp)}">${esc(s.title_jp)}</div>
+    </div>
+  </div>`;
 }
 
 function render() {
   if (!state) return;
   $("season").textContent = state.season;
   $("lastsync").textContent = state.last_sync ? state.last_sync.slice(5) : "—";
-  const shows = state.shows;
-  $("st-watching").textContent = shows.length;
-  $("st-subscribed").textContent = shows.filter(s => s.status === "subscribed").length;
-  $("st-grace").textContent = shows.filter(s => s.status === "grace").length;
-  $("st-jf").innerHTML = `${state.jellyfin.libraries.length} <small>${esc(state.jellyfin.libraries[0] || "")}</small>`;
   renderFilters();
   renderCards();
   $("prio").innerHTML = state.group_priority
@@ -522,13 +723,20 @@ async function refreshCollections() {
 async function refreshPremieres() {
   try {
     const d = await (await fetch("/api/notifications")).json();
-    const unread = d.notifications.filter(n => !n.read);
+    // A premiere banner stays on the dashboard for a week after detection,
+    // unless the user dismisses it earlier.
+    const WEEK_MS = 7 * 86400 * 1000;
+    const unread = d.notifications.filter(n => {
+      if (n.read) return false;
+      const ts = Date.parse(n.detected_at || "");
+      return Number.isNaN(ts) || Date.now() - ts < WEEK_MS;
+    });
     $("premieres").innerHTML = unread.map(n => {
       const cover = n.image ? `<img src="${esc(n.image)}" loading="lazy" alt="">` : "";
       const badge = n.promoted ? `<span class="pbadge">${t("nowWatching")}</span>` : "";
       const when = (n.detected_at || "").slice(5, 16).replace("T", " ");
       const sub = [esc(n.title_jp), esc(n.subgroup_name || ""), when].filter(Boolean).join(" · ");
-      return `<div class="premiere">
+      return `<div class="premiere" onclick="openBgm(event, ${n.bgm_id})">
         <div class="pcover">${cover}</div>
         <div class="pbody">
           <div class="ptitle">🎬 <span class="ptag">${t("premiered")}</span>${esc(n.title)}${badge}</div>
@@ -638,6 +846,7 @@ setInterval(() => {
   });
 }, 1000);
 
+applyTheme();    // set data-theme first so the initial paint uses the right palette
 setLang(lang);   // apply static labels + <html lang> on first paint
 refresh();
 setInterval(refresh, 30000);
