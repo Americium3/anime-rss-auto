@@ -38,6 +38,7 @@ Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**
 | **Jellyfin 镜像** | 把新剧集硬链接进 `<镜像>\<季度>\<番名>\Season 01\`（0 额外占空间，不碰做种） | `jellyfin_mirror_enabled` |
 | **Jellyfin 自动建库** | 新增季度文件夹 → 自动建库、生成封面、倒序排列 | `jellyfin_autolib_enabled` |
 | **Jellyfin 联动删除** | 源库删掉某季度 → 镜像 + Jellyfin 库一并删除（多重安全闸） | `jellyfin_mirror_delete_enabled` |
+| **Jellyfin 空系列自愈** | 镜像重建竞态导致某系列在 Jellyfin 里变空壳、点播报「Unable to find a valid media source」→ 每轮 1 次调用查出「0 集但磁盘有视频」的系列并递归刷新修好（正常番零开销，带扫描进行中安全闸） | `jellyfin_heal_empty_enabled` |
 | **jfhook** | Jellyfin Webhook 插件 → 看完一集 → 停该集做种 + bgm 标看过 | `jfhook_port` |
 | **Web 控制面板** | 本地仪表盘：按收藏类型分组显示所有 bgm 标记过的番（在看/想看/看过/搁置/抛弃）并可按类型筛选、每部番显示**你本地时区**的开播时间（经 AniList）、开播横幅、宽限倒计时、切换字幕组、下载进度、手动同步、日志（支持中英切换） | `webui.py` |
 
