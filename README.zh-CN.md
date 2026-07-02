@@ -69,6 +69,9 @@ bgm token：用 365 天个人令牌（`bgm_access_token`），或用可自动续
 ## 本工具自动套用的约定
 
 - qB 保存路径 `<bangumi_library>\<YYYY.MM>\<英文番名>`，标签 `<YYYY.MM>`。
+- RSS feed 挂在 `<YYYY.MM>` 文件夹下，订阅前会先显式建好该文件夹——
+  qBittorrent 5.x 的 `addFeed` 不会自动创建父文件夹（季度文件夹不存在会 409，
+  留下一条没有 feed 的空转规则）。
 - 每部番只用一个字幕组——mikan 的 RSS 地址本身就是按组区分的。
 - 季度：01 / 04 / 07 / 10；季度字符串按字典序比较（`2026.04 < 2026.07`）。
 - 破坏性操作（删文件/删规则）只对 `skip_before_season` 及之后的番生效；

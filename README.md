@@ -70,6 +70,9 @@ auto-refresh — create an app at https://bgm.tv/dev/app, fill
 ## Conventions this automates
 
 - qB save path `<bangumi_library>\<YYYY.MM>\<English show name>`, tag `<YYYY.MM>`.
+- RSS feeds nest under a `<YYYY.MM>` folder, which is created explicitly before
+  subscribing — qBittorrent 5.x's `addFeed` does not auto-create parent folders
+  (a missing season folder makes it 409, leaving a rule with no feed behind).
 - One subtitle group per show — the mikan RSS URL itself is group-scoped.
 - Cours: 01 / 04 / 07 / 10; a cour string sorts lexicographically (`2026.04 < 2026.07`).
 - Destructive actions (deleting files/rules) only ever apply to shows from

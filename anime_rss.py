@@ -192,6 +192,22 @@ def qb_post(path: str, data: dict) -> str:
         return r.read().decode("utf-8", "replace")
 
 
+def qb_ensure_rss_folder(item_path: str) -> None:
+    """Create the parent folder chain for an RSS item path.
+
+    qB 5.x addFeed does NOT auto-create parent folders — it 409s with
+    "父文件夹不存在" if the season folder is missing. RSS paths nest by
+    backslash, so create each ancestor level, tolerating "already exists".
+    """
+    parts = item_path.split("\\")[:-1]  # drop the feed leaf; keep folders
+    for i in range(len(parts)):
+        folder = "\\".join(parts[: i + 1])
+        try:
+            qb_post("/api/v2/rss/addFolder", {"path": folder})
+        except Exception:  # noqa: BLE001 — already-exists is the expected/benign case
+            pass
+
+
 def qb_get_json(path: str):
     return json.loads(http_get(f"{QB}{path}").decode("utf-8", "replace"))
 
@@ -818,14 +834,23 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool) -> None
         feed_path = e.get("feed_path") or f"{season}\\Mikan Project - {name}"
         if dry_run:
             rd = make_rule_def(name, season, feed, e.get("mustContain", ""))
+            print(f"  [dry] folder {feed_path.rsplit(chr(92), 1)[0]}")
             print(f"  [dry] feed  {feed_path}")
             print(f"  [dry] rule  {name} -> {rd['savePath']}  ({feed})")
             print(f"  [dry] mikan subscribe {e['mikan_id']}/{e['subgroup']}")
             continue
+        qb_ensure_rss_folder(feed_path)  # qB 5.x won't auto-create the season folder
         try:
             qb_post("/api/v2/rss/addFeed", {"url": feed, "path": feed_path})
         except Exception as ex:  # noqa: BLE001
-            print(f"  ! addFeed {name}: {ex} (continuing; rule may still bind)")
+            # addFeed 常见 409：URL 已订阅（良性）——校验 feed 是否真的存在再决定。
+            # 若确实缺失，绝不建规则：否则会留下"有规则没 feed"的空壳，且下轮
+            # sync 因规则存在而永久跳过，坏状态静默固化。跳过 -> 下轮自动重试。
+            if feed in rss_feed_paths():
+                print(f"  ~ addFeed {name}: {ex} (feed already present, binding rule)")
+            else:
+                print(f"  ! addFeed {name}: {ex} — SKIP rule (feed missing, would orphan)")
+                continue
         rule_def = make_rule_def(name, season, feed, e.get("mustContain", ""))
         try:
             qb_post(
