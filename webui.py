@@ -214,7 +214,8 @@ def mikan_subgroups_named(mikan_id: int) -> list[dict]:
     ):
         _group_names.setdefault(int(gid), name.strip())
     ids = sorted({int(x) for x in re.findall(r"subgroupid=(\d+)", html_txt)})
-    return [{"id": i, "name": _group_names.get(i, f"Group {i}")} for i in ids]
+    # name=None for unknown groups: the label language is the frontend's call.
+    return [{"id": i, "name": _group_names.get(i)} for i in ids]
 
 
 # --------------------------------------------------------------------------- #
@@ -228,10 +229,12 @@ def api_overview():
     rules = core.existing_rules()
     grace = core.load_grace()
 
+    qb_ok = True
     try:
         torrents = core.qb_get_json("/api/v2/torrents/info")
     except Exception:  # noqa: BLE001
         torrents = []
+        qb_ok = False  # let the panel distinguish "qB down" from "empty feed"
 
     # rule name -> bgm id (mikan page fetches are cached across polls)
     rule_of: dict[int, tuple[str, dict]] = {}
@@ -269,7 +272,7 @@ def api_overview():
                 "name": rname,
                 "mikan_id": mid,
                 "subgroup": gid,
-                "subgroup_name": _group_names.get(gid, f"Group {gid}") if gid else None,
+                "subgroup_name": _group_names.get(gid) if gid else None,
             }
             entry["status"] = "subscribed"
             # The panel only shows an n/m-ready summary — ship progress alone.
@@ -293,6 +296,7 @@ def api_overview():
     return {
         "season": season_now,
         "grace_hours": core.GRACE_HOURS,
+        "qb_ok": qb_ok,
         "group_priority": [
             {"id": gid, "name": core.GROUP_NAME[gid]} for gid in core.PRIORITY_IDS
         ],
@@ -376,7 +380,8 @@ def api_subgroups(mikan_id: int):
     try:
         return {"subgroups": mikan_subgroups_named(mikan_id)}
     except Exception as ex:  # noqa: BLE001
-        raise HTTPException(502, f"mikan fetch failed: {ex}")
+        # {"code": ...} details render localized in the panel (errText).
+        raise HTTPException(502, {"code": "mikan_fetch_failed", "message": str(ex)})
 
 
 @app.get("/api/notifications")
@@ -402,19 +407,21 @@ def api_notifications_read(body: NotifyRead):
 
 # --- mutating actions ------------------------------------------------------ #
 _sync_running = False
+_sync_error = False
 _sync_buf: io.StringIO | None = None
 
 
 @app.post("/api/sync")
 def api_sync():
-    global _sync_running, _sync_buf
+    global _sync_running, _sync_error, _sync_buf
     if _sync_running:
         return {"started": False, "code": "already_running", "reason": "sync already running"}
     _sync_running = True
+    _sync_error = False
     _sync_buf = io.StringIO()
 
     def run():
-        global _sync_running
+        global _sync_running, _sync_error
         try:
             with contextlib.redirect_stdout(_sync_buf):
                 core.run_sync_once(
@@ -426,6 +433,7 @@ def api_sync():
                 )
         except Exception:  # noqa: BLE001
             traceback.print_exc(file=_sync_buf)
+            _sync_error = True  # the panel toasts a failure and opens the log
         finally:
             _sync_running = False
 
@@ -437,6 +445,7 @@ def api_sync():
 def api_sync_status():
     return {
         "running": _sync_running,
+        "ok": not _sync_error,
         "output": _sync_buf.getvalue() if _sync_buf else "",
     }
 
@@ -450,7 +459,7 @@ def api_grace_expire(body: GraceExpire):
     grace = core.load_grace()
     key = str(body.bgm_id)
     if key not in grace:
-        raise HTTPException(404, "show is not in a grace period")
+        raise HTTPException(404, {"code": "not_in_grace"})
     grace[key] = 0.0  # expired -> next sync pass locks the best available group
     core.save_grace(grace)
     return {"ok": True, "code": "grace_ended",
@@ -468,10 +477,10 @@ def api_rule_switch(body: RuleSwitch):
     rules = core.existing_rules()
     rdef = rules.get(body.rule_name)
     if not rdef:
-        raise HTTPException(404, f"no qB rule named {body.rule_name!r}")
+        raise HTTPException(404, {"code": "no_rule", "message": body.rule_name})
     mid, old_gid = rule_subgroup(rdef)
     if not mid:
-        raise HTTPException(400, "rule has no mikan feed to switch")
+        raise HTTPException(400, {"code": "no_mikan_feed"})
     if old_gid == body.subgroup:
         return {"ok": True, "code": "switched",
                 "group": _group_names.get(body.subgroup, str(body.subgroup)),
@@ -507,7 +516,7 @@ def api_rule_switch(body: RuleSwitch):
         core.qb_post("/api/v2/rss/setRule",
                      {"ruleName": body.rule_name, "ruleDef": json.dumps(rdef)})
     except Exception as ex:  # noqa: BLE001
-        raise HTTPException(502, f"setRule failed: {ex}")
+        raise HTTPException(502, {"code": "setrule_failed", "message": str(ex)})
 
     # 3) move the mikan subscription (best effort)
     cookie = core.CONFIG.get("mikan_cookie")
