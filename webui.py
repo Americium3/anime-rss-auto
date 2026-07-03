@@ -180,6 +180,7 @@ def bgm_watching_rich(user: str) -> list[dict]:
                 "name_cn": s.get("name_cn", ""),
                 "date": s.get("date", ""),
                 "image": img.get("common") or img.get("medium") or "",
+                "score": s.get("score") or None,
             })
         offset += len(data)
         if offset >= d.get("total", 0) or not data:
@@ -256,6 +257,7 @@ def api_overview():
             "date": s["date"],
             "season": season,
             "image": s["image"],
+            "score": s.get("score"),
             "status": "unresolved",
             "rule": None,
             "grace": None,
@@ -346,6 +348,7 @@ def api_collections():
                 "date": s["date"],
                 "season": core.season_of(s["date"]),
                 "image": s.get("image", ""),
+                "score": s.get("score"),
                 "airing_at": None,
                 "premiere_date": None,
             }

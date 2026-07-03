@@ -345,6 +345,7 @@ def bgm_collection_subjects(user: str, ctype: int) -> list[dict]:
                     "name_cn": s.get("name_cn", ""),
                     "date": s.get("date", ""),
                     "image": img.get("common") or img.get("medium") or "",
+                    "score": s.get("score") or None,  # community rating, 0 = unrated
                 }
             )
         offset += len(data)
