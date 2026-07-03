@@ -25,7 +25,6 @@
     --toast-bg: #161a24;
     --btn-text: #0b0d12;
     --hover-border: rgba(255,255,255,.16);
-    --track-bg: rgba(255,255,255,.07);
     --scroll-thumb: rgba(255,255,255,.16);
     --glow-a: rgba(139,92,246,.14);
     --glow-b: rgba(34,211,238,.10);
@@ -51,12 +50,10 @@
     --toast-bg: #ffffff;
     --btn-text: #ffffff;
     --hover-border: rgba(13,23,40,.25);
-    --track-bg: rgba(13,23,40,.08);
     --scroll-thumb: rgba(13,23,40,.22);
     --glow-a: rgba(124,58,237,.10);
     --glow-b: rgba(8,145,178,.08);
   }
-  html[data-theme="light"] .pill.dropped { color: #dc2626; }
   html[data-theme="light"] .sched-col.today {
     background: rgba(8,145,178,.06); border-color: rgba(8,145,178,.30);
   }
@@ -114,10 +111,21 @@
   .card {
     background: var(--panel); border: 1px solid var(--panel-border);
     border-radius: var(--radius); overflow: hidden; backdrop-filter: blur(8px);
-    display: flex; transition: border-color .2s ease, transform .2s ease;
+    display: flex; transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
   }
   .card { cursor: pointer; }
-  .card:hover { border-color: var(--hover-border); transform: translateY(-2px); }
+  .card:hover {
+    border-color: color-mix(in srgb, var(--card-glow, var(--text-dim)) 60%, transparent);
+    box-shadow: 0 0 20px color-mix(in srgb, var(--card-glow, var(--text-dim)) 25%, transparent);
+    transform: translateY(-2px);
+  }
+  /* Hover glow tinted by the show's bgm collection type (cards + timetable). */
+  .t-watching { --card-glow: var(--ok); }
+  .t-want { --card-glow: var(--accent-b); }
+  .t-done { --card-glow: var(--text-dim); }
+  .t-onhold { --card-glow: var(--warn); }
+  .t-dropped { --card-glow: #f87171; }
+  html[data-theme="light"] .t-dropped { --card-glow: #dc2626; }
   .cover { width: 112px; min-width: 112px; background: var(--media-bg); position: relative; }
   .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint); font-size: 24px; }
@@ -201,8 +209,9 @@
     animation: slidein .35s ease;
   }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
-  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: var(--media-bg); }
+  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: var(--media-bg); position: relative; }
   .premiere .pcover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .premiere .pcover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint); font-size: 18px; }
   .premiere .pbody { flex: 1; min-width: 0; }
   .premiere .ptitle { font-weight: 640; font-size: 14.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .premiere .ptag { color: var(--accent-b); font-weight: 700; letter-spacing: .04em; }
@@ -226,9 +235,6 @@
   .fchip.active b { color: var(--btn-text); }
   .pill.watching { color: var(--ok); background: rgba(52,211,153,.12); }
   .pill.want { color: var(--accent-b); background: rgba(34,211,238,.12); }
-  .pill.done { color: var(--text-dim); background: rgba(148,163,184,.12); }
-  .pill.onhold { color: var(--warn); background: rgba(251,191,36,.12); }
-  .pill.dropped { color: #f87171; background: rgba(248,113,113,.12); }
   .airline { font-size: 12px; color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
   .airline .ai { opacity: .7; }
 
@@ -272,10 +278,13 @@
     display: flex; align-items: flex-start; gap: 10px;
     background: var(--panel); border: 1px solid var(--panel-border);
     border-radius: 14px; padding: 10px; backdrop-filter: blur(8px);
-    transition: border-color .2s ease;
+    transition: border-color .2s ease, box-shadow .2s ease;
   }
   .sched-item { cursor: pointer; }
-  .sched-item:hover { border-color: var(--hover-border); }
+  .sched-item:hover {
+    border-color: color-mix(in srgb, var(--card-glow, var(--text-dim)) 60%, transparent);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--card-glow, var(--text-dim)) 22%, transparent);
+  }
   .srow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
   .stime { font-family: var(--mono); color: var(--accent-b); font-size: 12.5px; }
   .scover { width: 34px; min-width: 34px; height: 46px; border-radius: 6px; overflow: hidden; background: var(--media-bg); position: relative; }
@@ -297,6 +306,7 @@
     box-shadow: 0 10px 30px rgba(0,0,0,.5);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  html[data-theme="light"] #toast { box-shadow: 0 10px 30px rgba(13,23,40,.18); }
 
   .spin { display: inline-block; animation: rot 1s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
@@ -364,7 +374,7 @@ const I18N = {
     premiered: "PREMIERED",
     nowWatching: "Marked as watching",
     gotIt: "Got it",
-    all: "All", t_watching: "Watching", t_want: "Plan to watch",
+    t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
     airsLabel: "Airs",
     theme_auto: "◐ Auto", theme_dark: "● Dark", theme_light: "○ Light",
@@ -397,7 +407,7 @@ const I18N = {
     premiered: "已开播",
     nowWatching: "已自动标为在看",
     gotIt: "知道了",
-    all: "全部", t_watching: "在看", t_want: "想看",
+    t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
     airsLabel: "开播",
     theme_auto: "◐ 跟随系统", theme_dark: "● 深色", theme_light: "○ 浅色",
@@ -433,6 +443,15 @@ function fmtLocal(airingAt, premiereDate) {
 const $ = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+// Card titles follow the UI language: English/romaji (from AniList, when known)
+// in English mode, the bgm Chinese title otherwise. The original name renders
+// as a sub-line only when it differs from the main title.
+const displayTitle = s => lang === "en" ? (s.title_en || s.title_jp || s.title) : (s.title || s.title_jp);
+const jpLine = s => {
+  const main = displayTitle(s);
+  return s.title_jp && s.title_jp !== main ? `<div class="jp">${esc(s.title_jp)}</div>` : "";
+};
+
 function t(key, arg) {
   const v = (I18N[lang] || I18N.en)[key];
   return typeof v === "function" ? v(arg) : (v == null ? key : v);
@@ -440,13 +459,17 @@ function t(key, arg) {
 
 function setLang(l) {
   lang = l;
-  localStorage.setItem("lang", l);
   document.documentElement.lang = (l === "zh" ? "zh-CN" : "en");
   applyStatic();
   render();
   if (state) refreshPremieres();
 }
-function toggleLang() { setLang(lang === "zh" ? "en" : "zh"); }
+// Only an explicit toggle pins the language; plain visits keep following the browser.
+function toggleLang() {
+  const l = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("lang", l);
+  setLang(l);
+}
 
 // Theme: auto (follow the OS, default) → dark → light, persisted.
 let themeMode = localStorage.getItem("theme") || "auto";
@@ -514,7 +537,7 @@ function card(show) {
     : `<div class="ph">◌</div>`;
 
   let groupRow = "";
-  if (show.rule) {
+  if (show.rule && show.rule.mikan_id) {
     groupRow = `
       <div class="grouprow">
         <span>${t("via")} <b style="color:var(--text)">${esc(show.rule.subgroup_name || "?")}</b></span>
@@ -522,8 +545,11 @@ function card(show) {
                 onfocus="loadSubgroups(${show.bgm_id}, ${show.rule.mikan_id}, ${show.rule.subgroup})">
           <option>${esc(show.rule.subgroup_name || "…")}</option>
         </select>
-        <button class="btn ghost small" onclick="switchGroup('${esc(show.rule.name)}', ${show.bgm_id})">${t("switch")}</button>
+        <button class="btn ghost small" onclick="switchGroup(${show.bgm_id})">${t("switch")}</button>
       </div>`;
+  } else if (show.rule) {
+    // Rule without a mikan feed: nothing to switch, show the group read-only.
+    groupRow = `<div class="grouprow"><span>${t("via")} <b style="color:var(--text)">${esc(show.rule.subgroup_name || "?")}</b></span></div>`;
   }
 
   let graceRow = "";
@@ -547,12 +573,14 @@ function card(show) {
     torrents = `<div class="empty-note">${t("notOnMikan")}</div>`;
   }
 
-  return `<div class="card" onclick="openBgm(event, ${show.bgm_id})">
+  const seasonTag = show.season ? `<span class="season-tag ${seasonClass(show.season)}">${esc(show.season)}</span>` : "";
+  const meta = pill || seasonTag ? `<div class="meta">${pill}${seasonTag}</div>` : "";
+  return `<div class="card t-watching" onclick="openBgm(event, ${show.bgm_id})">
     <div class="cover">${cover}</div>
     <div class="card-body">
-      <div class="meta">${pill}<span class="season-tag ${seasonClass(show.season)}">${esc(show.season || "")}</span></div>
-      <h3>${esc(show.title)}</h3>
-      <div class="jp">${esc(show.title_jp)}</div>
+      ${meta}
+      <h3>${esc(displayTitle(show))}</h3>
+      ${jpLine(show)}
       ${groupRow}${graceRow}${torrents}
     </div>
   </div>`;
@@ -565,12 +593,13 @@ function basicCard(s) {
     : `<div class="ph">◌</div>`;
   const when = fmtLocal(s.airing_at, s.premiere_date);
   const airRow = when ? `<div class="airline"><span class="ai">▸</span>${t("airsLabel")} ${esc(when)}</div>` : "";
-  return `<div class="card" onclick="openBgm(event, ${s.bgm_id})">
+  const meta = s.season ? `<div class="meta"><span class="season-tag ${seasonClass(s.season)}">${esc(s.season)}</span></div>` : "";
+  return `<div class="card t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="cover">${cover}</div>
     <div class="card-body">
-      <div class="meta"><span class="pill ${s.type}">${t("t_" + s.type)}</span><span class="season-tag ${seasonClass(s.season)}">${esc(s.season || "")}</span></div>
-      <h3>${esc(s.title)}</h3>
-      <div class="jp">${esc(s.title_jp)}</div>
+      ${meta}
+      <h3>${esc(displayTitle(s))}</h3>
+      ${jpLine(s)}
       ${airRow}
     </div>
   </div>`;
@@ -579,11 +608,13 @@ function basicCard(s) {
 function renderFilters() {
   if (!collections) return;
   const c = collections.counts || {};
-  const chips = FILTER_ORDER.filter(k => (c[k] || 0) > 0).map(k =>
+  const visible = FILTER_ORDER.filter(k => (c[k] || 0) > 0);
+  // The active tab can vanish (its count drops to 0) — retarget instead of
+  // leaving a blank grid with no chip highlighted.
+  if (activeType !== "schedule" && !visible.includes(activeType)) activeType = visible[0] || "schedule";
+  const chips = visible.map(k =>
     `<button class="fchip ${activeType === k ? "active" : ""}" onclick="setFilter('${k}')">${t("t_" + k)}<b>${c[k]}</b></button>`
   );
-  const total = FILTER_ORDER.reduce((a, k) => a + (c[k] || 0), 0);
-  chips.push(`<button class="fchip ${activeType === "all" ? "active" : ""}" onclick="setFilter('all')">${t("all")}<b>${total}</b></button>`);
   chips.push(`<button class="fchip ${activeType === "schedule" ? "active" : ""}" onclick="setFilter('schedule')">${t("t_schedule")}</button>`);
   $("filters").innerHTML = chips.join("");
 }
@@ -608,12 +639,10 @@ function renderCards() {
     renderSchedule();
   } else if (activeType === "watching") {
     if (!state) return;
-    $("cards").innerHTML = state.shows.slice().sort(byAir).map(card).join("");
+    $("cards").innerHTML = state.shows.slice().sort(byAir).map(card).join("") || `<div class="sched-empty">—</div>`;
   } else if (collections) {
-    const list = activeType === "all"
-      ? FILTER_ORDER.flatMap(k => collections.groups[k] || [])
-      : (collections.groups[activeType] || []);
-    $("cards").innerHTML = list.slice().sort(byAir).map(basicCard).join("");
+    const list = collections.groups[activeType] || [];
+    $("cards").innerHTML = list.slice().sort(byAir).map(basicCard).join("") || `<div class="sched-empty">—</div>`;
   }
 }
 
@@ -627,6 +656,10 @@ const hasAired = s => airMs(s) <= Date.now();
 function renderSchedule() {
   if (!collections) { $("cards").innerHTML = ""; return; }
   const all = ["watching", "want"].flatMap(k => collections.groups[k] || []);
+  if (!all.length) {
+    $("cards").innerHTML = `<div class="sched-empty">${t("scheduleEmpty")}</div>`;
+    return;
+  }
   const counts = {
     all: all.length,
     aired: all.filter(hasAired).length,
@@ -675,14 +708,17 @@ function schedItem(s) {
     ? `<img src="${esc(s.image)}" loading="lazy" alt="">`
     : `<div class="ph">◌</div>`;
   const aired = hasAired(s);
-  const pills = `<span class="pill ${s.type}">${t("t_" + s.type)}</span>`
-    + `<span class="pill ${aired ? "aired" : "upcoming"}">${t(aired ? "sched_aired" : "sched_upcoming")}</span>`;
-  return `<div class="sched-item" onclick="openBgm(event, ${s.bgm_id})">
+  // The aired/upcoming pill would repeat the active sub-filter — only on "all".
+  const statusPill = schedFilter === "all"
+    ? `<span class="pill ${aired ? "aired" : "upcoming"}">${t(aired ? "sched_aired" : "sched_upcoming")}</span>` : "";
+  const pills = `<span class="pill ${s.type}">${t("t_" + s.type)}</span>` + statusPill;
+  const title = displayTitle(s);
+  return `<div class="sched-item t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="scover">${cover}</div>
     <div class="sbody">
       <div class="srow"><span class="stime">${hm}</span>${pills}</div>
-      <div class="stitle" title="${esc(s.title)}">${esc(s.title)}</div>
-      <div class="jp" title="${esc(s.title_jp)}">${esc(s.title_jp)}</div>
+      <div class="stitle" title="${esc(title)}">${esc(title)}</div>
+      ${jpLine(s)}
     </div>
   </div>`;
 }
@@ -709,14 +745,17 @@ async function refresh() {
     refreshCollections();
   } catch (e) {
     toast(t("backendUnreachable", e.message));
+    // First load with the backend down: leave a persistent hint, not just a
+    // 3.5s toast over a blank page. The 30s poll keeps retrying.
+    if (!state) $("cards").innerHTML = `<div class="sched-empty">${esc(t("backendUnreachable", e.message))}</div>`;
   }
 }
 
 async function refreshCollections() {
   try {
     collections = await (await fetch("/api/collections")).json();
-    renderFilters();
-    if (activeType !== "watching") renderCards();
+    renderFilters();   // may retarget activeType if its tab vanished
+    renderCards();
   } catch (e) { /* transient */ }
 }
 
@@ -732,14 +771,20 @@ async function refreshPremieres() {
       return Number.isNaN(ts) || Date.now() - ts < WEEK_MS;
     });
     $("premieres").innerHTML = unread.map(n => {
-      const cover = n.image ? `<img src="${esc(n.image)}" loading="lazy" alt="">` : "";
+      const cover = n.image ? `<img src="${esc(n.image)}" loading="lazy" alt="">` : `<div class="ph">◌</div>`;
       const badge = n.promoted ? `<span class="pbadge">${t("nowWatching")}</span>` : "";
       const when = (n.detected_at || "").slice(5, 16).replace("T", " ");
-      const sub = [esc(n.title_jp), esc(n.subgroup_name || ""), when].filter(Boolean).join(" · ");
+      // Notifications store the title at detection time — prefer the live
+      // collections entry so the banner follows the UI language too.
+      const src = (collections && FILTER_ORDER.flatMap(k => collections.groups[k] || [])
+        .find(x => x.bgm_id === n.bgm_id)) || n;
+      const title = displayTitle(src);
+      const sub = [n.title_jp !== title ? esc(n.title_jp) : "", esc(n.subgroup_name || ""), when]
+        .filter(Boolean).join(" · ");
       return `<div class="premiere" onclick="openBgm(event, ${n.bgm_id})">
         <div class="pcover">${cover}</div>
         <div class="pbody">
-          <div class="ptitle">🎬 <span class="ptag">${t("premiered")}</span>${esc(n.title)}${badge}</div>
+          <div class="ptitle">🎬 <span class="ptag">${t("premiered")}</span>${esc(title)}${badge}</div>
           <div class="psub">${sub}</div>
         </div>
         <button class="btn ghost small" onclick="dismissPremiere(${n.bgm_id})">${t("gotIt")}</button>
@@ -764,13 +809,25 @@ async function runSync() {
   try {
     const r = await (await fetch("/api/sync", { method: "POST" })).json();
     if (!r.started) { toast(t(r.code || "already_running")); }
+    let misses = 0;
     const poll = setInterval(async () => {
-      const s = await (await fetch("/api/sync/status")).json();
-      if (!s.running) {
-        clearInterval(poll);
-        btn._busy = false;
-        toast(t("syncFinished"));
-        refresh();
+      try {
+        const s = await (await fetch("/api/sync/status")).json();
+        misses = 0;
+        if (!s.running) {
+          clearInterval(poll);
+          btn._busy = false;
+          toast(t("syncFinished"));
+          refresh();
+        }
+      } catch (e) {
+        // Give a restarting backend ~15s before releasing the button —
+        // otherwise it sticks on "Syncing…" forever.
+        if (++misses >= 10) {
+          clearInterval(poll);
+          btn._busy = false; btn.disabled = false; btn.textContent = t("syncNow");
+          toast(t("backendUnreachable", e.message));
+        }
       }
     }, 1500);
   } catch (e) {
@@ -786,7 +843,7 @@ async function endGrace(bgmId) {
       body: JSON.stringify({ bgm_id: bgmId }),
     });
     const d = await r.json();
-    toast(r.ok ? t(d.code || "grace_ended") : (d.detail || t("failed", "")));
+    toast(r.ok ? t(d.code || "grace_ended") : t("failed", d.detail || r.status));
     if (r.ok) refresh();
   } catch (e) { toast(t("failed", e.message)); }
 }
@@ -806,17 +863,21 @@ async function loadSubgroups(bgmId, mikanId, currentGid) {
   }
 }
 
-async function switchGroup(ruleName, bgmId) {
+// The rule name is looked up from state by bgm_id instead of being inlined
+// into onclick — titles can contain quotes/backslashes that break the handler.
+async function switchGroup(bgmId) {
   const sel = $("sel-" + bgmId);
   if (!sel || sel.dataset.loaded !== "1") { toast(t("openDropdown")); return; }
+  const show = ((state && state.shows) || []).find(x => x.bgm_id === bgmId);
+  if (!show || !show.rule) return;
   const gid = parseInt(sel.value, 10);
   try {
     const r = await fetch("/api/rule/switch", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rule_name: ruleName, subgroup: gid }),
+      body: JSON.stringify({ rule_name: show.rule.name, subgroup: gid }),
     });
     const d = await r.json();
-    toast(r.ok ? t(d.code || "switched", d.group) : (d.detail || t("switchFail", "")));
+    toast(r.ok ? t(d.code || "switched", d.group) : t("switchFail", d.detail || r.status));
     if (r.ok) refresh();
   } catch (e) { toast(t("switchFail", e.message)); }
 }
@@ -831,10 +892,15 @@ function toggleLogs() {
 
 async function pullLogs() {
   try {
-    const d = await (await fetch("/api/logs?lines=200")).json();
     const el = $("logs");
     const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    el.textContent = d.lines.join("\n");
+    // While a manual sync runs, show its live output — the daemon log never
+    // sees manual passes.
+    const s = await (await fetch("/api/sync/status")).json();
+    let lines;
+    if (s.running && s.output) lines = s.output.split(/\r?\n/);
+    else lines = (await (await fetch("/api/logs?lines=200")).json()).lines;
+    el.textContent = lines.join("\n");
     if (stick) el.scrollTop = el.scrollHeight;
   } catch (e) { /* transient */ }
 }
@@ -842,7 +908,15 @@ async function pullLogs() {
 // live countdowns
 setInterval(() => {
   document.querySelectorAll(".cd[data-expires]").forEach(el => {
-    el.textContent = fmtCountdown(parseFloat(el.dataset.expires));
+    const exp = parseFloat(el.dataset.expires);
+    if (exp - Date.now() / 1000 <= 0) {
+      // Expired: the next daemon pass (≤5 min) locks the group — say so
+      // instead of freezing at 0:00:00.
+      const bar = el.closest(".gracebar");
+      if (bar) bar.textContent = t("grace_ended");
+      return;
+    }
+    el.textContent = fmtCountdown(exp);
   });
 }, 1000);
 
