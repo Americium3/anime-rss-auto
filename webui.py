@@ -46,14 +46,16 @@ _group_names: dict[int, str] = dict(core.GROUP_NAME)  # subgroup id -> display n
 
 
 # --------------------------------------------------------------------------- #
-# AniList precise airing time (self-maintaining; bgm only gives a date)
+# AniList airing time + English titles (self-maintaining; bgm has neither)
 # --------------------------------------------------------------------------- #
 # bgm 只有放送"日期"没有"时间"，故精确到分钟的开播时刻从 AniList 取——它给的是
-# 绝对 unix 时间戳（ep 放送时刻），前端按浏览器本地时区渲染。按标题搜、结果落
-# airing_cache.json，只对当前/即将播的番（在看/想看）查；搜不到就回退 bgm 日期。
+# 绝对 unix 时间戳（ep 放送时刻），前端按浏览器本地时区渲染。同一个查询顺带取
+# 英文/罗马字名（title{english romaji}），供英文界面显示番名。按标题搜、结果落
+# airing_cache.json；在看/想看同步查，其余类型由后台线程慢速补全；搜不到就回退。
 AIRING_CACHE_PATH = ROOT / "airing_cache.json"
 _ANILIST_URL = "https://graphql.anilist.co"
 _ANILIST_Q = ("query($s:String){Media(search:$s,type:ANIME){"
+              "title{english romaji}"
               "airingSchedule(perPage:8){nodes{episode airingAt}}"
               "nextAiringEpisode{episode airingAt} startDate{year month day}}}")
 
@@ -84,18 +86,19 @@ def _anilist_media(search: str) -> dict | None:
     return (d.get("data") or {}).get("Media")
 
 
-def show_airing_at(bgm_id: int, jp: str, cn: str, cache: dict) -> int | None:
-    """Unix timestamp of episode 1's broadcast (absolute time), or None if unknown.
+def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict) -> dict:
+    """{'at': unix ts of ep1's broadcast or None, 'en': English/romaji title or None}.
 
     Cached per bgm_id in airing_cache.json. A known time is kept indefinitely; a
     miss (None) is retried after a day in case AniList adds the schedule later.
+    Entries written before the 'en' field existed are refreshed once.
     """
     key = str(bgm_id)
     now = int(time.time())
     ent = cache.get(key)
-    if ent and (ent.get("at") is not None or now - ent.get("t", 0) < 86400):
-        return ent.get("at")
-    at = None
+    if ent and "en" in ent and (ent.get("at") is not None or now - ent.get("t", 0) < 86400):
+        return ent
+    at = en = None
     for term in (jp, cn):
         if not term:
             continue
@@ -105,6 +108,8 @@ def show_airing_at(bgm_id: int, jp: str, cn: str, cache: dict) -> int | None:
             m = None
         if not m:
             continue
+        title = m.get("title") or {}
+        en = en or title.get("english") or title.get("romaji")
         nodes = (m.get("airingSchedule") or {}).get("nodes") or []
         ep1 = next((n for n in nodes if n.get("episode") == 1), None)
         if ep1 and ep1.get("airingAt"):
@@ -118,8 +123,39 @@ def show_airing_at(bgm_id: int, jp: str, cn: str, cache: dict) -> int | None:
                                     tzinfo=datetime.timezone.utc)
                   - datetime.timedelta(hours=9))
             at = int(dt.timestamp()); break
-    cache[key] = {"at": at, "t": now}
-    return at
+    ent = {"at": at, "en": en, "t": now}
+    cache[key] = ent
+    return ent
+
+
+# English titles for finished/on-hold/dropped shows are filled lazily in the
+# background — doing hundreds of AniList lookups inline would stall the panel.
+_title_fill_running = False
+_title_fill_lock = threading.Lock()
+
+
+def _start_title_fill(items: list[tuple[int, str, str]]) -> None:
+    global _title_fill_running
+    with _title_fill_lock:
+        if _title_fill_running or not items:
+            return
+        _title_fill_running = True
+
+    def run() -> None:
+        global _title_fill_running
+        try:
+            cache = _load_airing_cache()
+            for i, (bid, jp, cn) in enumerate(items):
+                if "en" not in (cache.get(str(bid)) or {}):
+                    show_air_info(bid, jp, cn, cache)
+                    time.sleep(0.8)  # stay far under AniList's rate limit
+                if i % 20 == 19:
+                    _save_airing_cache(cache)
+            _save_airing_cache(cache)
+        finally:
+            _title_fill_running = False
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 # --------------------------------------------------------------------------- #
@@ -231,56 +267,37 @@ def api_overview():
             save_path = rdef.get("savePath", "")
             entry["rule"] = {
                 "name": rname,
-                "save_path": save_path,
                 "mikan_id": mid,
                 "subgroup": gid,
                 "subgroup_name": _group_names.get(gid, f"Group {gid}") if gid else None,
             }
             entry["status"] = "subscribed"
+            # The panel only shows an n/m-ready summary — ship progress alone.
             norm = save_path.replace("\\", "/").rstrip("/").lower()
             for t in torrents:
                 sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
                 if sp == norm:
-                    entry["torrents"].append({
-                        "name": t.get("name", ""),
-                        "progress": round(float(t.get("progress", 0)), 4),
-                        "state": t.get("state", ""),
-                        "size": t.get("size", 0),
-                        "added_on": t.get("added_on", 0),
-                    })
-            entry["torrents"].sort(key=lambda x: x["added_on"], reverse=True)
+                    entry["torrents"].append(
+                        {"progress": round(float(t.get("progress", 0)), 4)})
         g = grace.get(str(s["bgm_id"]))
         if g is not None and entry["status"] != "subscribed":
             entry["status"] = "grace"
-            entry["grace"] = {
-                "first_seen": g,
-                "expires": g + core.GRACE_HOURS * 3600,
-            }
+            entry["grace"] = {"expires": g + core.GRACE_HOURS * 3600}
         entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
-        entry["airing_at"] = show_airing_at(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+        air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+        entry["airing_at"] = air["at"]
+        entry["title_en"] = air["en"]
         out_shows.append(entry)
     _save_airing_cache(airing_cache)
 
-    jf_libs = []
-    try:
-        _, vfs = core._jf_req("GET", "/Library/VirtualFolders")
-        names = [v["Name"] for v in (vfs or [])]
-        cours = sorted((n for n in names if core._COUR_DIR_RE.match(n)), reverse=True)
-        jf_libs = cours + sorted(n for n in names if not core._COUR_DIR_RE.match(n))
-    except Exception:  # noqa: BLE001
-        pass
-
     return {
-        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "season": season_now,
         "grace_hours": core.GRACE_HOURS,
-        "preferred_group": _group_names.get(core.PREFERRED_GID),
         "group_priority": [
             {"id": gid, "name": core.GROUP_NAME[gid]} for gid in core.PRIORITY_IDS
         ],
         "last_sync": last_sync_time(),
         "sync_running": _sync_running,
-        "jellyfin": {"url": core.JELLYFIN_URL, "libraries": jf_libs},
         "shows": out_shows,
     }
 
@@ -306,6 +323,7 @@ def api_collections():
     prem_cache: dict[int, str | None] = {}
     groups: dict[str, list] = {}
     counts: dict[str, int] = {}
+    backfill: list[tuple[int, str, str]] = []
     for t in (3, 1, 2, 4, 5):
         try:
             shows = core.bgm_collection_subjects(user, t)
@@ -314,11 +332,13 @@ def api_collections():
         counts[_COLL_TYPES[t]] = len(shows)
         lst = []
         for s in shows:
+            cached = airing_cache.get(str(s["bgm_id"])) or {}
             e = {
                 "bgm_id": s["bgm_id"],
                 "type": _COLL_TYPES[t],
                 "title": s["name_cn"] or s["name"],
                 "title_jp": s["name"],
+                "title_en": cached.get("en"),
                 "date": s["date"],
                 "season": core.season_of(s["date"]),
                 "image": s.get("image", ""),
@@ -327,15 +347,16 @@ def api_collections():
             }
             if t in (3, 1):  # 在看/想看：只对当前/即将播的番查精确开播时间
                 e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
-                e["airing_at"] = show_airing_at(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+                air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+                e["airing_at"] = air["at"]
+                e["title_en"] = air["en"]
+            elif "en" not in cached:
+                backfill.append((s["bgm_id"], s["name"], s["name_cn"]))
             lst.append(e)
         groups[_COLL_TYPES[t]] = lst
     _save_airing_cache(airing_cache)
-    out = {
-        "groups": groups,
-        "counts": counts,
-        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-    }
+    _start_title_fill(backfill)
+    out = {"groups": groups, "counts": counts}
     _collections_cache["data"] = out
     _collections_cache["ts"] = now
     return out
@@ -362,10 +383,7 @@ def api_subgroups(mikan_id: int):
 def api_notifications():
     """Premiere notifications (newest first) written by core.premiere_watch_pass."""
     items = list(reversed(core.load_notifications()))
-    return {
-        "notifications": items,
-        "unread": sum(1 for i in items if not i.get("read")),
-    }
+    return {"notifications": items}
 
 
 class NotifyRead(BaseModel):
