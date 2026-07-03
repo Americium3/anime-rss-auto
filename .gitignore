@@ -9,4 +9,5 @@ premiere_times.json
 airing_cache.json
 *.log
 .codegraph/
+.claude/
 __pycache__/
