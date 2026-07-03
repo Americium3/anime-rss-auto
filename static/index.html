@@ -163,22 +163,40 @@
     padding: 2px 9px; border-radius: 999px; color: var(--text-faint);
     background: color-mix(in srgb, currentColor 12%, transparent);
   }
-  .season-tag.s0 { color: #f472b6; }  /* even-year winter  */
-  .season-tag.s1 { color: #fb923c; }  /* even-year spring  */
-  .season-tag.s2 { color: #a3e635; }  /* even-year summer  */
-  .season-tag.s3 { color: #22d3ee; }  /* even-year autumn  */
-  .season-tag.s4 { color: #a78bfa; }  /* odd-year winter   */
-  .season-tag.s5 { color: #facc15; }  /* odd-year spring   */
-  .season-tag.s6 { color: #34d399; }  /* odd-year summer   */
-  .season-tag.s7 { color: #60a5fa; }  /* odd-year autumn   */
-  html[data-theme="light"] .season-tag.s0 { color: #db2777; }
-  html[data-theme="light"] .season-tag.s1 { color: #ea580c; }
-  html[data-theme="light"] .season-tag.s2 { color: #65a30d; }
-  html[data-theme="light"] .season-tag.s3 { color: #0891b2; }
-  html[data-theme="light"] .season-tag.s4 { color: #7c3aed; }
-  html[data-theme="light"] .season-tag.s5 { color: #ca8a04; }
-  html[data-theme="light"] .season-tag.s6 { color: #059669; }
-  html[data-theme="light"] .season-tag.s7 { color: #2563eb; }
+  .season-tag.s0, .season-divider.s0 { color: #f472b6; }  /* even-year winter  */
+  .season-tag.s1, .season-divider.s1 { color: #fb923c; }  /* even-year spring  */
+  .season-tag.s2, .season-divider.s2 { color: #a3e635; }  /* even-year summer  */
+  .season-tag.s3, .season-divider.s3 { color: #22d3ee; }  /* even-year autumn  */
+  .season-tag.s4, .season-divider.s4 { color: #a78bfa; }  /* odd-year winter   */
+  .season-tag.s5, .season-divider.s5 { color: #facc15; }  /* odd-year spring   */
+  .season-tag.s6, .season-divider.s6 { color: #34d399; }  /* odd-year summer   */
+  .season-tag.s7, .season-divider.s7 { color: #60a5fa; }  /* odd-year autumn   */
+  html[data-theme="light"] .season-tag.s0, html[data-theme="light"] .season-divider.s0 { color: #db2777; }
+  html[data-theme="light"] .season-tag.s1, html[data-theme="light"] .season-divider.s1 { color: #ea580c; }
+  html[data-theme="light"] .season-tag.s2, html[data-theme="light"] .season-divider.s2 { color: #65a30d; }
+  html[data-theme="light"] .season-tag.s3, html[data-theme="light"] .season-divider.s3 { color: #0891b2; }
+  html[data-theme="light"] .season-tag.s4, html[data-theme="light"] .season-divider.s4 { color: #7c3aed; }
+  html[data-theme="light"] .season-tag.s5, html[data-theme="light"] .season-divider.s5 { color: #ca8a04; }
+  html[data-theme="light"] .season-tag.s6, html[data-theme="light"] .season-divider.s6 { color: #059669; }
+  html[data-theme="light"] .season-tag.s7, html[data-theme="light"] .season-divider.s7 { color: #2563eb; }
+  /* Completed grid: full-width season rule between groups of neighbouring
+     cards, tinted by the same cour palette as the badges. */
+  .season-divider {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 10px;
+    margin: 10px 0 -4px;
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    letter-spacing: .1em; color: var(--text-faint);
+  }
+  .season-divider:first-child { margin-top: 0; }
+  .season-divider::before {
+    content: ""; width: 26px; height: 2px; border-radius: 1px;
+    background: currentColor; opacity: .8;
+  }
+  .season-divider::after {
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, currentColor, transparent); opacity: .35;
+  }
   /* bangumi community rating — same badge family as the season tag. */
   .score {
     font-size: 11px; font-weight: 600; font-family: var(--mono);
@@ -555,6 +573,7 @@ const I18N = {
     timeTBA: "Time TBA", today: "Today",
     scheduleEmpty: "No airing-time data yet — it fills in as AniList lookups resolve",
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
+    noSeason: "SEASON UNKNOWN",
   },
   zh: {
     langBtn: "EN",
@@ -609,6 +628,7 @@ const I18N = {
     timeTBA: "时间待定", today: "今天",
     scheduleEmpty: "暂无开播时间数据 — AniList 查询完成后会自动补齐",
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
+    noSeason: "季度未知",
   },
 };
 
@@ -900,6 +920,28 @@ function airMs(s) {
 }
 const byAir = (a, b) => airMs(a) - airMs(b);
 
+// Completed tab: newest cour block first; inside a block the most recently
+// marked show leads (bgm's updated_at stamps the last collection edit — a
+// close proxy for "when I finished it"). Season-less shows sink to the end.
+const markedMs = s => Date.parse(s.updated_at || "") || 0;
+const byDone = (a, b) =>
+  (b.season || "").localeCompare(a.season || "") || markedMs(b) - markedMs(a);
+
+// Completed grid: one full-width season rule ahead of each cour block.
+function withSeasonDividers(shows) {
+  const out = [];
+  let prev = null;
+  for (const s of shows) {
+    const season = s.season || "";
+    if (season !== prev) {
+      out.push(`<div class="season-divider ${seasonClass(season)}">${season ? esc(season) : t("noSeason")}</div>`);
+      prev = season;
+    }
+    out.push(basicCard(s));
+  }
+  return out;
+}
+
 // Live title filter from the search box (matches any of the three title fields).
 function searchMatch(s) {
   const q = ($("search").value || "").trim().toLowerCase();
@@ -922,7 +964,11 @@ function renderCards() {
     if (!state) return;
     list = state.shows.slice().sort(byAir).filter(searchMatch).map(card);
   } else if (collections) {
-    list = (collections.groups[activeType] || []).slice().sort(byAir).filter(searchMatch).map(basicCard);
+    const shows = (collections.groups[activeType] || []).filter(searchMatch);
+    // 看过 reads as a viewing history: newest cour on top, split per cour.
+    list = activeType === "done"
+      ? withSeasonDividers(shows.sort(byDone))
+      : shows.sort(byAir).map(basicCard);
   }
   if (list === null) return;
   const empty = ($("search").value || "").trim() ? t("noMatch") : "—";

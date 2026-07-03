@@ -349,6 +349,7 @@ def api_collections():
                 "season": core.season_of(s["date"]),
                 "image": s.get("image", ""),
                 "score": s.get("score"),
+                "updated_at": s.get("updated_at"),
                 "airing_at": None,
                 "premiere_date": None,
             }

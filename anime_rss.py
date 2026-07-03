@@ -346,6 +346,7 @@ def bgm_collection_subjects(user: str, ctype: int) -> list[dict]:
                     "date": s.get("date", ""),
                     "image": img.get("common") or img.get("medium") or "",
                     "score": s.get("score") or None,  # community rating, 0 = unrated
+                    "updated_at": x.get("updated_at"),  # when the mark was (last) set
                 }
             )
         offset += len(data)
