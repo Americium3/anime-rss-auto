@@ -1,4 +1,4 @@
-# anime-rss-auto
+# <img src="static/icon.svg" width="28" align="top" alt="logo"> anime-rss-auto
 
 **English** | [简体中文](README.zh-CN.md)
 

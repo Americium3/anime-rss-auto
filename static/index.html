@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#eef1f7" media="(prefers-color-scheme: light)">
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%238b5cf6"/><stop offset="1" stop-color="%2322d3ee"/></linearGradient></defs><circle cx="50" cy="50" r="40" fill="url(%23g)"/></svg>'>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%238b5cf6"/><stop offset="1" stop-color="%2322d3ee"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(%23g)"/><g fill="none" stroke="%23fff" stroke-width="6.5" stroke-linecap="round"><path d="M17 32 A15 15 0 0 1 32 47"/><path d="M17 20 A27 27 0 0 1 44 47"/></g><path d="M13.5 41.5 L24 47 L13.5 52.5 Z" fill="%23fff" stroke="%23fff" stroke-width="4" stroke-linejoin="round"/></svg>'>
 <title>Anime Autopilot</title>
 <style>
   :root {
@@ -81,10 +81,9 @@
   /* ---------- header ---------- */
   header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
   .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
-  .brand .dot {
-    width: 10px; height: 10px; border-radius: 50%; align-self: center;
-    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-    box-shadow: 0 0 14px color-mix(in srgb, var(--accent-a) 80%, transparent);
+  .brand .logo {
+    width: 26px; height: 26px; flex: none; align-self: center;
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-a) 55%, transparent));
   }
   .brand h1 { font-size: 19px; font-weight: 650; letter-spacing: .12em; margin: 0; }
   .brand small { color: var(--text-faint); letter-spacing: .05em; font-size: 11.5px; }
@@ -387,11 +386,11 @@
   }
   .boot-core {
     position: absolute; inset: 0; margin: auto;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-    box-shadow: 0 0 20px color-mix(in srgb, var(--accent-a) 80%, transparent);
+    width: 36px; height: 36px;
+    filter: drop-shadow(0 0 16px color-mix(in srgb, var(--accent-a) 65%, transparent));
     animation: corepulse 2.2s ease-in-out infinite;
   }
+  .boot-core svg { display: block; width: 100%; height: 100%; }
   @keyframes corepulse { 50% { transform: scale(.8); opacity: .7; } }
   .boot-name { text-align: center; }
   /* letter-spacing trails the last glyph — offset to keep the optical center */
@@ -433,9 +432,25 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="logograd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" style="stop-color:var(--accent-a)"/>
+      <stop offset="1" style="stop-color:var(--accent-b)"/>
+    </linearGradient>
+    <symbol id="applogo" viewBox="0 0 64 64">
+      <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#logograd)"/>
+      <g fill="none" stroke="#fff" stroke-width="6.5" stroke-linecap="round">
+        <path d="M17 32 A15 15 0 0 1 32 47"/>
+        <path d="M17 20 A27 27 0 0 1 44 47"/>
+      </g>
+      <path d="M13.5 41.5 L24 47 L13.5 52.5 Z" fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
 <div id="boot" role="status" aria-live="polite">
   <div class="boot-inner">
-    <div class="boot-spinner"><div class="boot-arc"></div><div class="boot-core"></div></div>
+    <div class="boot-spinner"><div class="boot-arc"></div><div class="boot-core"><svg><use href="#applogo"/></svg></div></div>
     <div class="boot-name">
       <div class="boot-brand">ANIME&nbsp;AUTOPILOT</div>
       <div class="boot-sub">bangumi · mikan · qBittorrent · jellyfin</div>
@@ -447,7 +462,7 @@
 <main class="wrap">
   <header>
     <div class="brand">
-      <span class="dot"></span>
+      <svg class="logo" aria-hidden="true"><use href="#applogo"/></svg>
       <h1>ANIME&nbsp;AUTOPILOT</h1>
       <small>bangumi · mikan · qBittorrent · jellyfin</small>
     </div>

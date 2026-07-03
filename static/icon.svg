@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Anime Autopilot mark: an RSS feed whose dot is a play button -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#g)"/>
+  <g fill="none" stroke="#fff" stroke-width="6.5" stroke-linecap="round">
+    <path d="M17 32 A15 15 0 0 1 32 47"/>
+    <path d="M17 20 A27 27 0 0 1 44 47"/>
+  </g>
+  <path d="M13.5 41.5 L24 47 L13.5 52.5 Z" fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+</svg>
