@@ -180,6 +180,12 @@
   html[data-theme="light"] .season-tag.s5 { color: #ca8a04; }
   html[data-theme="light"] .season-tag.s6 { color: #059669; }
   html[data-theme="light"] .season-tag.s7 { color: #2563eb; }
+  /* bangumi community rating — same badge family as the season tag. */
+  .score {
+    font-size: 11px; font-weight: 600; font-family: var(--mono);
+    padding: 2px 9px; border-radius: 999px; color: var(--warn);
+    background: color-mix(in srgb, currentColor 12%, transparent);
+  }
 
   .grouprow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
   .grouprow b { color: var(--text); }
@@ -455,6 +461,7 @@ const I18N = {
     dismissAll: "Dismiss all",
     searchPh: "Search titles…",
     noMatch: "No matching shows",
+    scoreHint: "bangumi rating",
     t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
     airsLabel: "Airs", airedLabel: "Premiered",
@@ -505,6 +512,7 @@ const I18N = {
     dismissAll: "全部知道了",
     searchPh: "搜索番名…",
     noMatch: "没有匹配的番剧",
+    scoreHint: "bangumi 评分",
     t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
     airsLabel: "开播", airedLabel: "开播",
@@ -686,6 +694,10 @@ function fmtCountdown(expires) {
 const groupLabel = rule =>
   rule.subgroup_name || (rule.subgroup ? "#" + rule.subgroup : "?");
 
+// bangumi community rating badge; bgm sends 0 / null for unrated subjects.
+const scoreTag = s =>
+  s.score ? `<span class="score" title="${esc(t("scoreHint"))}">★ ${(+s.score).toFixed(1)}</span>` : "";
+
 function card(show) {
   const st = show.status;
   // "subscribed" is the normal state — only exceptional statuses get a pill.
@@ -737,7 +749,8 @@ function card(show) {
   }
 
   const seasonTag = show.season ? `<span class="season-tag ${seasonClass(show.season)}">${esc(show.season)}</span>` : "";
-  const meta = pill || seasonTag ? `<div class="meta">${pill}${seasonTag}</div>` : "";
+  const score = scoreTag(show);
+  const meta = pill || seasonTag || score ? `<div class="meta">${pill}${seasonTag}${score}</div>` : "";
   return `<div class="card t-watching" onclick="openBgm(event, ${show.bgm_id})">
     <div class="cover">${coverHtml(show.image)}</div>
     <div class="card-body">
@@ -754,7 +767,9 @@ function basicCard(s) {
   const when = fmtLocal(s.airing_at, s.premiere_date);
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(s) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
-  const meta = s.season ? `<div class="meta"><span class="season-tag ${seasonClass(s.season)}">${esc(s.season)}</span></div>` : "";
+  const seasonTag = s.season ? `<span class="season-tag ${seasonClass(s.season)}">${esc(s.season)}</span>` : "";
+  const score = scoreTag(s);
+  const meta = seasonTag || score ? `<div class="meta">${seasonTag}${score}</div>` : "";
   return `<div class="card t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="cover">${coverHtml(s.image)}</div>
     <div class="card-body">
