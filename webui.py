@@ -495,6 +495,28 @@ def api_rule_switch(body: RuleSwitch):
     new_feed = core.feed_url(mid, body.subgroup)
     season = (rdef.get("torrentParams", {}).get("tags") or [core.current_season()])[0]
 
+    # 0) full-replace: nuke the OLD group's downloaded files so the NEW group
+    #    replaces it episode for episode. mikan's per-subgroup RSS is full, so
+    #    the swapped feed re-grabs the whole season into the emptied folder.
+    #    Guarded by the season cutoff — pre-cutoff shows are hand-managed and are
+    #    NEVER touched destructively (see SKIP_BEFORE_SEASON).
+    deleted = 0
+    save_path = rdef.get("savePath", "")
+    if save_path and str(season) >= core.SKIP_BEFORE_SEASON:
+        try:
+            victims = core.qb_torrents_under(save_path)
+            if victims:
+                core.qb_post(
+                    "/api/v2/torrents/delete",
+                    {"hashes": "|".join(t["hash"] for t in victims),
+                     "deleteFiles": "true"},
+                )
+                deleted = len(victims)
+        except Exception as ex:  # noqa: BLE001
+            notes.append(f"delete old files: {ex}")
+    elif save_path:
+        notes.append(f"kept old files (旧番 {season} < {core.SKIP_BEFORE_SEASON})")
+
     # 1) swap RSS feed items (remove old first: same tree path)
     feed_paths = core.rss_feed_paths()
     old_path = feed_paths.get(old_feed)
@@ -516,6 +538,9 @@ def api_rule_switch(body: RuleSwitch):
     # 2) rewrite the rule
     rdef["affectedFeeds"] = [new_feed]
     rdef["mustContain"] = core.GROUP_FILTER.get(body.subgroup, "")
+    # We just deleted the whole folder, so let qB re-match every episode of the
+    # new feed instead of skipping ones it "already grabbed" under the old group.
+    rdef["previouslyMatchedEpisodes"] = []
     try:
         core.qb_post("/api/v2/rss/setRule",
                      {"ruleName": body.rule_name, "ruleDef": json.dumps(rdef)})
@@ -533,7 +558,7 @@ def api_rule_switch(body: RuleSwitch):
 
     grp = _group_names.get(body.subgroup, str(body.subgroup))
     return {"ok": True, "code": "switched", "group": grp, "notes": notes,
-            "note": f"rule now follows {grp}"}
+            "deleted": deleted, "note": f"rule now follows {grp}"}
 
 
 @app.get("/")

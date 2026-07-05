@@ -548,6 +548,8 @@ const I18N = {
     loadGroupsFail: e => "Could not load subgroups: " + e,
     switchFail: e => "Switch failed: " + e,
     switchWarn: n => "Switched, with warnings: " + n,
+    switchConfirm: g => `Switch to ${g}?\n\nThis DELETES this show's currently downloaded files from the old group, then re-downloads the whole season from ${g}. This cannot be undone.`,
+    switchedDel: (g, n) => `Switched to ${g} — deleted ${n} old torrent(s) + files`,
     failed: e => "Failed: " + e,
     already_running: "Sync already running",
     grace_ended: "Grace ended — next sync (≤5 min) locks the best available group",
@@ -603,6 +605,8 @@ const I18N = {
     loadGroupsFail: e => "字幕组加载失败：" + e,
     switchFail: e => "切换失败：" + e,
     switchWarn: n => "已切换，但有警告：" + n,
+    switchConfirm: g => `切换到 ${g}？\n\n这会删除本番当前旧字幕组已下载的文件，再从 ${g} 重下整季。此操作不可撤销。`,
+    switchedDel: (g, n) => `已切换到 ${g}，删除旧组 ${n} 个种子+文件`,
     failed: e => "操作失败：" + e,
     already_running: "同步已在进行中",
     grace_ended: "宽限期已结束 — 下轮同步（≤5 分钟）将锁定当前最优字幕组",
@@ -1338,6 +1342,11 @@ async function switchGroup(bgmId) {
   if (!show || !show.rule) return;
   const gid = parseInt(sel.value, 10);
   if (Number.isNaN(gid)) { toast(t("openDropdown")); return; }
+  // Same group already active — nothing to replace, skip the scary confirm.
+  if (gid === show.rule.subgroup) { toast(t("switched", groupLabel(show.rule))); return; }
+  // Switching now DELETES the old group's files (irreversible) — confirm once.
+  const gname = (sel.options[sel.selectedIndex] || {}).text || String(gid);
+  if (!confirm(t("switchConfirm", gname))) return;
   try {
     const r = await fetch("/api/rule/switch", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1348,7 +1357,8 @@ async function switchGroup(bgmId) {
       // Surface best-effort failures (mikan resubscribe, old feed removal) —
       // "switched" alone would hide a mikan side now out of sync.
       toast(d.notes && d.notes.length ? t("switchWarn", d.notes.join("; "))
-                                      : t(d.code || "switched", d.group));
+            : (d.deleted ? t("switchedDel", d.group, d.deleted)
+                         : t(d.code || "switched", d.group)));
       refresh();
     } else {
       toast(t("switchFail", errText(d, r)));
