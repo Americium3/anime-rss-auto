@@ -1015,6 +1015,14 @@ const byAir = (a, b) => airMs(a) - airMs(b);
 const bySeasonThen = inner => (a, b) =>
   (b.season || "").localeCompare(a.season || "") || inner(a, b);
 
+// Same, but oldest cour first — for 在看/想看, which read as a backlog to clear.
+// Season-less shows still sink to the end (not floated to the top).
+const bySeasonAscThen = inner => (a, b) => {
+  const sa = a.season || "", sb = b.season || "";
+  if (sa !== sb) return !sa ? 1 : !sb ? -1 : sa.localeCompare(sb);
+  return inner(a, b);
+};
+
 // Completed tab: inside a cour the most recently marked show leads (bgm's
 // updated_at stamps the last collection edit — a close proxy for "when I
 // finished it").
@@ -1061,11 +1069,14 @@ function renderCards() {
     if (!state) return;
     let shows = state.shows.slice().filter(searchMatch);
     if (watchWeekday !== "all") shows = shows.filter(s => airWeekday(s) === +watchWeekday);
-    list = withSeasonDividers(shows.sort(bySeasonThen(byAir)), card);
+    list = withSeasonDividers(shows.sort(bySeasonAscThen(byAir)), card);
   } else if (collections) {
     const shows = (collections.groups[activeType] || []).filter(searchMatch);
-    // 看过 orders each cour by when it was marked; other tabs by air time.
-    const cmp = activeType === "done" ? byDone : bySeasonThen(byAir);
+    // 想看 reads oldest cour first (a backlog to clear); 看过 orders each cour by
+    // when it was marked; 搁置/抛弃 stay newest cour first.
+    const cmp = activeType === "want" ? bySeasonAscThen(byAir)
+      : activeType === "done" ? byDone
+      : bySeasonThen(byAir);
     list = withSeasonDividers(shows.sort(cmp), basicCard);
   }
   if (list === null) return;
