@@ -310,6 +310,27 @@
     border-color: color-mix(in srgb, var(--accent-b) 40%, transparent);
   }
   .sched-filters .fchip.active b { color: var(--accent-b); }
+  /* Season-only toggle: an independent filter dimension, so it reads as a
+     switch rather than another premiere-status chip. Sits at the row's end. */
+  .sched-toggle {
+    display: inline-flex; align-items: center; gap: 8px; margin-left: auto;
+    font-size: 12px; color: var(--text-faint); cursor: pointer; user-select: none;
+  }
+  .sched-toggle.on { color: var(--text); }
+  .sched-toggle .track {
+    position: relative; width: 34px; height: 18px; border-radius: 999px;
+    background: var(--input-bg); border: 1px solid var(--panel-border);
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .sched-toggle.on .track {
+    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+    border-color: transparent;
+  }
+  .sched-toggle .knob {
+    position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--text-faint); transition: left .15s ease, background .15s ease;
+  }
+  .sched-toggle.on .knob { left: 18px; background: var(--btn-text); }
   .sched-board {
     display: flex; align-items: flex-start; gap: 12px;
     overflow-x: auto; padding-bottom: 14px;
@@ -575,6 +596,7 @@ const I18N = {
     timeTBA: "Time TBA", today: "Today",
     scheduleEmpty: "No airing-time data yet — it fills in as AniList lookups resolve",
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
+    sched_season_only: "This season only",
     noSeason: "SEASON UNKNOWN",
   },
   zh: {
@@ -632,6 +654,7 @@ const I18N = {
     timeTBA: "时间待定", today: "今天",
     scheduleEmpty: "暂无开播时间数据 — AniList 查询完成后会自动补齐",
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
+    sched_season_only: "仅本季",
     noSeason: "季度未知",
   },
 };
@@ -654,6 +677,7 @@ let activeType = pick(QS.get("tab") || localStorage.getItem("tab") || "watching"
   [...FILTER_ORDER, "schedule"], "watching");
 let schedFilter = pick(localStorage.getItem("schedFilter") || "all",
   ["all", "aired", "upcoming"], "all");   // timetable premiere-status filter
+let schedSeasonOnly = localStorage.getItem("schedSeasonOnly") === "1";  // timetable: limit to current cour
 
 let state = null;
 let collections = null;
@@ -862,13 +886,16 @@ function card(show) {
   const seasonTag = show.season ? `<span class="season-tag ${seasonClass(show.season)}">${esc(show.season)}</span>` : "";
   const score = scoreTag(show);
   const meta = pill || seasonTag || score ? `<div class="meta">${pill}${seasonTag}${score}</div>` : "";
+  const when = fmtLocal(show.airing_at, show.premiere_date);
+  const airRow = when
+    ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(show) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   return `<div class="card t-watching" onclick="openBgm(event, ${show.bgm_id})">
     <div class="cover">${coverHtml(show.image)}</div>
     <div class="card-body">
       ${meta}
       <h3>${bgmLink(show.bgm_id, esc(displayTitle(show)))}</h3>
       ${jpLine(show)}
-      ${groupRow}${graceRow}${torrents}
+      ${airRow}${groupRow}${graceRow}${torrents}
     </div>
   </div>`;
 }
@@ -989,11 +1016,17 @@ const hasAired = s => airMs(s) <= Date.now();
 function renderSchedule() {
   // Keep the loading placeholder when booting straight onto this tab.
   if (!collections) return;
-  const all = ["watching", "want"].flatMap(k => collections.groups[k] || []);
+  let all = ["watching", "want"].flatMap(k => collections.groups[k] || []);
   if (!all.length) {
     setHTML($("cards"), `<div class="empty">${t("scheduleEmpty")}</div>`);
     return;
   }
+  // Season-only narrows the pool before everything else, so the premiere-status
+  // counts below reflect just the current cour. A missing state.season leaves
+  // the pool untouched rather than blanking the board. Pinned shows (old cours
+  // still airing weekly) count as current and are never hidden by this filter.
+  const cur = state && state.season;
+  if (schedSeasonOnly && cur) all = all.filter(s => s.season === cur || s.pinned);
   const counts = {
     all: all.length,
     aired: all.filter(hasAired).length,
@@ -1001,6 +1034,9 @@ function renderSchedule() {
   };
   const chips = ["all", "aired", "upcoming"]
     .map(k => fchipBtn(k, t("sched_" + k), counts[k], schedFilter === k, "setSchedFilter")).join("");
+  const seasonToggle = `<button class="sched-toggle ${schedSeasonOnly ? "on" : ""}"
+      aria-pressed="${schedSeasonOnly}" onclick="setSchedSeasonOnly(${!schedSeasonOnly})">
+      <span class="track"><span class="knob"></span></span>${t("sched_season_only")}</button>`;
 
   const shows = schedFilter === "all" ? all : all.filter(s => hasAired(s) === (schedFilter === "aired"));
   const days = [[], [], [], [], [], [], []];  // Mon..Sun
@@ -1029,7 +1065,7 @@ function renderSchedule() {
   // Keep the horizontal scroll position across re-renders.
   const prev = $("cards").querySelector(".sched-board");
   const sl = prev ? prev.scrollLeft : 0;
-  setHTML($("cards"), `<div class="sched-filters">${chips}</div>
+  setHTML($("cards"), `<div class="sched-filters">${chips}${seasonToggle}</div>
     <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>`);
   const board2 = $("cards").querySelector(".sched-board");
   if (board2 && sl) board2.scrollLeft = sl;
@@ -1041,6 +1077,12 @@ function setSchedFilter(k) {
   renderCards();
 }
 
+function setSchedSeasonOnly(on) {
+  schedSeasonOnly = !!on;
+  localStorage.setItem("schedSeasonOnly", on ? "1" : "0");
+  renderCards();
+}
+
 function schedItem(s) {
   const d = s.airing_at ? new Date(s.airing_at * 1000) : null;
   const hm = d ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "--:--";
@@ -1048,12 +1090,16 @@ function schedItem(s) {
   // each card carries a single pill — the collection type.
   const aired = hasAired(s);
   const title = displayTitle(s);
+  const when = fmtLocal(s.airing_at, s.premiere_date);
+  const airRow = when
+    ? `<div class="airline"><span class="ai">▸</span>${t(aired ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   return `<div class="sched-item t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="scover">${coverHtml(s.image)}</div>
     <div class="sbody">
       <div class="srow"><span class="stime ${aired ? "aired" : "upcoming"}">${hm}</span><span class="pill ${s.type}">${t("t_" + s.type)}</span></div>
       <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>
       ${jpLine(s)}
+      ${airRow}
     </div>
   </div>`;
 }

@@ -6,6 +6,7 @@
   "bangumi_library": "X:\\Bangumi",
 
   "skip_before_season": "2026.04",
+  "pin_current_bgm_ids": [],
   "purge_dropped_files": true,
   "ani_grace_hours": 3,
   "group_priority": [
