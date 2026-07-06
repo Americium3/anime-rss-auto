@@ -32,6 +32,7 @@ day it premieres (advance-release / 先行版 dumps are filtered out).
 | **sync / watch** | bgm 在看 list → mikan feed + qB rule (savePath `<library>\<YYYY.MM>\<name>`, season tag) | core |
 | **premiere watch** | a 想看 (plan-to-watch) show is auto-promoted to 在看 the day it premieres (gated by the bgm first-episode airdate; optional `premiere_times.json` override), firing a panel banner. Advance-release (先行版) items are rejected by name (先行/予告), size (> 2 GB), and pre-air publish date | `premiere_watch_enabled` |
 | **subgroup priority** | picks one subtitle group per show by your ranked list; never downloads duplicates | `group_priority` |
+| **prefer-source** | some groups publish one episode from several sources (Baha / CR / ABEMA…). Blacklisted sources are folded into every rule's `mustNotContain` so the feed rejects them and they never download; if more than one source of the same episode does land, only the highest-priority one is kept after download and the rest are deleted (files included). Unknown sources are left untouched, and only cours after the cutoff are affected. Run standalone with `python anime_rss.py dedup [--dry-run]` | `prefer_source_enabled` / `source_blacklist` / `source_priority` |
 | **ANi grace fuse** | if the top-priority group hasn't published when a show first appears on mikan, wait N hours before locking a lower one (missed items are backfilled from the feed) | `ani_grace_hours` |
 | **reconcile** | show moved to 看过/抛弃 → drop the qB rule (files kept); removed from collection entirely → unsubscribe + delete files | `purge_dropped_files` |
 | **season cutoff** | shows older than a cour cutoff are never touched — no adds, no deletes | `skip_before_season` |
@@ -48,7 +49,7 @@ Each module is independently toggleable in config — take what you need.
 ## Files
 
 - `anime_rss.py` — everything above except the panel; stdlib only, single file.
-  Subcommands: `list`, `plan`, `apply`, `prune`, `sync`, `watch`, `mark`, `premiere`, `auth`, `jfhook`.
+  Subcommands: `list`, `plan`, `apply`, `prune`, `sync`, `watch`, `mark`, `dedup`, `premiere`, `auth`, `jfhook`.
 - `webui.py` + `static/index.html` — FastAPI control panel on `http://127.0.0.1:8767`.
 - `run_watch*.bat/vbs`, `run_webui*.bat/vbs` — hidden autostart launchers
   (drop shortcuts to the `.vbs` files into `shell:startup`).

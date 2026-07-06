@@ -93,6 +93,19 @@ PRIORITY_IDS = [g[0] for g in GROUP_PRIORITY]
 GROUP_NAME = {g[0]: g[1] for g in GROUP_PRIORITY}
 GROUP_FILTER = {g[0]: g[2] for g in GROUP_PRIORITY}
 
+# --- 同组多源取舍：黑名单进规则、优先级进下载后清理 ------------------------- #
+# 有些字幕组一集会并行放出多个来源版本（如 Baha / CR / ABEMA），文件名里用
+# 括号标源，例：「... - 01 (Baha 1920x1080 AVC AAC MP4)」。诉求：
+#   1) 某些源永不下载（如 ABEMA，无翻译）；
+#   2) 同一集若同时有多个源，只保留优先级最高的一个。
+# qB 的 RSS 规则字段能表达 (1)——把黑名单塞进 mustNotContain，feed 层直接拒；
+# 但表达不了 (2)——规则逐条匹配、彼此不知情，没有「源排序」概念。所以：
+#   * SOURCE_BLACKLIST -> 每条规则的 mustNotContain（永不下载）。
+#   * SOURCE_PRIORITY  -> 下载后 prefer_source_dedup() 同集去重（保高删低）。
+# 两个列表都按需在 config 覆盖；比较对源标签大小写不敏感、按整词边界匹配。
+SOURCE_BLACKLIST = [str(s) for s in CONFIG.get("source_blacklist", ["ABEMA"])]
+SOURCE_PRIORITY = [str(s) for s in CONFIG.get("source_priority", ["Baha", "CR"])]
+
 # Shows from a cour BEFORE this one are left entirely to manual handling: the
 # script never adds, removes, unsubscribes, or deletes files for them. The
 # cutoff is a cour string "YYYY.MM" and comparison is lexicographic (months are
@@ -653,6 +666,20 @@ def clean_name(name: str) -> str:
     return ILLEGAL_WIN.sub("", name).strip().rstrip(".")
 
 
+def _merge_must_not_contain(base: str) -> str:
+    """把 SOURCE_BLACKLIST 并进一条 mustNotContain（qB 非正则里 `|` = 逻辑或）。
+
+    幂等：已存在的项（大小写不敏感）不重复加，保留原有顺序。空项跳过。
+    """
+    tokens = [t for t in base.split("|") if t.strip()]
+    have = {t.strip().lower() for t in tokens}
+    for src in SOURCE_BLACKLIST:
+        if src.strip() and src.strip().lower() not in have:
+            tokens.append(src.strip())
+            have.add(src.strip().lower())
+    return "|".join(tokens)
+
+
 def make_rule_def(name: str, season: str, feed: str, must_contain: str,
                   must_not_contain: str | None = None) -> dict:
     save_bs = f"{BANGUMI_LIBRARY}\\{season}\\{name}"
@@ -660,6 +687,8 @@ def make_rule_def(name: str, season: str, feed: str, must_contain: str,
     if must_not_contain is None:
         # 名字层排除先行版：qB 规则不支持按大小/日期过滤，故只能拦名字里带「先行」的。
         must_not_contain = str(CONFIG.get("rule_must_not_contain", "先行"))
+    # 黑名单源（如 ABEMA）永不下载 -> 直接进 mustNotContain，feed 层就拦掉。
+    must_not_contain = _merge_must_not_contain(must_not_contain)
     return {
         "enabled": True,
         "mustContain": must_contain,
@@ -1901,6 +1930,132 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
         print(f"# premiere: 本轮新开播 {fired} 部")
 
 
+# --------------------------------------------------------------------------- #
+# 同组多源取舍：prefer-source 去重 + 规则黑名单自愈
+# --------------------------------------------------------------------------- #
+# 集号：匹配「- 01」「- 01v2」「- 01.5」后接括号/方括号（各组命名惯例都这样）。
+_EP_RE = re.compile(r"-\s*(\d{1,4})(?:\.\d+)?(?:v\d+)?\s*(?=[\(\[【（])")
+_COUR_IN_PATH_RE = re.compile(r"/(\d{4}\.\d{2})/")
+
+
+def _source_rank(name: str) -> int | None:
+    """种子名的源优先级序号（越小越优）；无任何已知源返回 None。
+
+    SOURCE_PRIORITY 里的源排在前（0..n-1）；SOURCE_BLACKLIST 里的源紧随其后
+    （n..），这样同集里只要有更优的兄弟，黑名单源（如规则生效前漏下的历史
+    ABEMA）也会被一并清掉；但若某集只剩黑名单源、别无替代，则不动，不盲删唯一副本。
+    """
+    low = name.lower()
+
+    def hit(s: str) -> bool:
+        s = s.strip().lower()
+        return bool(s) and bool(
+            re.search(rf"(?<![a-z0-9]){re.escape(s)}(?![a-z0-9])", low))
+
+    for i, src in enumerate(SOURCE_PRIORITY):
+        if hit(src):
+            return i
+    base = len(SOURCE_PRIORITY)
+    for j, src in enumerate(SOURCE_BLACKLIST):
+        if hit(src):
+            return base + j
+    return None
+
+
+def _episode_key(name: str) -> str | None:
+    """从种子名抽集号（'... - 01 (Baha ...)' -> '1'）；抽不到返回 None。"""
+    m = _EP_RE.search(name)
+    return str(int(m.group(1))) if m else None
+
+
+def _cour_of_torrent(t: dict) -> str | None:
+    """从 save_path/content_path 里读出季度串 'YYYY.MM'；读不到返回 None。"""
+    for p in (t.get("save_path"), t.get("content_path")):
+        m = _COUR_IN_PATH_RE.search((p or "").replace("\\", "/"))
+        if m:
+            return m.group(1)
+    return None
+
+
+def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
+    """把 SOURCE_BLACKLIST 补进现存 qB 规则的 mustNotContain（幂等，自愈）。
+
+    make_rule_def 只保证「新建」规则带黑名单；已存在的老规则靠这一趟补齐，
+    黑名单一改下轮 sync 自动同步到全部规则，无需手动重建。旧番规则（savePath
+    落在 SKIP_BEFORE_SEASON 之前的季度）不碰，沿用手动管理红线。
+    """
+    if not SOURCE_BLACKLIST:
+        return 0
+    rules = existing_rules()
+    changed = 0
+    for rname, rdef in rules.items():
+        sp = (rdef.get("savePath") or "").replace("\\", "/")
+        m = _COUR_IN_PATH_RE.search(sp)
+        if m and m.group(1) < SKIP_BEFORE_SEASON:
+            continue  # 旧番规则不碰
+        old = rdef.get("mustNotContain", "") or ""
+        new = _merge_must_not_contain(old)
+        if new != old:
+            print(f"  rule-blacklist: {rname}  mustNotContain: {old!r} -> {new!r}")
+            if not dry_run:
+                nd = dict(rdef)
+                nd["mustNotContain"] = new
+                try:
+                    qb_post("/api/v2/rss/setRule",
+                            {"ruleName": rname, "ruleDef": json.dumps(nd)})
+                except Exception as ex:  # noqa: BLE001
+                    print(f"     ! setRule 失败: {ex}")
+                    continue
+            changed += 1
+    if changed:
+        print(f"# rule-blacklist: 更新 {changed} 条规则"
+              f"{'（dry-run 未实写）' if dry_run else ''}")
+    return changed
+
+
+def prefer_source_dedup(*, dry_run: bool = False) -> int:
+    """同番同集若有多个源，只留 SOURCE_PRIORITY 最高的，删其余（含文件）。
+
+    只动 SKIP_BEFORE_SEASON 之后的番；旧番、无法判定季度/集号的种子一律不碰。
+    只删「有已知源且严格劣于同集最优源」的种子——未知源的种子保留、不误伤。
+    """
+    if not SOURCE_PRIORITY:
+        return 0
+    torrents = qb_get_json("/api/v2/torrents/info")
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for t in torrents:
+        cour = _cour_of_torrent(t)
+        if cour is None or cour < SKIP_BEFORE_SEASON:
+            continue  # 旧番/无法判定季度 -> 不碰
+        ep = _episode_key(t["name"])
+        if ep is None:
+            continue  # 合集/整季包等无单集号 -> 跳过
+        save = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
+        groups.setdefault((save, ep), []).append(t)
+
+    victims: list[dict] = []
+    for items in groups.values():
+        ranked = [(t, _source_rank(t["name"])) for t in items]
+        known = [r for _t, r in ranked if r is not None]
+        if not known:
+            continue
+        best = min(known)
+        victims += [t for t, r in ranked if r is not None and r > best]
+
+    for t in victims:
+        print(f"  prefer-source: 删低优先级源 {t['name']}")
+        if not dry_run:
+            try:
+                qb_post("/api/v2/torrents/delete",
+                        {"hashes": t["hash"], "deleteFiles": "true"})
+            except Exception as ex:  # noqa: BLE001
+                print(f"     ! 删除失败: {ex}")
+    if victims:
+        print(f"# prefer-source: 删除 {len(victims)} 个低优先级重复源"
+              f"{'（dry-run 未实删）' if dry_run else ''}")
+    return len(victims)
+
+
 def run_sync_once(user, cookie, season, purge, token=None):
     """One pass: add new 在看, reconcile removed, mark paused eps. Shared by `sync`/`watch`."""
     print(f"=== sync @ {datetime.datetime.now():%Y-%m-%d %H:%M:%S} (user {user}) ===")
@@ -1917,6 +2072,14 @@ def run_sync_once(user, cookie, season, purge, token=None):
     else:
         print("# no new shows to add")
     reconcile_removed(user, cookie, dry_run=False, purge_dropped=purge)
+    if CONFIG.get("prefer_source_enabled", True):
+        # 同组多源取舍：补规则黑名单（永不 ABEMA）+ 同集只留最高优先级源（Baha＞CR）。
+        try:
+            reconcile_rule_blacklist()
+            prefer_source_dedup()
+        except Exception:  # noqa: BLE001
+            print("!!! prefer-source 出错（不影响本轮 sync）：")
+            traceback.print_exc()
     if CONFIG.get("mark_watched_enabled", True):
         try:
             mark_watched_pass(token)
@@ -1961,6 +2124,12 @@ def cmd_sync(args):
 def cmd_mark(args):
     """Standalone mark-watched pass. --dry-run reports resolution without writing."""
     mark_watched_pass(bgm_token(args), dry_run=args.dry_run)
+
+
+def cmd_dedup(args):
+    """独立跑一趟同组多源取舍：补规则黑名单 + 同集只留最高优先级源。"""
+    reconcile_rule_blacklist(dry_run=args.dry_run)
+    prefer_source_dedup(dry_run=args.dry_run)
 
 
 def cmd_premiere(args):
@@ -2111,6 +2280,11 @@ def main():
     pm.add_argument("--dry-run", action="store_true",
                     help="report resolution for all stopped torrents; no bgm write, no baseline update")
     pm.set_defaults(func=cmd_mark)
+
+    pdd = sub.add_parser("dedup", help="同组多源取舍：补规则黑名单 + 同集只留最高优先级源")
+    pdd.add_argument("--dry-run", action="store_true",
+                     help="只报告要改的规则/要删的种子，不实际改动")
+    pdd.set_defaults(func=cmd_dedup)
 
     ppre = sub.add_parser("premiere", help="想看列表开播检测：开播->面板提醒+自动标在看")
     add_user(ppre)
