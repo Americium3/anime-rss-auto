@@ -635,6 +635,48 @@ def bgm_set_collection_type(token: str, subject_id: int, ctype: int) -> None:
             raise RuntimeError(f"bgm POST collection {subject_id} -> HTTP {r.status}")
 
 
+def bgm_watched_progress(token: str, subject_id: int) -> tuple[int, int, bool]:
+    """(main_total, main_watched, finale_aired) for a subject's 本篇 episodes.
+
+    Reads the user's per-episode collection status in one paged call —
+    GET /v0/users/-/collections/{subject_id}/episodes (needs the token; '-' = me).
+    Each item carries episode.type (0 = 本篇, so SP/OP/ED are skipped), an outer
+    collection `type` (2 = 看过), and episode.airdate. finale_aired is True only
+    when every 本篇 airdate is today-or-earlier (a missing/blank airdate counts as
+    not-yet-aired). Together with main_watched == main_total > 0 that means the show
+    is genuinely finished and fully watched: bgm publishes future airdates up front,
+    so a still-airing show keeps unaired 本篇 unwatched (watched < total) or
+    finale_aired False, either of which blocks a premature 看过.
+    """
+    today = datetime.date.today().isoformat()
+    total = watched = 0
+    finale_aired = True
+    offset = 0
+    while True:
+        url = (f"{BGM_API}/v0/users/-/collections/{subject_id}/episodes"
+               f"?limit=100&offset={offset}")
+        req = urllib.request.Request(
+            url, headers={"User-Agent": UA, "Authorization": f"Bearer {token}"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+        data = d.get("data", [])
+        for x in data:
+            ep = x.get("episode") or {}
+            if ep.get("type") != 0:          # 只认本篇
+                continue
+            total += 1
+            if x.get("type") == 2:           # 看过
+                watched += 1
+            ad = ep.get("airdate") or ""
+            if not ad or ad > today:         # 未播 / 无日期 -> finale 未到
+                finale_aired = False
+        offset += len(data)
+        if offset >= d.get("total", 0) or not data:
+            break
+    return total, watched, finale_aired
+
+
 _EP_RES = {360, 480, 540, 576, 720, 1080, 1440, 2160}
 
 
@@ -2322,6 +2364,70 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
         print(f"# premiere: 本轮新开播 {fired} 部")
 
 
+def autocomplete_watched_pass(user: str, token: str | None = None, *, dry_run: bool = False) -> None:
+    """在看番的本篇全部看过 -> 自动把该 subject 标看过(type 2)。
+
+    只收满足全部三条的番：① 本篇集数>0；② 每一集本篇都已标看过；③ finale 已开播
+    （所有本篇 airdate<=今天）。第③条杜绝「番还在播、bgm 只列了已播集、恰好都看了」
+    被提前收掉、qB 规则被误删停更。旧番(< SKIP_BEFORE_SEASON，非 pin、非在播长番豁免)
+    按红线跳过不碰，与 reconcile/mark-watched/premiere 完全一致（走 is_manual_old_show
+    + cour_still_airing）。标看过后既有 reconcile_removed 会顺手删 qB 规则、留 mikan
+    订阅+本地文件；面板推一条「已看完」横幅。--dry-run 只报告不写 bgm、不推横幅。
+    """
+    if not token:
+        print("# autocomplete: 未配置 bgm_access_token，跳过")
+        return
+    try:
+        watching = bgm_watching(user)
+    except Exception as ex:  # noqa: BLE001
+        print(f"# autocomplete: 读取在看列表失败，跳过：{ex}")
+        return
+    span_cache: dict[int, dict] = {}
+    done = 0
+    for s in watching:
+        bgm_id = s["bgm_id"]
+        sea = season_of(s["date"])
+        if is_manual_old_show(s["date"], bgm_id,
+                              cour_still_airing(bgm_id, sea, span_cache)):
+            continue
+        title = s["name_cn"] or s["name"]
+        try:
+            total, watched, finale_aired = bgm_watched_progress(token, bgm_id)
+        except Exception as ex:  # noqa: BLE001
+            print(f"   [autocomplete] ! 读进度失败 {title} (bgm {bgm_id}): {ex}")
+            continue
+        if total == 0 or watched < total or not finale_aired:
+            continue
+        if dry_run:
+            print(f"   [autocomplete][dry] 会标看过: {title} "
+                  f"(bgm {bgm_id}, 本篇 {watched}/{total} 全看过, finale 已播)")
+            done += 1
+            continue
+        try:
+            bgm_set_collection_type(token, bgm_id, 2)
+            print(f"   [autocomplete] ✓ 已标看过: {title} (bgm {bgm_id}, {total} 集全看完)")
+        except Exception as ex:  # noqa: BLE001
+            print(f"   [autocomplete] ! 标看过失败 {title} (bgm {bgm_id}): {ex}")
+            continue
+        add_notification({
+            "kind": "completed",
+            "bgm_id": bgm_id,
+            "title": title,
+            "title_jp": s["name"],
+            "date": s["date"],
+            "season": sea,
+            "eps_total": total,
+            "image": s.get("image", ""),
+            "detected_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "read": False,
+        })
+        done += 1
+    if dry_run:
+        print(f"# autocomplete [dry-run]: 命中 {done} 部（未写 bgm/未推横幅）")
+    else:
+        print(f"# autocomplete: 本轮自动标看过 {done} 部")
+
+
 # --------------------------------------------------------------------------- #
 # 同组同集多版本取舍：prefer-variant 去重 + 规则黑名单自愈
 # --------------------------------------------------------------------------- #
@@ -2592,6 +2698,13 @@ def run_sync_once(user, cookie, season, purge, token=None):
         apply_entries(to_add, cookie, dry_run=False)
     else:
         print("# no new shows to add")
+    if CONFIG.get("autocomplete_watched_enabled", True):
+        # 在看番本篇全看完 -> 标看过；放在 reconcile 之前，同一轮紧接着删 qB 规则。
+        try:
+            autocomplete_watched_pass(user, token)
+        except Exception:  # noqa: BLE001
+            print("!!! autocomplete 出错（不影响本轮 sync）：")
+            traceback.print_exc()
     reconcile_removed(user, cookie, dry_run=False, purge_dropped=purge)
     if CONFIG.get("prefer_variant_enabled", True):
         # 同组同集多版本取舍：补规则黑名单（永不 ABEMA）+ 同集只留最优版本
@@ -2667,6 +2780,11 @@ def cmd_dedup(args):
 def cmd_premiere(args):
     """Standalone premiere-watch pass over the 想看 list. --dry-run writes nothing."""
     premiere_watch_pass(args.user, bgm_token(args), dry_run=args.dry_run)
+
+
+def cmd_autocomplete(args):
+    """Standalone autocomplete pass over the 在看 list. --dry-run writes nothing."""
+    autocomplete_watched_pass(args.user, bgm_token(args), dry_run=args.dry_run)
 
 
 def cmd_auth(args):
@@ -2824,6 +2942,13 @@ def main():
     ppre.add_argument("--dry-run", action="store_true",
                       help="report what would fire; no bgm write, no state update")
     ppre.set_defaults(func=cmd_premiere)
+
+    pac = sub.add_parser("autocomplete", help="在看番本篇全看完->自动标看过(finale已播才收)")
+    add_user(pac)
+    add_token(pac)
+    pac.add_argument("--dry-run", action="store_true",
+                     help="report what would fire; no bgm write, no panel banner")
+    pac.set_defaults(func=cmd_autocomplete)
 
     pau = sub.add_parser("auth", help="one-time OAuth setup so bgm token auto-renews")
     pau.add_argument("--code", default=None, help="callback ?code= from the authorize redirect")

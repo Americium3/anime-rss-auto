@@ -41,6 +41,7 @@
   "bgm_client_secret": "",
   "bgm_redirect_uri": "http://localhost",
   "mark_watched_enabled": true,
+  "autocomplete_watched_enabled": true,
 
   "jellyfin_url": "http://localhost:8096",
   "jellyfin_api_key": "<jellyfin api key>",
