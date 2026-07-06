@@ -566,7 +566,7 @@ const I18N = {
     showsHeading: "Shows",
     loading: "Loading…",
     bootConnect: "Connecting to backend…",
-    bootCollections: "Loading collections…",
+    bootCollections: "Loading collections & schedules…",
     bootNotif: "Loading notifications…",
     offline: "offline — retrying",
     qbDown: "qBittorrent unreachable",
@@ -627,7 +627,7 @@ const I18N = {
     showsHeading: "番剧",
     loading: "加载中…",
     bootConnect: "正在连接后端…",
-    bootCollections: "正在加载收藏分类…",
+    bootCollections: "正在加载收藏与放送日程…",
     bootNotif: "正在加载开播通知…",
     offline: "离线 — 重试中",
     qbDown: "qBittorrent 无法连接",
@@ -1280,7 +1280,9 @@ async function refresh() {
     state = d;
     offline = false;
     render();
-    bootStage(75, "bootCollections");
+    // This pass also reads each show's broadcast schedule (bgm episode airdates)
+    // to classify 半年番/年番 + still-airing, so the copy names that work too.
+    bootStage(78, "bootCollections");
     await refreshCollections();
     bootStage(94, "bootNotif");
     // after collections so banner titles can follow the UI language; awaited
