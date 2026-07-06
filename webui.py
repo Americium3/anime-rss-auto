@@ -548,6 +548,30 @@ def api_notifications_read(body: NotifyRead):
     return {"ok": True}
 
 
+@app.get("/api/unresolved")
+def api_unresolved():
+    """Shows that aired but couldn't be matched to a mikan feed (see
+    core.scan_unresolved). Non-dismissed only — the panel shows these as a
+    warning banner so a silent resolve miss can't hide anymore."""
+    items = [e for e in core.load_unresolved() if not e.get("dismissed")]
+    items.sort(key=lambda e: e.get("detected_at", ""), reverse=True)
+    return {"unresolved": items}
+
+
+class UnresolvedDismiss(BaseModel):
+    bgm_id: int | None = None  # None = dismiss every unresolved banner
+
+
+@app.post("/api/unresolved/dismiss")
+def api_unresolved_dismiss(body: UnresolvedDismiss):
+    items = core.load_unresolved()
+    for it in items:
+        if body.bgm_id is None or it.get("bgm_id") == body.bgm_id:
+            it["dismissed"] = True
+    core.save_unresolved(items)
+    return {"ok": True}
+
+
 # --- mutating actions ------------------------------------------------------ #
 _sync_running = False
 _sync_error = False

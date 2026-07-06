@@ -21,6 +21,7 @@
 
   "premiere_watch_enabled": true,
   "premiere_auto_watch": true,
+  "unresolved_scan_enabled": true,
   "advance_keywords": ["先行", "予告"],
   "max_episode_bytes": 2147483648,
   "rule_must_not_contain": "先行",

@@ -6,6 +6,8 @@ group_grace.json
 premiere_seen.json
 premiere_notify.json
 premiere_times.json
+mikan_overrides.json
+unresolved.json
 airing_cache.json
 episode_span_cache.json
 *.log
