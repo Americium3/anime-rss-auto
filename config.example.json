@@ -22,6 +22,10 @@
   "max_episode_bytes": 2147483648,
   "rule_must_not_contain": "先行",
 
+  "prefer_source_enabled": true,
+  "source_blacklist": ["ABEMA"],
+  "source_priority": ["Baha", "CR"],
+
   "bgm_access_token": "<365-day personal token, or use OAuth below>",
   "bgm_client_id": "",
   "bgm_client_secret": "",
