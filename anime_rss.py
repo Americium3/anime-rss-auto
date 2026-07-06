@@ -284,6 +284,19 @@ def is_manual_old_show(date_str: str, bgm_id: int | None = None,
     return s is not None and s < SKIP_BEFORE_SEASON
 
 
+def _old_cour_exempt(cour: str, bgm_id: int | None,
+                     span_cache: dict[int, dict]) -> bool:
+    """An old-cour (< SKIP_BEFORE_SEASON) show that should STILL be auto-managed
+    rather than frozen as manual: either pinned as current, or a 半年番/年番 whose
+    bgm schedule shows it is still broadcasting. Mirrors the exemption the active
+    passes (rule-add / mark-watched / jfhook / premiere) already apply, so the
+    destructive cleanup passes treat an in-flight long-runner exactly like a
+    current-cour show. bgm_id None (unresolved) -> not exempt (stay hands-off)."""
+    if bgm_id is not None and int(bgm_id) in PIN_CURRENT_BGM_IDS:
+        return True
+    return cour_still_airing(bgm_id, cour, span_cache)
+
+
 # --------------------------------------------------------------------------- #
 # HTTP
 # --------------------------------------------------------------------------- #
@@ -2427,6 +2440,14 @@ def _cour_of_torrent(t: dict) -> str | None:
     return None
 
 
+def _torrent_bgm_id(t: dict, rule_by_path: dict[str, dict],
+                    mikan_cache: dict[int, int | None]) -> int | None:
+    """Resolve a torrent's bgm subject id via its save_path -> qB rule -> feed."""
+    sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
+    rdef = rule_by_path.get(sp)
+    return rule_bgm_id(rdef, mikan_cache) if rdef else None
+
+
 def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     """把 SOURCE_BLACKLIST 补进现存 qB 规则的 mustNotContain（幂等，自愈）。
 
@@ -2437,12 +2458,16 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     if not SOURCE_BLACKLIST:
         return 0
     rules = existing_rules()
+    mikan_cache: dict[int, int | None] = {}
+    span_cache: dict[int, dict] = {}
     changed = 0
     for rname, rdef in rules.items():
         sp = (rdef.get("savePath") or "").replace("\\", "/")
         m = _COUR_IN_PATH_RE.search(sp)
-        if m and m.group(1) < SKIP_BEFORE_SEASON:
-            continue  # 旧番规则不碰
+        if (m and m.group(1) < SKIP_BEFORE_SEASON
+                and not _old_cour_exempt(
+                    m.group(1), rule_bgm_id(rdef, mikan_cache), span_cache)):
+            continue  # 旧番规则不碰（正在更新的半年番/年番豁免，照常补黑名单）
         old = rdef.get("mustNotContain", "") or ""
         new = _merge_must_not_contain(old)
         if new != old:
@@ -2473,11 +2498,17 @@ def reject_hard_variants(*, dry_run: bool = False) -> int:
     if not HARD_REJECT_TAGS:
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
+    rule_by_path = rules_by_savepath(existing_rules())
+    mikan_cache: dict[int, int | None] = {}
+    span_cache: dict[int, dict] = {}
     victims = []
     for t in torrents:
         cour = _cour_of_torrent(t)
-        if cour is None or cour < SKIP_BEFORE_SEASON:
-            continue  # 旧番/无法判定季度 -> 不碰
+        if cour is None:
+            continue  # 无法判定季度 -> 不碰
+        if (cour < SKIP_BEFORE_SEASON and not _old_cour_exempt(
+                cour, _torrent_bgm_id(t, rule_by_path, mikan_cache), span_cache)):
+            continue  # 旧番 -> 不碰（正在更新的半年番/年番豁免）
         if _hard_reject(t["name"]):
             victims.append(t)
     for t in victims:
@@ -2505,11 +2536,17 @@ def prefer_variant_dedup(*, dry_run: bool = False) -> int:
     if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
+    rule_by_path = rules_by_savepath(existing_rules())
+    mikan_cache: dict[int, int | None] = {}
+    span_cache: dict[int, dict] = {}
     groups: dict[tuple[str, str], list[dict]] = {}
     for t in torrents:
         cour = _cour_of_torrent(t)
-        if cour is None or cour < SKIP_BEFORE_SEASON:
-            continue  # 旧番/无法判定季度 -> 不碰
+        if cour is None:
+            continue  # 无法判定季度 -> 不碰
+        if (cour < SKIP_BEFORE_SEASON and not _old_cour_exempt(
+                cour, _torrent_bgm_id(t, rule_by_path, mikan_cache), span_cache)):
+            continue  # 旧番 -> 不碰（正在更新的半年番/年番豁免）
         ep = _episode_key(t["name"])
         if ep is None:
             continue  # 合集/整季包等无单集号 -> 跳过
