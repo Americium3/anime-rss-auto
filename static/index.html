@@ -296,6 +296,21 @@
     border-color: color-mix(in srgb, var(--warn) 40%, transparent);
   }
   .premiere.unresolved .ptag { color: var(--warn); }
+  /* Completed (本篇全看完 -> auto 看过) — same banner component, success skin. */
+  .premiere.completed {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--ok) 18%, transparent),
+      color-mix(in srgb, var(--ok) 8%, transparent));
+    border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  }
+  .premiere.completed .ptag { color: var(--ok); }
+  /* Rate/review call-to-action — a real link styled as a filled success button. */
+  .premiere.completed .btn.rate {
+    display: inline-flex; align-items: center; text-decoration: none;
+    background: linear-gradient(135deg, var(--ok), color-mix(in srgb, var(--ok) 60%, var(--accent-b)));
+    box-shadow: 0 4px 18px color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  .premiere.completed .btn.rate:hover { box-shadow: 0 6px 22px color-mix(in srgb, var(--ok) 50%, transparent); }
 
   /* ---------- filter/search toolbar + type pills ---------- */
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 18px; }
@@ -606,6 +621,9 @@ const I18N = {
     mikan_fetch_failed: "Could not fetch the mikan page",
     setrule_failed: "qBittorrent rule update failed",
     premiered: "PREMIERED",
+    completed: "SEASON DONE",
+    completedSub: n => `All ${n} episodes watched · auto-marked 看过`,
+    rateOnBgm: "★ Rate & review on bgm",
     nowWatching: "Marked as watching",
     gotIt: "Got it",
     dismissAll: "Dismiss all",
@@ -669,6 +687,9 @@ const I18N = {
     mikan_fetch_failed: "mikan 页面获取失败",
     setrule_failed: "qBittorrent 规则更新失败",
     premiered: "已开播",
+    completed: "本季看完",
+    completedSub: n => `${n} 集全部看完 · 已自动标看过`,
+    rateOnBgm: "★ 去 bgm 评分·写评语",
     nowWatching: "已自动标为在看",
     gotIt: "知道了",
     dismissAll: "全部知道了",
@@ -1357,13 +1378,27 @@ async function refreshPremieres() {
       return Number.isNaN(ts) || Date.now() - ts < WEEK_MS;
     });
     const banners = unread.map(n => {
-      const badge = n.promoted ? `<span class="pbadge">${t("nowWatching")}</span>` : "";
       const when = fmtStamp(n.detected_at);
       // Notifications store the title at detection time — prefer the live
       // collections entry so the banner follows the UI language too.
       const src = (collections && FILTER_ORDER.flatMap(k => collections.groups[k] || [])
         .find(x => x.bgm_id === n.bgm_id)) || n;
       const title = displayTitle(src);
+      // 本篇全看完 -> 自动看过：success-skinned banner, distinct from premiere.
+      if (n.kind === "completed") {
+        const sub = [t("completedSub", n.eps_total), esc(when)].filter(Boolean).join(" · ");
+        const seasonBadge = n.season ? `<span class="season-tag ${seasonClass(n.season)}">${esc(n.season)}</span>` : "";
+        return `<div class="premiere completed" data-bgm="${n.bgm_id}" onclick="openBgm(event, ${n.bgm_id})">
+          <div class="pcover">${coverHtml(n.image)}</div>
+          <div class="pbody">
+            <div class="ptitle">🏁 <span class="ptag">${t("completed")}</span>${bgmLink(n.bgm_id, esc(title))}${seasonBadge}</div>
+            <div class="psub" title="${sub}">${sub}</div>
+          </div>
+          <a class="btn small rate" href="https://bgm.tv/subject/${n.bgm_id}" target="_blank" rel="noopener">${t("rateOnBgm")}</a>
+          <button class="btn ghost small" onclick="dismissPremiere(${n.bgm_id})">${t("gotIt")}</button>
+        </div>`;
+      }
+      const badge = n.promoted ? `<span class="pbadge">${t("nowWatching")}</span>` : "";
       const sub = [n.title_jp !== title ? esc(n.title_jp) : "", esc(n.subgroup_name || ""), esc(when)]
         .filter(Boolean).join(" · ");
       return `<div class="premiere" data-bgm="${n.bgm_id}" onclick="openBgm(event, ${n.bgm_id})">
