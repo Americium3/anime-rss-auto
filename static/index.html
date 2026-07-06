@@ -1010,15 +1010,28 @@ function airMs(s) {
 }
 const byAir = (a, b) => airMs(a) - airMs(b);
 
-// Completed tab: newest cour block first; inside a block the most recently
-// marked show leads (bgm's updated_at stamps the last collection edit — a
-// close proxy for "when I finished it"). Season-less shows sink to the end.
-const markedMs = s => Date.parse(s.updated_at || "") || 0;
-const byDone = (a, b) =>
-  (b.season || "").localeCompare(a.season || "") || markedMs(b) - markedMs(a);
+// Group any tab by cour: newest season block first; season-less shows sink to
+// the end. Within a block the per-tab `inner` comparator decides the order.
+const bySeasonThen = inner => (a, b) =>
+  (b.season || "").localeCompare(a.season || "") || inner(a, b);
 
-// Completed grid: one full-width season rule ahead of each cour block.
-function withSeasonDividers(shows) {
+// Same, but oldest cour first — for 在看/想看, which read as a backlog to clear.
+// Season-less shows still sink to the end (not floated to the top).
+const bySeasonAscThen = inner => (a, b) => {
+  const sa = a.season || "", sb = b.season || "";
+  if (sa !== sb) return !sa ? 1 : !sb ? -1 : sa.localeCompare(sb);
+  return inner(a, b);
+};
+
+// Completed tab: inside a cour the most recently marked show leads (bgm's
+// updated_at stamps the last collection edit — a close proxy for "when I
+// finished it").
+const markedMs = s => Date.parse(s.updated_at || "") || 0;
+const byDone = bySeasonThen((a, b) => markedMs(b) - markedMs(a));
+
+// Any grid: one full-width season rule ahead of each cour block. `renderFn`
+// is the per-tab card renderer (rich card for 在看, basicCard elsewhere).
+function withSeasonDividers(shows, renderFn) {
   const out = [];
   let prev = null;
   for (const s of shows) {
@@ -1027,7 +1040,7 @@ function withSeasonDividers(shows) {
       out.push(`<div class="season-divider ${seasonClass(season)}">${season ? esc(season) : t("noSeason")}</div>`);
       prev = season;
     }
-    out.push(basicCard(s));
+    out.push(renderFn(s));
   }
   return out;
 }
@@ -1050,18 +1063,21 @@ function renderCards() {
   // it mid-choice closes the popup and reverts the user's selection.
   const ae = document.activeElement;
   if (ae && ae.tagName === "SELECT" && $("cards").contains(ae)) return;
+  // Every non-timetable tab splits into cour blocks, newest season on top.
   let list = null;
   if (activeType === "watching") {
     if (!state) return;
-    let shows = state.shows.slice().sort(byAir).filter(searchMatch);
+    let shows = state.shows.slice().filter(searchMatch);
     if (watchWeekday !== "all") shows = shows.filter(s => airWeekday(s) === +watchWeekday);
-    list = shows.map(card);
+    list = withSeasonDividers(shows.sort(bySeasonAscThen(byAir)), card);
   } else if (collections) {
     const shows = (collections.groups[activeType] || []).filter(searchMatch);
-    // 看过 reads as a viewing history: newest cour on top, split per cour.
-    list = activeType === "done"
-      ? withSeasonDividers(shows.sort(byDone))
-      : shows.sort(byAir).map(basicCard);
+    // 想看 reads oldest cour first (a backlog to clear); 看过 orders each cour by
+    // when it was marked; 搁置/抛弃 stay newest cour first.
+    const cmp = activeType === "want" ? bySeasonAscThen(byAir)
+      : activeType === "done" ? byDone
+      : bySeasonThen(byAir);
+    list = withSeasonDividers(shows.sort(cmp), basicCard);
   }
   if (list === null) return;
   const empty = ($("search").value || "").trim() ? t("noMatch") : "—";
