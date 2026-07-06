@@ -24,6 +24,7 @@ import base64
 import html
 import http.server
 import json
+import math
 import os
 import re
 import sys
@@ -93,18 +94,22 @@ PRIORITY_IDS = [g[0] for g in GROUP_PRIORITY]
 GROUP_NAME = {g[0]: g[1] for g in GROUP_PRIORITY}
 GROUP_FILTER = {g[0]: g[2] for g in GROUP_PRIORITY}
 
-# --- 同组多源取舍：黑名单进规则、优先级进下载后清理 ------------------------- #
-# 有些字幕组一集会并行放出多个来源版本（如 Baha / CR / ABEMA），文件名里用
-# 括号标源，例：「... - 01 (Baha 1920x1080 AVC AAC MP4)」。诉求：
-#   1) 某些源永不下载（如 ABEMA，无翻译）；
-#   2) 同一集若同时有多个源，只保留优先级最高的一个。
+# --- 同组同集多版本取舍：黑名单进规则、优先级进下载后清理 ------------------- #
+# 有些字幕组一集会并行放出多个版本，区别在文件名的标签上，两类常见维度：
+#   * 来源（source）：如 Baha / CR / ABEMA，「... - 01 (Baha 1920x1080 ...)」
+#   * 语言（language）：如 简日双语 / 繁日双语，「...[01][1080p][简日双语]」
+# 诉求：(1) 某些源永不下载（如 ABEMA，无翻译）；(2) 同一集若同时有多个版本，
+# 只保留最优先的一个（源：Baha＞CR；语言：简＞繁）。
 # qB 的 RSS 规则字段能表达 (1)——把黑名单塞进 mustNotContain，feed 层直接拒；
-# 但表达不了 (2)——规则逐条匹配、彼此不知情，没有「源排序」概念。所以：
+# 但表达不了 (2)——规则逐条匹配、彼此不知情，没有「版本排序」概念。所以：
 #   * SOURCE_BLACKLIST -> 每条规则的 mustNotContain（永不下载）。
-#   * SOURCE_PRIORITY  -> 下载后 prefer_source_dedup() 同集去重（保高删低）。
-# 两个列表都按需在 config 覆盖；比较对源标签大小写不敏感、按整词边界匹配。
+#   * SOURCE_PRIORITY / LANG_PRIORITY -> 下载后 prefer_variant_dedup() 同集去重。
+# 取舍按维度顺序（先源、后语言）做字典序比较：源相同再比语言。各列表按需在
+# config 覆盖；源标签按整词边界匹配（防 "CR" 命中别的词），语言标签多为 CJK、
+# 直接子串匹配。列表留空即关闭该维度。
 SOURCE_BLACKLIST = [str(s) for s in CONFIG.get("source_blacklist", ["ABEMA"])]
 SOURCE_PRIORITY = [str(s) for s in CONFIG.get("source_priority", ["Baha", "CR"])]
+LANG_PRIORITY = [str(s) for s in CONFIG.get("lang_priority", ["简", "繁"])]
 
 # Shows from a cour BEFORE this one are left entirely to manual handling: the
 # script never adds, removes, unsubscribes, or deletes files for them. The
@@ -1931,40 +1936,77 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
 
 
 # --------------------------------------------------------------------------- #
-# 同组多源取舍：prefer-source 去重 + 规则黑名单自愈
+# 同组同集多版本取舍：prefer-variant 去重 + 规则黑名单自愈
 # --------------------------------------------------------------------------- #
-# 集号：匹配「- 01」「- 01v2」「- 01.5」后接括号/方括号（各组命名惯例都这样）。
-_EP_RE = re.compile(r"-\s*(\d{1,4})(?:\.\d+)?(?:v\d+)?\s*(?=[\(\[【（])")
+# 集号有两种常见写法，都要认：
+#   * 「- 01」式：番名 - NN 后接括号（Dynamis 等日式命名，NN 可带 v2/.5）
+#   * 「[01]」式：独立方/花括号里 1~3 位数字（喵萌等中文组）。限 1~3 位并要求
+#     数字紧贴左括号 + 右括号收尾，避开 [1080p]（4 位+p）、hash [3D84C9F9]、
+#     位深 [10bit]、季号 [S01] 等。
+_EP_DASH_RE = re.compile(r"-\s*(\d{1,4})(?:\.\d+)?(?:v\d+)?\s*(?=[\(\[【（])")
+_EP_BRACKET_RE = re.compile(r"[\[【（](\d{1,3})(?:\.\d+)?(?:v\d+)?[\]】）]")
 _COUR_IN_PATH_RE = re.compile(r"/(\d{4}\.\d{2})/")
 
 
+def _tag_hit(tag: str, low: str) -> bool:
+    """标签是否出现在（已小写的）种子名里。
+
+    纯 ASCII 字母数字标签（如 CR/Baha）按整词边界匹配，防「CR」命中别的词；
+    含非 ASCII 的标签（如 简/繁/CHS 里的 CJK）直接子串匹配。
+    """
+    t = tag.strip().lower()
+    if not t:
+        return False
+    if t.isascii() and t.isalnum():
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", low))
+    return t in low
+
+
+def _rank_in(name: str, tags: list[str]) -> int | None:
+    """种子名在一个优先级标签表里的序号（越小越优）；都不命中返回 None。"""
+    low = name.lower()
+    for i, tag in enumerate(tags):
+        if _tag_hit(tag, low):
+            return i
+    return None
+
+
 def _source_rank(name: str) -> int | None:
-    """种子名的源优先级序号（越小越优）；无任何已知源返回 None。
+    """源维度序号（越小越优）；无任何已知源返回 None。
 
     SOURCE_PRIORITY 里的源排在前（0..n-1）；SOURCE_BLACKLIST 里的源紧随其后
     （n..），这样同集里只要有更优的兄弟，黑名单源（如规则生效前漏下的历史
     ABEMA）也会被一并清掉；但若某集只剩黑名单源、别无替代，则不动，不盲删唯一副本。
     """
-    low = name.lower()
+    return _rank_in(name, SOURCE_PRIORITY + SOURCE_BLACKLIST)
 
-    def hit(s: str) -> bool:
-        s = s.strip().lower()
-        return bool(s) and bool(
-            re.search(rf"(?<![a-z0-9]){re.escape(s)}(?![a-z0-9])", low))
 
-    for i, src in enumerate(SOURCE_PRIORITY):
-        if hit(src):
-            return i
-    base = len(SOURCE_PRIORITY)
-    for j, src in enumerate(SOURCE_BLACKLIST):
-        if hit(src):
-            return base + j
-    return None
+def _lang_rank(name: str) -> int | None:
+    """语言维度序号（越小越优，简＞繁）；无任何已知语言标签返回 None。"""
+    return _rank_in(name, LANG_PRIORITY)
+
+
+# 取舍维度，按优先级从高到低排列——先比源，源相同再比语言。每项 (取值函数)。
+_VARIANT_DIMS = (_source_rank, _lang_rank)
+
+
+def _variant_rank(name: str) -> tuple[float, ...]:
+    """跨维度的复合序号元组（字典序比较，越小越优）；某维度无标签记为 +∞。"""
+    return tuple(
+        (r if r is not None else math.inf) for r in (d(name) for d in _VARIANT_DIMS))
+
+
+def _has_known_variant_tag(name: str) -> bool:
+    """种子名是否至少在一个维度里带可识别标签（无标签者永不当删除对象）。"""
+    return any(d(name) is not None for d in _VARIANT_DIMS)
 
 
 def _episode_key(name: str) -> str | None:
-    """从种子名抽集号（'... - 01 (Baha ...)' -> '1'）；抽不到返回 None。"""
-    m = _EP_RE.search(name)
+    """从种子名抽集号（'... - 01 (Baha ...)' 或 '...[01][1080p]' -> '1'）。
+
+    先试「- 01」式，不中再试「[01]」式；都抽不到返回 None（则该种子不参与去重）。
+    """
+    m = _EP_DASH_RE.search(name) or _EP_BRACKET_RE.search(name)
     return str(int(m.group(1))) if m else None
 
 
@@ -2013,13 +2055,15 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     return changed
 
 
-def prefer_source_dedup(*, dry_run: bool = False) -> int:
-    """同番同集若有多个源，只留 SOURCE_PRIORITY 最高的，删其余（含文件）。
+def prefer_variant_dedup(*, dry_run: bool = False) -> int:
+    """同番同集若有多个版本，只留复合优先级最高的，删其余（含文件）。
 
-    只动 SKIP_BEFORE_SEASON 之后的番；旧番、无法判定季度/集号的种子一律不碰。
-    只删「有已知源且严格劣于同集最优源」的种子——未知源的种子保留、不误伤。
+    维度按 _VARIANT_DIMS 顺序字典序比较（先源、后语言）：源更优者胜；源相同则
+    语言更优（简＞繁）者胜。只动 SKIP_BEFORE_SEASON 之后的番；旧番、无法判定
+    季度/集号的种子一律不碰。只删「至少带一个可识别标签、且严格劣于同集最优版本」
+    的种子——完全无标签的未知种子保留、不误伤。
     """
-    if not SOURCE_PRIORITY:
+    if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
     groups: dict[tuple[str, str], list[dict]] = {}
@@ -2035,15 +2079,15 @@ def prefer_source_dedup(*, dry_run: bool = False) -> int:
 
     victims: list[dict] = []
     for items in groups.values():
-        ranked = [(t, _source_rank(t["name"])) for t in items]
-        known = [r for _t, r in ranked if r is not None]
-        if not known:
+        if len(items) < 2:
             continue
-        best = min(known)
-        victims += [t for t, r in ranked if r is not None and r > best]
+        ranked = [(t, _variant_rank(t["name"])) for t in items]
+        best = min(r for _t, r in ranked)
+        victims += [t for t, r in ranked
+                    if r > best and _has_known_variant_tag(t["name"])]
 
     for t in victims:
-        print(f"  prefer-source: 删低优先级源 {t['name']}")
+        print(f"  prefer-variant: 删低优先级版本 {t['name']}")
         if not dry_run:
             try:
                 qb_post("/api/v2/torrents/delete",
@@ -2051,8 +2095,9 @@ def prefer_source_dedup(*, dry_run: bool = False) -> int:
             except Exception as ex:  # noqa: BLE001
                 print(f"     ! 删除失败: {ex}")
     if victims:
-        print(f"# prefer-source: 删除 {len(victims)} 个低优先级重复源"
+        print(f"# prefer-variant: 删除 {len(victims)} 个低优先级重复版本"
               f"{'（dry-run 未实删）' if dry_run else ''}")
+    return len(victims)
     return len(victims)
 
 
@@ -2072,13 +2117,14 @@ def run_sync_once(user, cookie, season, purge, token=None):
     else:
         print("# no new shows to add")
     reconcile_removed(user, cookie, dry_run=False, purge_dropped=purge)
-    if CONFIG.get("prefer_source_enabled", True):
-        # 同组多源取舍：补规则黑名单（永不 ABEMA）+ 同集只留最高优先级源（Baha＞CR）。
+    if CONFIG.get("prefer_variant_enabled", True):
+        # 同组同集多版本取舍：补规则黑名单（永不 ABEMA）+ 同集只留最优版本
+        # （源 Baha＞CR、语言 简＞繁）。
         try:
             reconcile_rule_blacklist()
-            prefer_source_dedup()
+            prefer_variant_dedup()
         except Exception:  # noqa: BLE001
-            print("!!! prefer-source 出错（不影响本轮 sync）：")
+            print("!!! prefer-variant 出错（不影响本轮 sync）：")
             traceback.print_exc()
     if CONFIG.get("mark_watched_enabled", True):
         try:
@@ -2127,9 +2173,9 @@ def cmd_mark(args):
 
 
 def cmd_dedup(args):
-    """独立跑一趟同组多源取舍：补规则黑名单 + 同集只留最高优先级源。"""
+    """独立跑一趟同组同集多版本取舍：补规则黑名单 + 同集只留最优版本。"""
     reconcile_rule_blacklist(dry_run=args.dry_run)
-    prefer_source_dedup(dry_run=args.dry_run)
+    prefer_variant_dedup(dry_run=args.dry_run)
 
 
 def cmd_premiere(args):
@@ -2281,7 +2327,7 @@ def main():
                     help="report resolution for all stopped torrents; no bgm write, no baseline update")
     pm.set_defaults(func=cmd_mark)
 
-    pdd = sub.add_parser("dedup", help="同组多源取舍：补规则黑名单 + 同集只留最高优先级源")
+    pdd = sub.add_parser("dedup", help="同组同集多版本取舍：补规则黑名单 + 只留最优版本（源/语言）")
     pdd.add_argument("--dry-run", action="store_true",
                      help="只报告要改的规则/要删的种子，不实际改动")
     pdd.set_defaults(func=cmd_dedup)

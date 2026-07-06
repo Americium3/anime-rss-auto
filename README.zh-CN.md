@@ -31,7 +31,7 @@ Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**
 | **sync / watch** | bgm 在看列表 → mikan feed + qB 规则（保存路径 `<库>\<YYYY.MM>\<番名>`、季度标签） | 核心 |
 | **开播自动追（premiere watch）** | 想看列表里的番在开播当天自动提升为在看（以 bgm 第一集放送日为门槛；可用 `premiere_times.json` 覆盖），并在面板弹开播横幅。先行版按名字（先行/予告）、大小（> 2 GB）、开播前发布日期三重剔除 | `premiere_watch_enabled` |
 | **字幕组优先级** | 按你排好的优先级为每部番选一个字幕组；绝不重复下多个组 | `group_priority` |
-| **同组多源取舍** | 有些组一集会并行放多个来源（Baha / CR / ABEMA…）。黑名单里的源写进每条规则的 `mustNotContain`，在 feed 层直接拒、永不下载；同一集若同时下到多个源，下载后只保留优先级最高的一个、删掉其余（含文件）。未知源不误伤，仅对分界季度之后的番生效。可单独跑 `python anime_rss.py dedup [--dry-run]` | `prefer_source_enabled` / `source_blacklist` / `source_priority` |
+| **同组多版本取舍** | 有些组一集会并行放多个版本——按**来源**（Baha / CR / ABEMA…）或按**字幕语言**（简日双语 / 繁日双语）。黑名单里的源写进每条规则的 `mustNotContain`，在 feed 层直接拒、永不下载；同一集若同时下到多个版本，下载后只保留最优先的一个、删掉其余（含文件）。取舍按维度字典序（先源、后语言：Baha ＞ CR，简 ＞ 繁）。无标签的种子不误伤，仅对分界季度之后的番生效。可单独跑 `python anime_rss.py dedup [--dry-run]` | `prefer_variant_enabled` / `source_blacklist` / `source_priority` / `lang_priority` |
 | **ANi 宽限期保险丝** | 番剧首次出现在 mikan 时若最高优先组还没发布，先等 N 小时再锁定次优组（等待期漏掉的剧集会从 feed 补抓回来） | `ani_grace_hours` |
 | **对账（reconcile）** | 番剧转为 看过/抛弃 → 删 qB 规则（保留文件）；彻底移出收藏 → 退订 + 删文件 | `purge_dropped_files` |
 | **旧番分界线** | 早于分界季度的番永不触碰——不增、不删 | `skip_before_season` |
