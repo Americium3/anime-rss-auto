@@ -43,6 +43,7 @@ app = FastAPI(title="anime-rss-auto control panel", docs_url=None, redoc_url=Non
 # Caches that survive between polls (mikan pages are slow-ish to fetch).
 _mikan_bgm: dict[int, int | None] = {}          # mikan_id -> bgm_id
 _group_names: dict[int, str] = dict(core.GROUP_NAME)  # subgroup id -> display name
+_scanned_mids: set[int] = set()                 # mikan ids whose page we already parsed for group names
 
 
 # --------------------------------------------------------------------------- #
@@ -219,6 +220,24 @@ def mikan_subgroups_named(mikan_id: int) -> list[dict]:
     return [{"id": i, "name": _group_names.get(i)} for i in ids]
 
 
+def ensure_group_name(mikan_id: int | None, gid: int | None) -> str | None:
+    """Resolve gid -> display name, fetching the mikan page once if the cache
+    misses. Non-priority groups (e.g. #202) aren't seeded at startup, so the
+    overview would otherwise show a bare id until the user opens the dropdown."""
+    if not gid:
+        return None
+    if gid not in _group_names and mikan_id and mikan_id not in _scanned_mids:
+        try:
+            mikan_subgroups_named(mikan_id)  # fills _group_names as a side effect
+        except Exception:  # noqa: BLE001 — network/parse failure degrades to "#id"
+            pass
+        finally:
+            # Mark scanned regardless so a permanently-nameless group isn't
+            # re-fetched on every single poll.
+            _scanned_mids.add(mikan_id)
+    return _group_names.get(gid)
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
@@ -274,7 +293,7 @@ def api_overview():
                 "name": rname,
                 "mikan_id": mid,
                 "subgroup": gid,
-                "subgroup_name": _group_names.get(gid) if gid else None,
+                "subgroup_name": ensure_group_name(mid, gid),
             }
             entry["status"] = "subscribed"
             # The panel only shows an n/m-ready summary — ship progress alone.
