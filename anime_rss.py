@@ -146,6 +146,13 @@ HARD_REJECT_TAGS = [str(t).lower() for t in CONFIG.get("hard_reject_tags", [
 # zero-padded, so "2026.01" < "2026.04" < "2026.10" and "2025.10" < "2026.01").
 SKIP_BEFORE_SEASON = str(CONFIG.get("skip_before_season", "2026.04"))
 
+# Per-show override to the cutoff above: bgm_ids listed here are pinned as
+# "current" no matter how old their air date is. A long-running show from an old
+# cour (e.g. a weekly short that keeps airing) is then auto-managed exactly like
+# a current show everywhere — the pipeline downloads/keeps/purges/marks it, and
+# the webui treats it as current (never hidden by the season-only filter).
+PIN_CURRENT_BGM_IDS = {int(x) for x in CONFIG.get("pin_current_bgm_ids", [])}
+
 # Calendar month -> the cour (season) month it belongs to.
 _COUR_MONTH = {1: 1, 2: 1, 3: 1, 4: 4, 5: 4, 6: 4,
                7: 7, 8: 7, 9: 7, 10: 10, 11: 10, 12: 10}
@@ -204,12 +211,15 @@ def season_of(date_str: str) -> str | None:
     return f"{int(m.group(1))}.{_COUR_MONTH[int(m.group(2))]:02d}"
 
 
-def is_manual_old_show(date_str: str) -> bool:
+def is_manual_old_show(date_str: str, bgm_id: int | None = None) -> bool:
     """True for shows from a cour before SKIP_BEFORE_SEASON -> user's by hand.
 
     Unknown/unparseable dates are treated as NOT old (current) so brand-new
-    shows whose bgm date is still missing are not accidentally ignored.
+    shows whose bgm date is still missing are not accidentally ignored. A bgm_id
+    in PIN_CURRENT_BGM_IDS is force-treated as current regardless of its date.
     """
+    if bgm_id is not None and int(bgm_id) in PIN_CURRENT_BGM_IDS:
+        return False
     s = season_of(date_str)
     return s is not None and s < SKIP_BEFORE_SEASON
 
@@ -782,7 +792,7 @@ def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
 
     plan = []
     for s in shows:
-        if is_manual_old_show(s["date"]):
+        if is_manual_old_show(s["date"], s["bgm_id"]):
             sea = season_of(s["date"])
             flag = f"skip (旧番 {sea} < {SKIP_BEFORE_SEASON}, 手动管理)"
             plan.append({
@@ -1062,7 +1072,7 @@ def reconcile_removed(
             print(f"  ?  {rname}: could not resolve bgm id (skip)")
             continue
         sea = bgm_subject_season(bgm_id, season_cache)
-        if sea is not None and sea < SKIP_BEFORE_SEASON:
+        if sea is not None and sea < SKIP_BEFORE_SEASON and bgm_id not in PIN_CURRENT_BGM_IDS:
             print(f"     {rname}: 旧番 {sea} -> 跳过（手动管理，不增不删不删文件）")
             continue
         ctype = bgm_collection_type(user, bgm_id)
@@ -1158,7 +1168,7 @@ def resolve_torrent_target(
     if not bgm_id:
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
-    if sea is not None and sea < SKIP_BEFORE_SEASON:
+    if sea is not None and sea < SKIP_BEFORE_SEASON and bgm_id not in PIN_CURRENT_BGM_IDS:
         return None, None, f"旧番 {sea} < {SKIP_BEFORE_SEASON}（手动管理）"
     ep = parse_episode(t.get("name", ""))
     if ep is None:
@@ -1965,7 +1975,7 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
     fired = 0
     for s in wishlist:
         gkey = str(s["bgm_id"])
-        if gkey in seen or is_manual_old_show(s["date"]):
+        if gkey in seen or is_manual_old_show(s["date"], s["bgm_id"]):
             continue
         # 防线A：未到开播日绝不标在看（不记 seen，下轮再看）
         pdate = show_premiere_date(s["bgm_id"], s["date"], air_cache)

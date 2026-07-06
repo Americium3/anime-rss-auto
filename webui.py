@@ -278,13 +278,15 @@ def api_overview():
     out_shows = []
     for s in shows:
         season = core.season_of(s["date"])
-        is_old = core.is_manual_old_show(s["date"])
+        pinned = s["bgm_id"] in core.PIN_CURRENT_BGM_IDS
+        is_old = core.is_manual_old_show(s["date"], s["bgm_id"])
         entry = {
             "bgm_id": s["bgm_id"],
             "title": s["name_cn"] or s["name"],
             "title_jp": s["name"],
             "date": s["date"],
             "season": season,
+            "pinned": pinned,
             "image": s["image"],
             "score": s.get("score"),
             "status": "unresolved",
@@ -376,6 +378,7 @@ def api_collections():
                 "title_en": cached.get("en"),
                 "date": s["date"],
                 "season": core.season_of(s["date"]),
+                "pinned": s["bgm_id"] in core.PIN_CURRENT_BGM_IDS,
                 "image": s.get("image", ""),
                 "score": s.get("score"),
                 "updated_at": s.get("updated_at"),
