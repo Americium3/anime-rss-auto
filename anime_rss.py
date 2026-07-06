@@ -98,18 +98,28 @@ GROUP_FILTER = {g[0]: g[2] for g in GROUP_PRIORITY}
 # 有些字幕组一集会并行放出多个版本，区别在文件名的标签上，两类常见维度：
 #   * 来源（source）：如 Baha / CR / ABEMA，「... - 01 (Baha 1920x1080 ...)」
 #   * 语言（language）：如 简日双语 / 繁日双语，「...[01][1080p][简日双语]」
-# 诉求：(1) 某些源永不下载（如 ABEMA，无翻译）；(2) 同一集若同时有多个版本，
-# 只保留最优先的一个（源：Baha＞CR；语言：简＞繁）。
+# 诉求：(1) 某些源永不下载（如 ABEMA 无翻译、B-Global 机翻）；(2) 同一集若同时
+# 有多个版本，只保留最优先的一个（源：Baha＞CR；语言：简＞繁）。
 # qB 的 RSS 规则字段能表达 (1)——把黑名单塞进 mustNotContain，feed 层直接拒；
 # 但表达不了 (2)——规则逐条匹配、彼此不知情，没有「版本排序」概念。所以：
 #   * SOURCE_BLACKLIST -> 每条规则的 mustNotContain（永不下载）。
 #   * SOURCE_PRIORITY / LANG_PRIORITY -> 下载后 prefer_variant_dedup() 同集去重。
 # 取舍按维度顺序（先源、后语言）做字典序比较：源相同再比语言。各列表按需在
-# config 覆盖；源标签按整词边界匹配（防 "CR" 命中别的词），语言标签多为 CJK、
-# 直接子串匹配。列表留空即关闭该维度。
-SOURCE_BLACKLIST = [str(s) for s in CONFIG.get("source_blacklist", ["ABEMA"])]
+# config 覆盖；源标签按整词边界匹配（防 "CR" 命中别的词）。
+SOURCE_BLACKLIST = [str(s) for s in CONFIG.get(
+    "source_blacklist", ["ABEMA", "B-Global", "BGlobal"])]
 SOURCE_PRIORITY = [str(s) for s in CONFIG.get("source_priority", ["Baha", "CR"])]
-LANG_PRIORITY = [str(s) for s in CONFIG.get("lang_priority", ["简", "繁"])]
+# 语言维度：每档是一组同义标记（简体档在前、繁体档在后），种子的语言序号 = 命中
+# 的第一档下标。CJK 标记（简/繁/简日…）子串匹配；拉丁缩写（CHS/SC/GB/CHT/TC/
+# BIG5）允许粘在 jp/cn 语言前缀后（故 JPSC->SC、JPTC->TC 也能认），但绝不匹配词
+# 中间（故 "disc"/"watch" 不误伤）。config 传扁平旧格式 ["简","繁"] 也自动兼容。
+_LANG_DEFAULT = [
+    ["简", "简体", "简中", "简日", "CHS", "SC", "GB"],
+    ["繁", "繁体", "繁中", "繁日", "CHT", "TC", "BIG5"],
+]
+LANG_PRIORITY = [
+    ([g] if isinstance(g, str) else [str(m) for m in g])
+    for g in CONFIG.get("lang_priority", _LANG_DEFAULT)]
 
 # Shows from a cour BEFORE this one are left entirely to manual handling: the
 # script never adds, removes, unsubscribes, or deletes files for them. The
@@ -1726,6 +1736,60 @@ def jellyfin_prune_deleted() -> int:
     return deleted
 
 
+def mirror_prune_orphan_files() -> int:
+    """删掉 BangumiJF 里源已不存在的孤儿视频硬链接（dedup/换组删了源文件后的残留）。
+
+    jellyfin_prune_deleted 只在**季度文件夹**层剪枝；本函数补**季度内单个文件**层：
+    以 X:\\Bangumi 为真相，镜像里某集视频若在源对应 <cour>/<show>/ 下已无同名文件，
+    就删该硬链接（只删镜像、绝不碰源）。这正是「换组/去重后 Jellyfin 还显示旧版本」
+    的根因。安全闸：源根不存在/为空（疑似盘未挂载）一律中止；某番在源里一个视频都
+    没有时整番跳过（避免下载搬运中的瞬时空态误删）；只删 dst_root 下的视频文件。
+    """
+    src_root = Path(BANGUMI_LIBRARY)
+    dst_root = Path(JELLYFIN_MIRROR)
+    if not src_root.exists() or not dst_root.exists():
+        return 0
+    if not any(d.is_dir() for d in src_root.iterdir()):
+        print("# mirror-prune: 源 X:\\Bangumi 为空，跳过（安全，疑似盘未挂载）")
+        return 0
+    dst_prefix = str(dst_root).rstrip("\\").lower() + "\\"
+    pruned = 0
+    for cour_dir in dst_root.iterdir():
+        if not cour_dir.is_dir() or not _COUR_DIR_RE.match(cour_dir.name):
+            continue
+        src_cour = src_root / cour_dir.name
+        if not src_cour.is_dir():
+            continue  # 整个季度不在源 -> 交给 jellyfin_prune_deleted 季度级处理
+        for show_dir in cour_dir.iterdir():
+            if not show_dir.is_dir():
+                continue
+            src_show = src_cour / show_dir.name
+            if not src_show.is_dir():
+                continue  # 整番不在源（改名等）-> 保守跳过
+            have = {f.name for f in src_show.rglob("*")
+                    if f.is_file() and f.suffix.lower() in MIRROR_VIDEO_EXT}
+            if not have:
+                continue  # 源里该番一个视频都没有 -> 疑似瞬时空态，整番跳过
+            for link in show_dir.rglob("*"):
+                if not link.is_file() or link.suffix.lower() not in MIRROR_VIDEO_EXT:
+                    continue
+                if link.name in have:
+                    continue
+                lp = str(link).rstrip("\\").lower()
+                if not lp.startswith(dst_prefix):  # 双重断言：只删镜像内
+                    continue
+                try:
+                    link.unlink()
+                    pruned += 1
+                    print(f"# mirror-prune: 删孤儿硬链接 {link}")
+                except OSError as ex:
+                    print(f"# mirror-prune: 删除失败 {link}：{ex}")
+    if pruned:
+        _jellyfin_refresh()
+        print(f"# mirror-prune: 清理 {pruned} 个孤儿硬链接")
+    return pruned
+
+
 # --------------------------------------------------------------------------- #
 # premiere-watch: 想看列表里的番一开播（首集资源上 mikan）-> 面板提醒 + 自动标在看
 # --------------------------------------------------------------------------- #
@@ -1981,9 +2045,31 @@ def _source_rank(name: str) -> int | None:
     return _rank_in(name, SOURCE_PRIORITY + SOURCE_BLACKLIST)
 
 
+def _lang_marker_hit(marker: str, low: str) -> bool:
+    """单个语言标记是否命中（已小写的）种子名。
+
+    CJK 标记（简/繁/简日…）直接子串匹配；拉丁缩写（chs/sc/gb/cht/tc/big5）允许粘
+    在 jp/cn 语言前缀后（认出 jpsc/jptc），并可带尾随数字（gb2312/big5），但要求
+    左右都不是字母，故不会命中 "disc"/"watch" 这类词的中段。
+    """
+    m = marker.strip().lower()
+    if not m:
+        return False
+    if not m.isascii():  # CJK 标记 -> 子串
+        return m in low
+    return bool(re.search(rf"(?<![a-z])(?:jp|cn)?{re.escape(m)}\d*(?![a-z])", low))
+
+
 def _lang_rank(name: str) -> int | None:
-    """语言维度序号（越小越优，简＞繁）；无任何已知语言标签返回 None。"""
-    return _rank_in(name, LANG_PRIORITY)
+    """语言维度序号（越小越优，简＞繁）；无任何已知语言标签返回 None。
+
+    每档是一组同义标记，命中该组任一标记即算该档。简体档在前，繁体档在后。
+    """
+    low = name.lower()
+    for i, group in enumerate(LANG_PRIORITY):
+        if any(_lang_marker_hit(mk, low) for mk in group):
+            return i
+    return None
 
 
 # 取舍维度，按优先级从高到低排列——先比源，源相同再比语言。每项 (取值函数)。
@@ -2147,7 +2233,8 @@ def run_sync_once(user, cookie, season, purge, token=None):
             traceback.print_exc()
     if CONFIG.get("jellyfin_mirror_delete_enabled", True):
         try:
-            jellyfin_prune_deleted()
+            jellyfin_prune_deleted()      # 季度文件夹级
+            mirror_prune_orphan_files()   # 季度内单文件级（换组/去重残留）
         except Exception:  # noqa: BLE001
             print("!!! jellyfin-prune 出错（不影响本轮 sync）：")
             traceback.print_exc()
