@@ -153,6 +153,16 @@ SKIP_BEFORE_SEASON = str(CONFIG.get("skip_before_season", "2026.04"))
 # the webui treats it as current (never hidden by the season-only filter).
 PIN_CURRENT_BGM_IDS = {int(x) for x in CONFIG.get("pin_current_bgm_ids", [])}
 
+# Cross-cour (multi-season) shows: a 半年番/年番 keeps airing into later cours,
+# so once its start cour drops behind SKIP_BEFORE_SEASON it must NOT be frozen as
+# a manual old show while it is still broadcasting. We classify it from the actual
+# broadcast schedule (first->last episode airdate span in weeks), which is the
+# authoritative definition — episode count alone is unreliable (a single cour can
+# run 14-15 eps, a 泡面番 packs 52 short weekly eps into a year). Thresholds are in
+# weeks and deliberately generous: >= YEAR weeks is 年番, else >= HALF is 半年番.
+CROSS_SEASON_HALF_MIN_WEEKS = float(CONFIG.get("cross_season_half_min_weeks", 20))
+CROSS_SEASON_YEAR_MIN_WEEKS = float(CONFIG.get("cross_season_year_min_weeks", 40))
+
 # Calendar month -> the cour (season) month it belongs to.
 _COUR_MONTH = {1: 1, 2: 1, 3: 1, 4: 4, 5: 4, 6: 4,
                7: 7, 8: 7, 9: 7, 10: 10, 11: 10, 12: 10}
@@ -211,14 +221,59 @@ def season_of(date_str: str) -> str | None:
     return f"{int(m.group(1))}.{_COUR_MONTH[int(m.group(2))]:02d}"
 
 
-def is_manual_old_show(date_str: str, bgm_id: int | None = None) -> bool:
+def _broadcast_weeks(first: str | None, last: str | None) -> float | None:
+    """Calendar weeks from the first to the last episode airdate ('YYYY-MM-DD')."""
+    try:
+        a = datetime.date.fromisoformat(first)
+        b = datetime.date.fromisoformat(last)
+    except (TypeError, ValueError):
+        return None
+    return (b - a).days / 7.0
+
+
+def cour_kind(first: str | None, last: str | None) -> str | None:
+    """Badge class from the broadcast span: 'year' | 'half' | None (single cour).
+    Weeks, not episode count, are authoritative — a 2-cour show runs ~26 weeks and
+    a 年番 ~52, regardless of how many (or how short) its episodes are."""
+    weeks = _broadcast_weeks(first, last)
+    if weeks is None or weeks < CROSS_SEASON_HALF_MIN_WEEKS:
+        return None
+    return "year" if weeks >= CROSS_SEASON_YEAR_MIN_WEEKS else "half"
+
+
+def still_broadcasting(last: str | None, today: datetime.date | None = None) -> bool:
+    """True while the show has not finished airing — its final scheduled episode
+    airdate is today or later. bgm lists future episode airdates up front, so this
+    is an authoritative 'still updating' signal for a cross-cour show."""
+    try:
+        end = datetime.date.fromisoformat(last)
+    except (TypeError, ValueError):
+        return False
+    return end >= (today or datetime.date.today())
+
+
+def cour_still_airing(bgm_id: int, cour: str | None, span_cache: dict[int, dict]) -> bool:
+    """Whether an OLD-cour show is still broadcasting (so it should keep being
+    auto-managed). Only old-cour shows pay the episode-schedule fetch — current
+    ones are already 'current' and short-circuit before any network call."""
+    if not cour or cour >= SKIP_BEFORE_SEASON:
+        return False
+    return still_broadcasting(bgm_episode_span(bgm_id, span_cache)["last"])
+
+
+def is_manual_old_show(date_str: str, bgm_id: int | None = None,
+                       still_airing: bool = False) -> bool:
     """True for shows from a cour before SKIP_BEFORE_SEASON -> user's by hand.
 
-    Unknown/unparseable dates are treated as NOT old (current) so brand-new
-    shows whose bgm date is still missing are not accidentally ignored. A bgm_id
-    in PIN_CURRENT_BGM_IDS is force-treated as current regardless of its date.
+    Unknown/unparseable dates are treated as NOT old (current) so brand-new shows
+    whose bgm date is still missing are not accidentally ignored. A bgm_id in
+    PIN_CURRENT_BGM_IDS is force-treated as current regardless of its date, and a
+    cross-cour show still broadcasting (still_airing, from its episode schedule)
+    stays current too — so a 半年番/年番 keeps being auto-managed until it ends.
     """
     if bgm_id is not None and int(bgm_id) in PIN_CURRENT_BGM_IDS:
+        return False
+    if still_airing:
         return False
     s = season_of(date_str)
     return s is not None and s < SKIP_BEFORE_SEASON
@@ -401,6 +456,7 @@ def bgm_collection_subjects(user: str, ctype: int) -> list[dict]:
                     "name": s.get("name", ""),
                     "name_cn": s.get("name_cn", ""),
                     "date": s.get("date", ""),
+                    "eps": s.get("eps") or None,  # total episodes (0/absent -> unknown)
                     "image": img.get("common") or img.get("medium") or "",
                     "score": s.get("score") or None,  # community rating, 0 = unrated
                     "updated_at": x.get("updated_at"),  # when the mark was (last) set
@@ -445,6 +501,33 @@ def bgm_subject_season(subject_id: int, cache: dict[int, str | None]) -> str | N
     except Exception:  # noqa: BLE001
         cache[subject_id] = None
     return cache[subject_id]
+
+
+def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
+    """{'first','last','count'} of a subject's main-episode (type=0) airdates —
+    the authoritative broadcast schedule. bgm publishes future episode airdates up
+    front, so 'last' is the final scheduled airdate even mid-run. Cached per subject:
+    a finished show (last airdate in the past) is kept forever; a still-airing or
+    unknown one is refetched after a day so newly scheduled airdates fill in."""
+    today = str(datetime.date.today())
+    hit = cache.get(subject_id)
+    if hit is not None:
+        finished = hit.get("last") and hit["last"] < today
+        if finished or time.time() - hit.get("_ts", 0) < 86400:
+            return hit
+    airs = []
+    try:
+        d = json.loads(http_get(
+            f"{BGM_API}/v0/episodes?subject_id={subject_id}&type=0&limit=100", retries=2
+        ).decode("utf-8", "replace"))
+        airs = sorted(e["airdate"] for e in d.get("data", []) if e.get("airdate"))
+    except Exception:  # noqa: BLE001
+        pass
+    meta = {"first": airs[0] if airs else None,
+            "last": airs[-1] if airs else None,
+            "count": len(airs), "_ts": time.time()}
+    cache[subject_id] = meta
+    return meta
 
 
 def _int_key(v) -> int | None:
@@ -791,8 +874,10 @@ def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
                 existing_feeds.add(int(m.group(1)))
 
     plan = []
+    span_cache: dict[int, dict] = {}
     for s in shows:
-        if is_manual_old_show(s["date"], s["bgm_id"]):
+        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        if is_manual_old_show(s["date"], s["bgm_id"], still):
             sea = season_of(s["date"])
             flag = f"skip (旧番 {sea} < {SKIP_BEFORE_SEASON}, 手动管理)"
             plan.append({
@@ -1066,13 +1151,16 @@ def reconcile_removed(
     rule_only, purge = [], []
     cache: dict[int, int | None] = {}
     season_cache: dict[int, str | None] = {}
+    span_cache: dict[int, dict] = {}
     for rname, rdef in rules.items():
         bgm_id = rule_bgm_id(rdef, cache)
         if not bgm_id:
             print(f"  ?  {rname}: could not resolve bgm id (skip)")
             continue
         sea = bgm_subject_season(bgm_id, season_cache)
-        if sea is not None and sea < SKIP_BEFORE_SEASON and bgm_id not in PIN_CURRENT_BGM_IDS:
+        if (sea is not None and sea < SKIP_BEFORE_SEASON
+                and bgm_id not in PIN_CURRENT_BGM_IDS
+                and not cour_still_airing(bgm_id, sea, span_cache)):
             print(f"     {rname}: 旧番 {sea} -> 跳过（手动管理，不增不删不删文件）")
             continue
         ctype = bgm_collection_type(user, bgm_id)
@@ -1154,6 +1242,7 @@ def resolve_torrent_target(
     mikan_cache: dict[int, int | None],
     season_cache: dict[int, str | None],
     ep_cache: dict[int, dict[int, int]],
+    span_cache: dict[int, dict] | None = None,
 ) -> tuple[int | None, int | None, str]:
     """For a paused torrent, find (bgm_subject_id, episode_id, reason).
 
@@ -1168,7 +1257,9 @@ def resolve_torrent_target(
     if not bgm_id:
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
-    if sea is not None and sea < SKIP_BEFORE_SEASON and bgm_id not in PIN_CURRENT_BGM_IDS:
+    if (sea is not None and sea < SKIP_BEFORE_SEASON
+            and bgm_id not in PIN_CURRENT_BGM_IDS
+            and not cour_still_airing(bgm_id, sea, span_cache if span_cache is not None else {})):
         return None, None, f"旧番 {sea} < {SKIP_BEFORE_SEASON}（手动管理）"
     ep = parse_episode(t.get("name", ""))
     if ep is None:
@@ -1207,6 +1298,7 @@ def mark_watched_pass(token: str | None, *, dry_run: bool = False) -> None:
     rule_by_path = rules_by_savepath(existing_rules())
     mikan_cache: dict[int, int | None] = {}
     season_cache: dict[int, str | None] = {}
+    span_cache: dict[int, dict] = {}
     ep_cache: dict[int, dict[int, int]] = {}
 
     marked = 0
@@ -1226,7 +1318,7 @@ def mark_watched_pass(token: str | None, *, dry_run: bool = False) -> None:
         if not fired:
             continue
         bgm_id, eid, reason = resolve_torrent_target(
-            t, rule_by_path, mikan_cache, season_cache, ep_cache
+            t, rule_by_path, mikan_cache, season_cache, ep_cache, span_cache
         )
         nm = t.get("name", "")[:55]
         if reason != "ok":
@@ -1971,11 +2063,13 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
     auto = bool(CONFIG.get("premiere_auto_watch", True))
     seen = load_premiere_seen()
     air_cache: dict[int, str | None] = {}
+    span_cache: dict[int, dict] = {}
     today = datetime.date.today().isoformat()
     fired = 0
     for s in wishlist:
         gkey = str(s["bgm_id"])
-        if gkey in seen or is_manual_old_show(s["date"], s["bgm_id"]):
+        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        if gkey in seen or is_manual_old_show(s["date"], s["bgm_id"], still):
             continue
         # 防线A：未到开播日绝不标在看（不记 seen，下轮再看）
         pdate = show_premiere_date(s["bgm_id"], s["date"], air_cache)
