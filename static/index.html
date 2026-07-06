@@ -163,6 +163,17 @@
     padding: 2px 9px; border-radius: 999px; color: var(--text-faint);
     background: color-mix(in srgb, currentColor 12%, transparent);
   }
+  /* Cross-cour badge: a 半年番/年番 marker, same pill family as the season tag.
+     Half-year is calm, year-long is warmer/stronger to read as "longer". */
+  .cour-tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    padding: 2px 9px; border-radius: 999px;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .cour-tag.half { color: #2dd4bf; }
+  .cour-tag.year { color: #fbbf24; }
+  html[data-theme="light"] .cour-tag.half { color: #0d9488; }
+  html[data-theme="light"] .cour-tag.year { color: #d97706; }
   .season-tag.s0, .season-divider.s0 { color: #f472b6; }  /* even-year winter  */
   .season-tag.s1, .season-divider.s1 { color: #fb923c; }  /* even-year spring  */
   .season-tag.s2, .season-divider.s2 { color: #a3e635; }  /* even-year summer  */
@@ -302,6 +313,9 @@
   /* ---------- weekly timetable: one vertical column per weekday ---------- */
   #cards.schedule { display: block; }
   .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sched-filters[hidden] { display: none; }   /* class display:flex would beat [hidden] */
+  /* Watching-grid weekday sub-filter: sits above the grid, its own row. */
+  .subfilters { margin-top: -2px; }
   /* Sub-filter chips are visually subordinate to the main tab row above. */
   .sched-filters .fchip { padding: 4px 11px; font-size: 12px; }
   .sched-filters .fchip.active {
@@ -520,6 +534,8 @@
     <input class="search" id="search" type="search" autocomplete="off" oninput="renderCards()" hidden>
   </div>
 
+  <div class="sched-filters subfilters" id="subfilters" hidden></div>
+
   <h2 class="sr-only" data-i18n="showsHeading">Shows</h2>
   <div class="grid" id="cards"><div class="empty"><span class="spin">◌</span> <span data-i18n="loading">Loading…</span></div></div>
 
@@ -589,10 +605,13 @@ const I18N = {
     scoreHint: "bangumi rating",
     t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
-    airsLabel: "Airs", airedLabel: "Premiered",
+    airsLabel: "Airs", airedLabel: "Premiered", updatesLabel: "Airs",
+    cour_half: "Half-year", cour_year: "Year-long",
     theme_auto: "◐ Auto", theme_dark: "● Dark", theme_light: "○ Light",
     t_schedule: "Timetable",
     days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    daysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    weekdayAll: "All days",
     timeTBA: "Time TBA", today: "Today",
     scheduleEmpty: "No airing-time data yet — it fills in as AniList lookups resolve",
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
@@ -647,10 +666,13 @@ const I18N = {
     scoreHint: "bangumi 评分",
     t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
-    airsLabel: "开播", airedLabel: "开播",
+    airsLabel: "开播", airedLabel: "开播", updatesLabel: "更新",
+    cour_half: "半年番", cour_year: "年番",
     theme_auto: "◐ 跟随系统", theme_dark: "● 深色", theme_light: "○ 浅色",
     t_schedule: "时刻表",
     days: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+    daysShort: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+    weekdayAll: "全部",
     timeTBA: "时间待定", today: "今天",
     scheduleEmpty: "暂无开播时间数据 — AniList 查询完成后会自动补齐",
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
@@ -678,6 +700,8 @@ let activeType = pick(QS.get("tab") || localStorage.getItem("tab") || "watching"
 let schedFilter = pick(localStorage.getItem("schedFilter") || "all",
   ["all", "aired", "upcoming"], "all");   // timetable premiere-status filter
 let schedSeasonOnly = localStorage.getItem("schedSeasonOnly") === "1";  // timetable: limit to current cour
+let watchWeekday = pick(localStorage.getItem("watchWeekday") || "all",
+  ["all", "0", "1", "2", "3", "4", "5", "6"], "all");   // 在看 grid: airing-weekday filter (0=Mon)
 
 let state = null;
 let collections = null;
@@ -715,6 +739,41 @@ function fmtLocal(airingAt, premiereDate) {
   if (!m) return "";
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(loc(),
     { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
+}
+
+// Airing weekday (0=Mon..6=Sun) from the AniList slot, else the bgm premiere/air
+// date. Returns null when nothing datable is known (so the show only shows under
+// the "all days" filter). The weekly slot repeats, so ep1's weekday is the show's.
+function airWeekday(s) {
+  if (s.airing_at) return (new Date(s.airing_at * 1000).getDay() + 6) % 7;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.premiere_date || s.date || "");
+  if (!m) return null;
+  return (new Date(+m[1], +m[2] - 1, +m[3]).getDay() + 6) % 7;
+}
+
+// Compact weekly-slot label for the cards: "周四 · 09:00" (weekday + local time),
+// or weekday only when just a date is known. Empty when nothing is datable.
+function fmtAirSlot(s) {
+  const wd = airWeekday(s);
+  if (wd === null) return "";
+  const day = t("daysShort")[wd];
+  if (!s.airing_at) return day;
+  const d = new Date(s.airing_at * 1000);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${day} · ${hm}`;
+}
+
+// Card air line: "更新 …" reads best as a suffix in Chinese, a prefix in English.
+function airSlotRow(s) {
+  const slot = fmtAirSlot(s);
+  if (!slot) return "";
+  const text = lang === "zh" ? `${slot} ${t("updatesLabel")}` : `${t("updatesLabel")} ${slot}`;
+  return `<div class="airline"><span class="ai">▸</span>${esc(text)}</div>`;
+}
+
+// 半年番/年番 badge from the backend's episode-count classification.
+function courTag(s) {
+  return s.cour_kind ? `<span class="cour-tag ${s.cour_kind}">${t("cour_" + s.cour_kind)}</span>` : "";
 }
 
 // Compact localized "MM-DD hh:mm" for log-ish stamps (last sync, premiere
@@ -885,10 +944,9 @@ function card(show) {
 
   const seasonTag = show.season ? `<span class="season-tag ${seasonClass(show.season)}">${esc(show.season)}</span>` : "";
   const score = scoreTag(show);
-  const meta = pill || seasonTag || score ? `<div class="meta">${pill}${seasonTag}${score}</div>` : "";
-  const when = fmtLocal(show.airing_at, show.premiere_date);
-  const airRow = when
-    ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(show) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
+  const cour = courTag(show);
+  const meta = pill || seasonTag || cour || score ? `<div class="meta">${pill}${seasonTag}${cour}${score}</div>` : "";
+  const airRow = airSlotRow(show);
   return `<div class="card t-watching" onclick="openBgm(event, ${show.bgm_id})">
     <div class="cover">${coverHtml(show.image)}</div>
     <div class="card-body">
@@ -907,7 +965,8 @@ function basicCard(s) {
     ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(s) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   const seasonTag = s.season ? `<span class="season-tag ${seasonClass(s.season)}">${esc(s.season)}</span>` : "";
   const score = scoreTag(s);
-  const meta = seasonTag || score ? `<div class="meta">${seasonTag}${score}</div>` : "";
+  const cour = courTag(s);
+  const meta = seasonTag || cour || score ? `<div class="meta">${seasonTag}${cour}${score}</div>` : "";
   return `<div class="card t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="cover">${coverHtml(s.image)}</div>
     <div class="card-body">
@@ -982,6 +1041,7 @@ function searchMatch(s) {
 function renderCards() {
   $("search").hidden = activeType === "schedule";
   $("cards").classList.toggle("schedule", activeType === "schedule");
+  renderWatchFilters();
   if (activeType === "schedule") {
     renderSchedule();
     return;
@@ -993,7 +1053,9 @@ function renderCards() {
   let list = null;
   if (activeType === "watching") {
     if (!state) return;
-    list = state.shows.slice().sort(byAir).filter(searchMatch).map(card);
+    let shows = state.shows.slice().sort(byAir).filter(searchMatch);
+    if (watchWeekday !== "all") shows = shows.filter(s => airWeekday(s) === +watchWeekday);
+    list = shows.map(card);
   } else if (collections) {
     const shows = (collections.groups[activeType] || []).filter(searchMatch);
     // 看过 reads as a viewing history: newest cour on top, split per cour.
@@ -1004,6 +1066,36 @@ function renderCards() {
   if (list === null) return;
   const empty = ($("search").value || "").trim() ? t("noMatch") : "—";
   setHTML($("cards"), list.join("") || `<div class="empty">${empty}</div>`);
+}
+
+// Airing-weekday sub-filter for the 在看 grid: "all" + one chip per weekday,
+// each with a live count. Only shown on the watching tab; hidden elsewhere. A
+// weekday whose chip drops to 0 stays clickable (empty grid reads clearly).
+function renderWatchFilters() {
+  const bar = $("subfilters");
+  if (activeType !== "watching" || !state) {
+    bar.hidden = true;
+    setHTML(bar, "");
+    return;
+  }
+  const shows = state.shows.filter(searchMatch);
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+  for (const s of shows) {
+    const w = airWeekday(s);
+    if (w !== null) counts[w]++;
+  }
+  let html = fchipBtn("all", t("weekdayAll"), shows.length, watchWeekday === "all", "setWatchWeekday");
+  for (let i = 0; i < 7; i++) {
+    html += fchipBtn(String(i), t("daysShort")[i], counts[i], watchWeekday === String(i), "setWatchWeekday");
+  }
+  bar.hidden = false;
+  setHTML(bar, html);
+}
+
+function setWatchWeekday(k) {
+  watchWeekday = k;
+  localStorage.setItem("watchWeekday", k);
+  renderCards();
 }
 
 // Premiere status: episode 1's timestamp (or the bgm date) is in the past.
@@ -1026,7 +1118,7 @@ function renderSchedule() {
   // the pool untouched rather than blanking the board. Pinned shows (old cours
   // still airing weekly) count as current and are never hidden by this filter.
   const cur = state && state.season;
-  if (schedSeasonOnly && cur) all = all.filter(s => s.season === cur || s.pinned);
+  if (schedSeasonOnly && cur) all = all.filter(s => s.season === cur || s.pinned || s.long_current);
   const counts = {
     all: all.length,
     aired: all.filter(hasAired).length,
@@ -1096,7 +1188,7 @@ function schedItem(s) {
   return `<div class="sched-item t-${s.type}" onclick="openBgm(event, ${s.bgm_id})">
     <div class="scover">${coverHtml(s.image)}</div>
     <div class="sbody">
-      <div class="srow"><span class="stime ${aired ? "aired" : "upcoming"}">${hm}</span><span class="pill ${s.type}">${t("t_" + s.type)}</span></div>
+      <div class="srow"><span class="stime ${aired ? "aired" : "upcoming"}">${hm}</span><span class="pill ${s.type}">${t("t_" + s.type)}</span>${courTag(s)}</div>
       <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>
       ${jpLine(s)}
       ${airRow}

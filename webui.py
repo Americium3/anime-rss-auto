@@ -181,6 +181,7 @@ def bgm_watching_rich(user: str) -> list[dict]:
                 "name": s.get("name", ""),
                 "name_cn": s.get("name_cn", ""),
                 "date": s.get("date", ""),
+                "eps": s.get("eps") or None,
                 "image": img.get("common") or img.get("medium") or "",
                 "score": s.get("score") or None,
             })
@@ -278,8 +279,9 @@ def api_overview():
     out_shows = []
     for s in shows:
         season = core.season_of(s["date"])
+        eps = s.get("eps")
         pinned = s["bgm_id"] in core.PIN_CURRENT_BGM_IDS
-        is_old = core.is_manual_old_show(s["date"], s["bgm_id"])
+        is_old = core.is_manual_old_show(s["date"], s["bgm_id"], eps)
         entry = {
             "bgm_id": s["bgm_id"],
             "title": s["name_cn"] or s["name"],
@@ -287,6 +289,8 @@ def api_overview():
             "date": s["date"],
             "season": season,
             "pinned": pinned,
+            "cour_kind": core.cour_kind(eps),
+            "long_current": core.long_still_airing(season, eps),
             "image": s["image"],
             "score": s.get("score"),
             "status": "unresolved",
@@ -379,6 +383,8 @@ def api_collections():
                 "date": s["date"],
                 "season": core.season_of(s["date"]),
                 "pinned": s["bgm_id"] in core.PIN_CURRENT_BGM_IDS,
+                "cour_kind": core.cour_kind(s.get("eps")),
+                "long_current": core.long_still_airing(core.season_of(s["date"]), s.get("eps")),
                 "image": s.get("image", ""),
                 "score": s.get("score"),
                 "updated_at": s.get("updated_at"),
