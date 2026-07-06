@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import html
 import io
 import json
 import os
@@ -211,10 +212,19 @@ def last_sync_time() -> str | None:
 def mikan_subgroups_named(mikan_id: int) -> list[dict]:
     """[{id, name}] for every subtitle group on a mikan bangumi page."""
     html_txt = core.http_get(f"{core.MIKAN}/Home/Bangumi/{mikan_id}").decode("utf-8", "replace")
-    for gid, name in re.findall(
-        r'href="/Home/PublishGroup/(\d+)"[^>]*>([^<]+)</a>', html_txt
+    # Each group renders as <div class="subgroup-text" id="{subgroupid}"> whose
+    # inner text is the display name — either plain text (raw / unnamed groups
+    # like "生肉/不明字幕") or a /Home/PublishGroup/<pubid> link. The PublishGroup
+    # id is NOT the subgroupid, so the name must be keyed by the block's id (the
+    # real subgroupid); the old link-only regex both mismatched those and missed
+    # link-less groups entirely.
+    for gid, inner in re.findall(
+        r'<div class="subgroup-text" id="(\d+)">(.*?)<a[^>]*class="mikan-rss"',
+        html_txt, re.S,
     ):
-        _group_names.setdefault(int(gid), name.strip())
+        name = html.unescape(re.sub(r"<[^>]+>", "", inner)).strip()
+        if name:
+            _group_names.setdefault(int(gid), name)
     ids = sorted({int(x) for x in re.findall(r"subgroupid=(\d+)", html_txt)})
     # name=None for unknown groups: the label language is the frontend's call.
     return [{"id": i, "name": _group_names.get(i)} for i in ids]
