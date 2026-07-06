@@ -7,8 +7,8 @@
 
   "skip_before_season": "2026.04",
   "pin_current_bgm_ids": [],
-  "cross_season_half_min_eps": 14,
-  "cross_season_year_min_eps": 34,
+  "cross_season_half_min_weeks": 20,
+  "cross_season_year_min_weeks": 40,
   "purge_dropped_files": true,
   "ani_grace_hours": 3,
   "group_priority": [

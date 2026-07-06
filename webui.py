@@ -57,9 +57,10 @@ _scanned_mids: set[int] = set()                 # mikan ids whose page we alread
 AIRING_CACHE_PATH = ROOT / "airing_cache.json"
 _ANILIST_URL = "https://graphql.anilist.co"
 _ANILIST_Q = ("query($s:String){Media(search:$s,type:ANIME){"
-              "title{english romaji}"
+              "title{english romaji} status episodes"
               "airingSchedule(perPage:8){nodes{episode airingAt}}"
-              "nextAiringEpisode{episode airingAt} startDate{year month day}}}")
+              "nextAiringEpisode{episode airingAt}"
+              " startDate{year month day} endDate{year month day}}}")
 
 
 def _load_airing_cache() -> dict:
@@ -156,6 +157,93 @@ def _start_title_fill(items: list[tuple[int, str, str]]) -> None:
             _save_airing_cache(cache)
         finally:
             _title_fill_running = False
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+# 半年番/年番 classification + still-airing come from the broadcast schedule
+# (first->last episode airdate). bgm is authoritative and primary; AniList is a
+# fallback only when bgm has no airdates scheduled yet. Spans are cached on disk
+# per bgm_id — finished shows keep their airdates forever, so the big completed
+# list is a one-time fill, warmed in the background so it never blocks a request.
+_SPAN_CACHE_PATH = ROOT / "episode_span_cache.json"
+
+
+def _load_span_cache() -> dict:
+    try:
+        raw = json.loads(_SPAN_CACHE_PATH.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_span_cache() -> None:
+    try:
+        _SPAN_CACHE_PATH.write_text(json.dumps(_span_cache, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_span_cache: dict = _load_span_cache()
+
+
+def _ani_ymd(d: dict | None) -> str | None:
+    if d and d.get("year") and d.get("month") and d.get("day"):
+        return f"{d['year']:04d}-{d['month']:02d}-{d['day']:02d}"
+    return None
+
+
+def classify_broadcast(bgm_id: int, jp: str, cn: str, fetch: bool = True) -> tuple[str | None, bool]:
+    """(cour_kind, still_airing) from the broadcast schedule. bgm episode airdates
+    first; AniList (status / start-end dates) fills in only when bgm has nothing
+    scheduled. fetch=False consults just the warm cache — used for the large
+    completed list, which is warmed by a background thread instead of inline."""
+    sp = core.bgm_episode_span(bgm_id, _span_cache) if fetch else _span_cache.get(bgm_id)
+    first, last = (sp or {}).get("first"), (sp or {}).get("last")
+    kind = core.cour_kind(first, last)
+    airing = core.still_broadcasting(last) if last else False
+    if fetch and not last:  # bgm has no schedule yet -> ask AniList
+        m = None
+        for term in (cn, jp):
+            if not term:
+                continue
+            try:
+                m = _anilist_media(term)
+            except Exception:  # noqa: BLE001
+                m = None
+            if m:
+                break
+        if m:
+            airing = (m.get("status") == "RELEASING") or bool(m.get("nextAiringEpisode"))
+            kind = core.cour_kind(_ani_ymd(m.get("startDate")), _ani_ymd(m.get("endDate")))
+    return kind, airing
+
+
+_span_fill_running = False
+_span_fill_lock = threading.Lock()
+
+
+def _start_span_fill(bgm_ids: list[int]) -> None:
+    """Warm the episode-span cache for shows not yet known (e.g. the completed list),
+    off the request path. bgm calls, so a shorter delay than AniList is fine."""
+    global _span_fill_running
+    todo = [b for b in bgm_ids if b not in _span_cache]
+    with _span_fill_lock:
+        if _span_fill_running or not todo:
+            return
+        _span_fill_running = True
+
+    def run() -> None:
+        global _span_fill_running
+        try:
+            for i, bid in enumerate(todo):
+                core.bgm_episode_span(bid, _span_cache)
+                time.sleep(0.3)
+                if i % 20 == 19:
+                    _save_span_cache()
+            _save_span_cache()
+        finally:
+            _span_fill_running = False
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -277,11 +365,12 @@ def api_overview():
     airing_cache = _load_airing_cache()
     prem_cache: dict[int, str | None] = {}
     out_shows = []
+    cur_season = core.current_season()
     for s in shows:
         season = core.season_of(s["date"])
-        eps = s.get("eps")
         pinned = s["bgm_id"] in core.PIN_CURRENT_BGM_IDS
-        is_old = core.is_manual_old_show(s["date"], s["bgm_id"], eps)
+        kind, airing = classify_broadcast(s["bgm_id"], s["name"], s["name_cn"])
+        is_old = core.is_manual_old_show(s["date"], s["bgm_id"], airing)
         entry = {
             "bgm_id": s["bgm_id"],
             "title": s["name_cn"] or s["name"],
@@ -289,8 +378,8 @@ def api_overview():
             "date": s["date"],
             "season": season,
             "pinned": pinned,
-            "cour_kind": core.cour_kind(eps),
-            "long_current": core.long_still_airing(season, eps),
+            "cour_kind": kind,
+            "long_current": airing and bool(season) and season < cur_season,
             "image": s["image"],
             "score": s.get("score"),
             "status": "unresolved",
@@ -365,6 +454,8 @@ def api_collections():
     groups: dict[str, list] = {}
     counts: dict[str, int] = {}
     backfill: list[tuple[int, str, str]] = []
+    span_backfill: list[int] = []
+    cur_season = core.current_season()
     for t in (3, 1, 2, 4, 5):
         try:
             shows = core.bgm_collection_subjects(user, t)
@@ -374,6 +465,14 @@ def api_collections():
         lst = []
         for s in shows:
             cached = airing_cache.get(str(s["bgm_id"])) or {}
+            season = core.season_of(s["date"])
+            # 在看/想看 classify inline (few, badges must show at once); the big
+            # completed/on-hold/dropped lists read the warm cache and are filled
+            # in the background so they never stall this request.
+            inline = t in (3, 1)
+            kind, airing = classify_broadcast(s["bgm_id"], s["name"], s["name_cn"], fetch=inline)
+            if not inline and s["bgm_id"] not in _span_cache:
+                span_backfill.append(s["bgm_id"])
             e = {
                 "bgm_id": s["bgm_id"],
                 "type": _COLL_TYPES[t],
@@ -381,17 +480,17 @@ def api_collections():
                 "title_jp": s["name"],
                 "title_en": cached.get("en"),
                 "date": s["date"],
-                "season": core.season_of(s["date"]),
+                "season": season,
                 "pinned": s["bgm_id"] in core.PIN_CURRENT_BGM_IDS,
-                "cour_kind": core.cour_kind(s.get("eps")),
-                "long_current": core.long_still_airing(core.season_of(s["date"]), s.get("eps")),
+                "cour_kind": kind,
+                "long_current": airing and bool(season) and season < cur_season,
                 "image": s.get("image", ""),
                 "score": s.get("score"),
                 "updated_at": s.get("updated_at"),
                 "airing_at": None,
                 "premiere_date": None,
             }
-            if t in (3, 1):  # 在看/想看：只对当前/即将播的番查精确开播时间
+            if inline:  # 在看/想看：只对当前/即将播的番查精确开播时间
                 e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
                 air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
                 e["airing_at"] = air["at"]
@@ -401,7 +500,9 @@ def api_collections():
             lst.append(e)
         groups[_COLL_TYPES[t]] = lst
     _save_airing_cache(airing_cache)
+    _save_span_cache()
     _start_title_fill(backfill)
+    _start_span_fill(span_backfill)
     out = {"groups": groups, "counts": counts}
     _collections_cache["data"] = out
     _collections_cache["ts"] = now
