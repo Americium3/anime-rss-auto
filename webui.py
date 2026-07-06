@@ -585,6 +585,13 @@ def api_rule_switch(body: RuleSwitch):
             except Exception as ex:  # noqa: BLE001
                 notes.append(f"mikan {fn.__name__}: {ex}")
 
+    # 4) prune the Jellyfin mirror right away so the old group's hardlinks don't
+    #    linger until the next watch cycle (源已在 step 0 删过 -> 现在把镜像对齐).
+    try:
+        core.mirror_prune_orphan_files()
+    except Exception as ex:  # noqa: BLE001
+        notes.append(f"mirror-prune: {ex}")
+
     grp = _group_names.get(body.subgroup, str(body.subgroup))
     return {"ok": True, "code": "switched", "group": grp, "notes": notes,
             "deleted": deleted, "note": f"rule now follows {grp}"}
