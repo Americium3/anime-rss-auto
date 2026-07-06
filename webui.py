@@ -662,10 +662,18 @@ def api_rule_switch(body: RuleSwitch):
     #    replaces it episode for episode. mikan's per-subgroup RSS is full, so
     #    the swapped feed re-grabs the whole season into the emptied folder.
     #    Guarded by the season cutoff — pre-cutoff shows are hand-managed and are
-    #    NEVER touched destructively (see SKIP_BEFORE_SEASON).
+    #    NEVER touched destructively (see SKIP_BEFORE_SEASON). Exception: a
+    #    still-airing 半年番/年番 (or a pinned id) is exempt and full-replaces
+    #    just like a current show, matching the backend's destructive passes.
     deleted = 0
     save_path = rdef.get("savePath", "")
-    if save_path and str(season) >= core.SKIP_BEFORE_SEASON:
+    try:
+        exempt = (str(season) < core.SKIP_BEFORE_SEASON
+                  and core._old_cour_exempt(
+                      str(season), core.rule_bgm_id(rdef, {}), _span_cache))
+    except Exception:  # noqa: BLE001
+        exempt = False
+    if save_path and (str(season) >= core.SKIP_BEFORE_SEASON or exempt):
         try:
             victims = core.qb_torrents_under(save_path)
             if victims:
