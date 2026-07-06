@@ -38,7 +38,7 @@ Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**
 | **对账（reconcile）** | 番剧转为 看过/抛弃 → 删 qB 规则（保留文件）；彻底移出收藏 → 退订 + 删文件 | `purge_dropped_files` |
 | **旧番分界线** | 早于分界季度的番永不触碰——不增、不删。跨季番（半年番/年番）只要还在播就继续自动管理，依据权威的放送日程判定（bgm 逐集 airdate：末集放送日 ≥ 今天即视为在播；AniList `status` 兜底）。播完后回退成手动老番——所以还在更新的 2-cour/年番不会因为开播季度落在分界线之前就被冻结，而很久前完结的长番也绝不会被重新触碰。个别番也可按 bgm id 手动钉为「当前」 | `skip_before_season` / `pin_current_bgm_ids` |
 | **mark-watched** | 你在 qB 里暂停一个已完成的种子 → 该集在 bgm 上标看过（基于状态跳变，绝不批量误标） | `mark_watched_enabled` |
-| **看完自动收（autocomplete）** | 一部在看番的**本篇全部集**都在 bgm 标了看过（你手动，或 mark-watched / jfhook 逐集自动标）→ 整部自动升为看过，随后由 reconcile 接手（删 qB 规则、保留 mikan 订阅 + 本地文件），并在面板弹「已看完」横幅。两道保险：读的是**逐集**收藏状态（不用不可靠的 `eps` 总数），且只有 finale 已开播（所有本篇 airdate ≤ 今天）才收——所以一部还在播、你恰好把已列出的集都看了的番绝不会被提前收掉。和其它写入 pass 一样遵守旧番分界线。可单独跑 `python anime_rss.py autocomplete [--dry-run]` | `autocomplete_watched_enabled` |
+| **看完自动收（autocomplete）** | 一部在看番的**本篇全部集**都在 bgm 标了看过（你手动，或 mark-watched / jfhook 逐集自动标）→ 整部自动升为看过，随后由 reconcile 接手（删 qB 规则、保留 mikan 订阅 + 本地文件），并在面板弹「本季看完」横幅（带一键「去 bgm 评分·写评语」直达该番条目页的链接）。两道保险：读的是**逐集**收藏状态（不用不可靠的 `eps` 总数），且只有 finale 已开播（所有本篇 airdate ≤ 今天）才收——所以一部还在播、你恰好把已列出的集都看了的番绝不会被提前收掉。和其它写入 pass 一样遵守旧番分界线。可单独跑 `python anime_rss.py autocomplete [--dry-run]` | `autocomplete_watched_enabled` |
 | **Jellyfin 镜像** | 把新剧集硬链接进 `<镜像>\<季度>\<番名>\Season 01\`（0 额外占空间，不碰做种） | `jellyfin_mirror_enabled` |
 | **Jellyfin 自动建库** | 新增季度文件夹 → 自动建库、生成封面、倒序排列 | `jellyfin_autolib_enabled` |
 | **Jellyfin 联动删除** | 源库删掉某季度 → 镜像 + Jellyfin 库一并删除；并按**单文件**：某集视频若源文件已不存在（如被同组多版本取舍删掉、或切换字幕组换掉），其镜像孤儿硬链接一并清除，Jellyfin 不再显示旧版本（多重安全闸：源根缺失/为空即中止，某番源里 0 视频则整番跳过） | `jellyfin_mirror_delete_enabled` |
