@@ -58,6 +58,11 @@ NOTIFY_PATH = Path(__file__).with_name("premiere_notify.json")
 PREMIERE_SEEN_PATH = Path(__file__).with_name("premiere_seen.json")
 # 可选人工覆盖：bgm_id(str) -> "YYYY-MM-DD"（bgm 放送日期填错/缺失时才用；正常留空）
 PREMIERE_TIMES_PATH = Path(__file__).with_name("premiere_times.json")
+# 可选人工覆盖：bgm_id(str) -> mikan bangumiId（bgm 译名与 mikan 可搜索名都对不上、
+# 别名搜索也救不回时的确定性兜底；正常留空，见 resolve_show）
+MIKAN_OVERRIDES_PATH = Path(__file__).with_name("mikan_overrides.json")
+# 面板「未匹配 mikan」横幅的状态镜像：每轮 sync 覆盖写当前所有 UNRESOLVED 的番
+UNRESOLVED_PATH = Path(__file__).with_name("unresolved.json")
 BGM_AUTHORIZE = "https://bgm.tv/oauth/authorize"
 BGM_OAUTH_TOKEN = "https://bgm.tv/oauth/access_token"
 ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
@@ -669,6 +674,52 @@ def bgm_english_alias(subject_id: int) -> str:
     return ""
 
 
+def bgm_alias_names(subject_id: int) -> list[str]:
+    """All alias strings from a subject's infobox (别名/英文名/罗马字), any script.
+
+    Used as extra mikan-search queries when the bgm name_cn/name don't match
+    mikan's searchable titles: mikan indexes by release/original names, so a
+    romaji or alt-Chinese alias (e.g. 'Ushiro no Shoumen Kamui-san') often
+    resolves a show that its display 中文名 never would. Order preserved; each
+    alias still passes through resolve_show's bgm_id confirmation, so a spurious
+    match can't stick.
+    """
+    try:
+        d = json.loads(
+            http_get(f"{BGM_API}/v0/subjects/{subject_id}").decode("utf-8", "replace")
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[str] = []
+    for box in d.get("infobox", []):
+        if box.get("key") in ("别名", "英文名", "罗马字"):
+            v = box.get("value")
+            cands = ([i.get("v", "") for i in v if isinstance(i, dict)]
+                     if isinstance(v, list) else [v] if isinstance(v, str) else [])
+            for c in cands:
+                c = (c or "").strip()
+                if c and c not in out:
+                    out.append(c)
+    return out
+
+
+def load_mikan_overrides() -> dict[int, int]:
+    """bgm_id -> mikan bangumiId manual map (mikan_overrides.json), {} if absent.
+
+    The deterministic escape hatch for shows whose bgm name AND aliases all miss
+    mikan's search index. resolve_show consults this first; a hit skips searching
+    entirely (still confirming the mikan page's bgm_id matches, warning on
+    mismatch). Keys may be str or int in the file; normalized to int here.
+    """
+    if not MIKAN_OVERRIDES_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(MIKAN_OVERRIDES_PATH.read_text(encoding="utf-8"))
+        return {int(k): int(v) for k, v in raw.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 # --------------------------------------------------------------------------- #
 # mikan
 # --------------------------------------------------------------------------- #
@@ -705,40 +756,91 @@ def pick_subgroup(available: list[int]) -> int | None:
     return available[0] if available else None
 
 
-def resolve_show(show: dict) -> dict:
-    """Map a bgm show -> mikan bangumiId + subgroupid. Adds resolution keys."""
-    bgm_id = show["bgm_id"]
-    queries = [q for q in (show["name_cn"], show["name"]) if q]
-    candidates: list[int] = []
-    for q in queries:
-        for c in mikan_search_candidates(q):
-            if c not in candidates:
-                candidates.append(c)
-        if candidates:
-            break  # name_cn usually enough
+def _confirm_mikan_candidate(candidates: list[int], bgm_id: int) -> tuple:
+    """First candidate whose mikan page's bgm_id == bgm_id -> (id, subs, title).
 
-    matched_mikan = None
-    matched_subs: list[int] = []
-    matched_title = ""
+    (None, [], '') if none confirms. This bgm_id gate is what keeps a loose name
+    match from binding the wrong show, so every search tier funnels through it.
+    """
     for bid in candidates[:8]:
         try:
             info = mikan_bangumi_info(bid)
         except Exception:  # noqa: BLE001
             continue
         if info["bgm_id"] == bgm_id:
-            matched_mikan, matched_subs, matched_title = bid, info["subgroups"], info["title"]
-            break
+            return bid, info["subgroups"], info["title"]
+    return None, [], ""
 
+
+def resolve_show(show: dict) -> dict:
+    """Map a bgm show -> mikan bangumiId + subgroupid. Adds resolution keys.
+
+    Resolution ladder — each tier gated by a bgm_id match (see
+    _confirm_mikan_candidate), so a loose name never binds the wrong show:
+      0. manual override (mikan_overrides.json) — deterministic, skips search;
+      1. search by bgm name_cn / name (日文);
+      2. search by bgm aliases (别名/罗马字) — rescues shows whose display 中文名
+         differs from mikan's searchable release names (mikan indexes原名/发布名);
+      3. low-confidence fallback: first name-match candidate, bgm_id NOT confirmed
+         (legacy behavior, kept so nothing regresses);
+      else UNRESOLVED.
+    Alias search (tier 2) only fires when tiers 0/1 miss, so the happy path takes
+    no extra bgm call.
+    """
+    bgm_id = show["bgm_id"]
+    matched_mikan: int | None = None
+    matched_subs: list[int] = []
+    matched_title = ""
     confidence = "high"
-    if matched_mikan is None and candidates:
-        # fall back: first search candidate, confirm via its own subgroups
+
+    # 0) manual override — trust the mapping, but still confirm the page's bgm_id.
+    override = load_mikan_overrides().get(int(bgm_id))
+    if override is not None:
         try:
-            info = mikan_bangumi_info(candidates[0])
-            matched_mikan = candidates[0]
-            matched_subs, matched_title = info["subgroups"], info["title"]
+            info = mikan_bangumi_info(override)
+            matched_mikan, matched_subs, matched_title = override, info["subgroups"], info["title"]
+            if info["bgm_id"] != bgm_id:
+                print(f"  ! mikan override {bgm_id}->{override}: page bgm_id="
+                      f"{info['bgm_id']} != {bgm_id} (using anyway)")
+                confidence = "override (bgm id mismatch!)"
+            else:
+                confidence = "override"
         except Exception:  # noqa: BLE001
             pass
-        confidence = "low (name match, bgm id NOT confirmed)"
+
+    primary: list[int] = []
+    alias_cands: list[int] = []
+    if matched_mikan is None:
+        # 1) primary search by name_cn / name (name_cn usually enough -> break).
+        for q in (show["name_cn"], show["name"]):
+            if not q:
+                continue
+            for c in mikan_search_candidates(q):
+                if c not in primary:
+                    primary.append(c)
+            if primary:
+                break
+        matched_mikan, matched_subs, matched_title = _confirm_mikan_candidate(primary, bgm_id)
+
+    if matched_mikan is None:
+        # 2) alias search — extra queries from the subject's infobox aliases.
+        for q in bgm_alias_names(bgm_id):
+            for c in mikan_search_candidates(q):
+                if c not in alias_cands and c not in primary:
+                    alias_cands.append(c)
+        matched_mikan, matched_subs, matched_title = _confirm_mikan_candidate(alias_cands, bgm_id)
+
+    if matched_mikan is None:
+        # 3) fall back: first name-match candidate, bgm_id NOT confirmed.
+        fallback = primary or alias_cands
+        if fallback:
+            try:
+                info = mikan_bangumi_info(fallback[0])
+                matched_mikan = fallback[0]
+                matched_subs, matched_title = info["subgroups"], info["title"]
+                confidence = "low (name match, bgm id NOT confirmed)"
+            except Exception:  # noqa: BLE001
+                pass
 
     subgroup = pick_subgroup(matched_subs)
     show = dict(show)
@@ -1956,6 +2058,89 @@ def save_premiere_seen(seen: set[str]) -> None:
     PREMIERE_SEEN_PATH.write_text(json.dumps(sorted(seen)), encoding="utf-8")
 
 
+# --- 未匹配 mikan 的番：面板横幅的状态镜像 --------------------------------- #
+# 与开播提醒（一次性事件、一周过期）不同，「解析不到 mikan」是持续状态：番没修好
+# 就一直在。所以这里不是事件队列，而是每轮 sync 覆盖写的当前快照——番一旦解析成功
+# （别名搜索命中 / 填了 mikan_overrides.json），下轮自动从快照消失、横幅自清。
+# dismissed 让用户压住不关心的番，但它仍在快照里（状态还在），只是不再弹横幅。
+
+
+def load_unresolved() -> list[dict]:
+    if UNRESOLVED_PATH.exists():
+        try:
+            return json.loads(UNRESOLVED_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return []
+    return []
+
+
+def save_unresolved(items: list[dict]) -> None:
+    UNRESOLVED_PATH.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def scan_unresolved(user: str) -> list[dict]:
+    """Refresh unresolved.json to mirror shows that currently miss mikan.
+
+    Scans 想看+在看 (new-season only; old shows are manual and never touched),
+    resolves each, and keeps the ones that come back UNRESOLVED. Prior dismissed
+    flags and first-seen timestamps are carried over by bgm_id; entries that now
+    resolve (or are no longer collected) simply drop out -> the panel banner
+    clears itself. Returns the (non-dismissed) list actually worth surfacing.
+    """
+    prev = {str(it.get("bgm_id")): it for it in load_unresolved()}
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    today = datetime.date.today().isoformat()
+    span_cache: dict[int, dict] = {}
+    air_cache: dict[int, str | None] = {}
+    seen_ids: set[str] = set()
+    out: list[dict] = []
+    shows: list[tuple[int, dict]] = []
+    for ctype in (3, 1):  # 在看, 想看
+        try:
+            shows.extend((ctype, s) for s in bgm_collection_subjects(user, ctype))
+        except Exception as ex:  # noqa: BLE001
+            print(f"# unresolved-scan: 读取收藏({ctype})失败，跳过：{ex}")
+    for ctype, s in shows:
+        gkey = str(s["bgm_id"])
+        if gkey in seen_ids:
+            continue
+        seen_ids.add(gkey)
+        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        if is_manual_old_show(s["date"], s["bgm_id"], still):
+            continue
+        # 只报「已开播却解析不到」的真故障——未开播的想看番 mikan 本就没条目，
+        # 不是名字对不上，列出来只会是噪音。开播日未知的在看番按已开播处理。
+        pdate = show_premiere_date(s["bgm_id"], s["date"], air_cache)
+        aired = (pdate is not None and today >= pdate) or (pdate is None and ctype == 3)
+        if not aired:
+            continue
+        try:
+            r = resolve_show(s)
+        except Exception:  # noqa: BLE001
+            continue
+        if r.get("mikan_id"):
+            continue  # 解析成功 -> 不上榜
+        old = prev.get(gkey, {})
+        out.append({
+            "bgm_id": s["bgm_id"],
+            "title": s["name_cn"] or s["name"],
+            "title_jp": s["name"],
+            "date": s["date"],
+            "season": season_of(s["date"]),
+            "image": s.get("image", ""),
+            "detected_at": old.get("detected_at") or now,
+            "dismissed": bool(old.get("dismissed", False)),
+        })
+    save_unresolved(out)
+    surfaced = [e for e in out if not e["dismissed"]]
+    if surfaced:
+        names = "、".join(f"{e['title']}({e['bgm_id']})" for e in surfaced)
+        print(f"# ⚠ 未匹配 mikan {len(surfaced)} 部：{names}")
+    return out
+
+
 def _premiere_overrides() -> dict:
     """Optional manual override map bgm_id(str) -> 'YYYY-MM-DD'. Empty when unused."""
     if PREMIERE_TIMES_PATH.exists():
@@ -2412,6 +2597,13 @@ def run_sync_once(user, cookie, season, purge, token=None):
             jellyfin_ensure_libraries()
         except Exception:  # noqa: BLE001
             print("!!! jellyfin-autolib 出错（不影响本轮 sync）：")
+            traceback.print_exc()
+    if CONFIG.get("unresolved_scan_enabled", True):
+        # 刷新「未匹配 mikan」快照，供面板横幅展示（名字/别名/override 都没命中的番）。
+        try:
+            scan_unresolved(user)
+        except Exception:  # noqa: BLE001
+            print("!!! unresolved-scan 出错（不影响本轮 sync）：")
             traceback.print_exc()
     print("=== sync done ===")
 

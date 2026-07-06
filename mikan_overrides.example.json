@@ -1,0 +1,4 @@
+{
+  "_comment": "Manual bgm_id -> mikan bangumiId map. Copy to mikan_overrides.json and add an entry ONLY when a show's banner says 'no mikan match' and even its aliases don't resolve. Find the mikan id in the show's mikan page URL: mikanani.me/Home/Bangumi/<id>. resolve_show consults this first and skips searching. Normally you never need this — alias search covers most name mismatches.",
+  "627136": 4042
+}
