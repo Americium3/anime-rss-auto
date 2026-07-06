@@ -121,6 +121,25 @@ LANG_PRIORITY = [
     ([g] if isinstance(g, str) else [str(m) for m in g])
     for g in CONFIG.get("lang_priority", _LANG_DEFAULT)]
 
+# --- 防误抓：兜底组要求中文字幕标记（feed 层）+ 生肉硬删（下载后）------------- #
+# 兜底组（不在 GROUP_PRIORITY、无自定义 mustContain）原本过滤词为空 = feed 里啥都
+# 收，会把 mikan 上交叉发布的 Netflix 生肉（如「Sparks of Tomorrow」= 某番英文译名
+# 的双语无中文字幕版）一并抓下。两道防线：
+#   * A（feed 层）：这类组的 mustContain 设为 CJK_SUB_REQUIRED——要求标题含任一中文
+#     字幕标记。qB 非正则里单个词内的 `|` = 或、词之间的空格 = 且，故这里必须是「无
+#     空格的单个 `|` 串」才表达「含其一即可」；带空格会污染整条过滤词语义，切忌。
+#   * B（下载后）：HARD_REJECT_TAGS 命中的种子无条件删（含文件），不参与版本排序、
+#     不受「唯一版本」保护，补住 A 漏网的（如未加 A 的老规则）。多词子串在 Python 里
+#     匹配没有 qB 那种空格歧义，故可放心用带空格/点的平台标记。
+CJK_SUB_REQUIRED = str(CONFIG.get(
+    "cjk_sub_required",
+    "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文"))
+# 归一化（点/空格/下划线并成单空格）后子串匹配，故 "NF.WEB-DL" 与 "NF WEB-DL" 同拒。
+HARD_REJECT_TAGS = [str(t).lower() for t in CONFIG.get("hard_reject_tags", [
+    "nf web-dl", "amzn web-dl", "dsnp web-dl", "atvp web-dl", "hulu web-dl",
+    "max web-dl", "dsnp", "atvp",
+])]
+
 # Shows from a cour BEFORE this one are left entirely to manual handling: the
 # script never adds, removes, unsubscribes, or deletes files for them. The
 # cutoff is a cour string "YYYY.MM" and comparison is lexicographic (months are
@@ -833,7 +852,9 @@ def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
             "subgroup": resolved["subgroup"],
             "subgroup_name": resolved["subgroup_name"],
             "available_subgroups": resolved["available_subgroups"],
-            "mustContain": GROUP_FILTER.get(resolved["subgroup"], ""),
+            # 有自定义组过滤词就用它；否则（兜底组/空过滤词）退回「要求中文字幕标记」，
+            # 挡掉 mikan 交叉发布的无中文字幕生肉（见 CJK_SUB_REQUIRED）。
+            "mustContain": GROUP_FILTER.get(resolved["subgroup"]) or CJK_SUB_REQUIRED,
             "confidence": resolved["confidence"],
             "feed": feed_url(mid, resolved["subgroup"])
             if mid and resolved["subgroup"]
@@ -2087,6 +2108,18 @@ def _has_known_variant_tag(name: str) -> bool:
     return any(d(name) is not None for d in _VARIANT_DIMS)
 
 
+def _hard_reject(name: str) -> bool:
+    """种子名是否命中生肉硬拒绝标记（Netflix/Amazon/… 无中文字幕的双语生肉）。
+
+    先把点/空格/下划线归一成单空格，再子串匹配 HARD_REJECT_TAGS——故 "NF.WEB-DL"
+    与 "NF WEB-DL" 一视同仁。用于下载后无条件删除，不参与版本排序。
+    """
+    if not HARD_REJECT_TAGS:
+        return False
+    norm = re.sub(r"[ ._]+", " ", name.lower())
+    return any(t in norm for t in HARD_REJECT_TAGS)
+
+
 def _episode_key(name: str) -> str | None:
     """从种子名抽集号（'... - 01 (Baha ...)' 或 '...[01][1080p]' -> '1'）。
 
@@ -2139,6 +2172,37 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
         print(f"# rule-blacklist: 更新 {changed} 条规则"
               f"{'（dry-run 未实写）' if dry_run else ''}")
     return changed
+
+
+def reject_hard_variants(*, dry_run: bool = False) -> int:
+    """删掉命中生肉硬拒绝标记的种子（含文件），无条件、不参与版本排序。
+
+    针对 mikan 交叉发布进来的无中文字幕生肉（Netflix/Amazon/… 双语版）。只动
+    SKIP_BEFORE_SEASON 之后的番；无法判定季度的一律不碰（守旧番红线）。与
+    prefer_variant_dedup 互补：那个按优先级留一版删其余，这个是「见到就删」。
+    """
+    if not HARD_REJECT_TAGS:
+        return 0
+    torrents = qb_get_json("/api/v2/torrents/info")
+    victims = []
+    for t in torrents:
+        cour = _cour_of_torrent(t)
+        if cour is None or cour < SKIP_BEFORE_SEASON:
+            continue  # 旧番/无法判定季度 -> 不碰
+        if _hard_reject(t["name"]):
+            victims.append(t)
+    for t in victims:
+        print(f"  hard-reject: 删生肉 {t['name']}")
+        if not dry_run:
+            try:
+                qb_post("/api/v2/torrents/delete",
+                        {"hashes": t["hash"], "deleteFiles": "true"})
+            except Exception as ex:  # noqa: BLE001
+                print(f"     ! 删除失败: {ex}")
+    if victims:
+        print(f"# hard-reject: 删除 {len(victims)} 个生肉"
+              f"{'（dry-run 未实删）' if dry_run else ''}")
+    return len(victims)
 
 
 def prefer_variant_dedup(*, dry_run: bool = False) -> int:
@@ -2208,6 +2272,7 @@ def run_sync_once(user, cookie, season, purge, token=None):
         # （源 Baha＞CR、语言 简＞繁）。
         try:
             reconcile_rule_blacklist()
+            reject_hard_variants()   # 先删无中文字幕生肉（Netflix 等）
             prefer_variant_dedup()
         except Exception:  # noqa: BLE001
             print("!!! prefer-variant 出错（不影响本轮 sync）：")
@@ -2260,8 +2325,9 @@ def cmd_mark(args):
 
 
 def cmd_dedup(args):
-    """独立跑一趟同组同集多版本取舍：补规则黑名单 + 同集只留最优版本。"""
+    """独立跑一趟同组同集多版本取舍：补规则黑名单 + 删生肉 + 同集只留最优版本。"""
     reconcile_rule_blacklist(dry_run=args.dry_run)
+    reject_hard_variants(dry_run=args.dry_run)
     prefer_variant_dedup(dry_run=args.dry_run)
 
 
