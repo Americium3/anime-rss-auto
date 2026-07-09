@@ -2502,13 +2502,31 @@ def _lang_rank(name: str) -> int | None:
 
 
 # 取舍维度，按优先级从高到低排列——先比源，源相同再比语言。每项 (取值函数)。
+# 注意：修正版（v2/v3…）不在此列——它只作最低优先级 tiebreaker（见 _variant_rank），
+# 且刻意不进 _has_known_variant_tag，以免把「纯无标签」种子误判成可删对象。
 _VARIANT_DIMS = (_source_rank, _lang_rank)
 
 
+def _rev_rank(name: str) -> int:
+    """修正版序号：'[V2]' / '04v2' / ' v3 ' -> 2、3…；无标签 = 1（原始版）。
+
+    越小越优——同集若源、语言全打平，只留版本号最小的那版（即已下好的原始版），
+    删掉后来补发的 V2/V3…（主人「凡是看到 v2 都不要再下一遍」）。正则要求 v 前后
+    都不是字母（re.I 下 [a-z] 亦含大写），故只吃独立的「v+数字」标记，不会误命中
+    'AVC' 的 V、'VCB-Studio' 的 V 等；'04v2' 里 v 前是数字，照样吃到。
+    """
+    m = re.search(r"(?<![a-z])v(\d+)(?![a-z])", name.rsplit(".", 1)[0], re.I)
+    return int(m.group(1)) if m else 1
+
+
 def _variant_rank(name: str) -> tuple[float, ...]:
-    """跨维度的复合序号元组（字典序比较，越小越优）；某维度无标签记为 +∞。"""
-    return tuple(
+    """跨维度的复合序号元组（字典序比较，越小越优）；某维度无标签记为 +∞。
+
+    末位追加修正版序号（原始版=1，越小越优），作为源/语言全打平后的最后 tiebreaker。
+    """
+    quality = tuple(
         (r if r is not None else math.inf) for r in (d(name) for d in _VARIANT_DIMS))
+    return quality + (_rev_rank(name),)
 
 
 def _has_known_variant_tag(name: str) -> bool:
@@ -2634,10 +2652,11 @@ def reject_hard_variants(*, dry_run: bool = False) -> int:
 def prefer_variant_dedup(*, dry_run: bool = False) -> int:
     """同番同集若有多个版本，只留复合优先级最高的，删其余（含文件）。
 
-    维度按 _VARIANT_DIMS 顺序字典序比较（先源、后语言）：源更优者胜；源相同则
-    语言更优（简＞繁）者胜。只动 SKIP_BEFORE_SEASON 之后的番；旧番、无法判定
-    季度/集号的种子一律不碰。只删「至少带一个可识别标签、且严格劣于同集最优版本」
-    的种子——完全无标签的未知种子保留、不误伤。
+    维度字典序比较（先源、后语言，最后修正版）：源更优者胜；源相同则语言更优
+    （简＞繁）者胜；源、语言全打平（如同组的 v1 与 [V2]）则版本号小者胜——留已下好
+    的原始版，删后来补发的 V2/V3。只动 SKIP_BEFORE_SEASON 之后的番；旧番、无法判定
+    季度/集号的种子一律不碰。只删「至少带一个可识别源/语言标签、且严格劣于同集最优
+    版本」的种子——完全无标签的未知种子保留、不误伤（修正版维度不计入此标签判定）。
     """
     if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
         return 0
