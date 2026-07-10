@@ -67,19 +67,28 @@
     line-height: 1.5;
     min-height: 100vh;
   }
-  /* Ambient glow lives on a fixed pseudo-element (not body background) so it
-     can drift/breathe on the compositor. Oversized inset hides the edges of
-     the travel; reduced-motion stills it into the old static gradient. */
+  /* Ambient glow: two fixed pseudo-elements (one per blob) drifting and
+     breathing on the compositor. Different periods keep them permanently out
+     of phase, so the combined motion reads organic; the opacity swing is what
+     makes the breathing visible — pure translation at this scale isn't.
+     Keyframes only declare `to`: the rest state is the old static gradient,
+     which is exactly what reduced-motion freezes back into. */
+  body::before, body::after {
+    content: ""; position: fixed; inset: -14%; z-index: -1; pointer-events: none;
+  }
   body::before {
-    content: ""; position: fixed; inset: -12%; z-index: -1; pointer-events: none;
-    background:
-      radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%),
-      radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
-    animation: drift 36s ease-in-out infinite alternate;
+    background: radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%);
+    animation: drift 16s ease-in-out infinite alternate;
+  }
+  body::after {
+    background: radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
+    animation: drift2 21s ease-in-out infinite alternate;
   }
   @keyframes drift {
-    from { transform: translate3d(0, 0, 0) scale(1); }
-    to   { transform: translate3d(-2.5%, 1.8%, 0) scale(1.08); }
+    to { transform: translate3d(-4%, 3%, 0) scale(1.18); opacity: .55; }
+  }
+  @keyframes drift2 {
+    to { transform: translate3d(3.5%, -2.5%, 0) scale(1.14); opacity: .5; }
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
@@ -157,13 +166,16 @@
      filter switches) — silent 30s poll updates swap content with no replay.
      --i is stamped by applyStagger(); capped so huge grids don't take forever. */
   @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  /* --stagger-base delays the whole waterfall: bootDone() sets it so the
+     opening replay starts only once the overlay is mostly gone; user-driven
+     switches run with the 0s default (renderCards clears it). */
   #cards.anim > .card, #cards.anim > .season-divider, #cards.anim > .empty {
     animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(min(var(--i, 0), 18) * 26ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 18) * 26ms);
   }
   #cards.anim .sched-item {
     animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(min(var(--i, 0), 8) * 45ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 8) * 45ms);
   }
   /* Covers fade in with the same user-driven gate, so a background data poll
      never strobes every poster at once. */
@@ -604,17 +616,18 @@
   #boot.err .boot-bar i { background: var(--warn); box-shadow: none; }
 
   /* ---------- entrance choreography ---------- */
-  /* bootDone() adds body.booted as the overlay lifts; the page rises in as a
-     relay — header, banners, toolbar, then the card waterfall (its own timing
-     via #cards.anim). One-shot: later re-renders never replay these. */
-  @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } }
-  body.booted header { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .1s backwards; }
-  body.booted .premieres { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .2s backwards; }
+  /* bootDone() adds body.booted the moment the overlay starts to lift (they
+     share the same 200ms timer), so these delays are measured from the start
+     of the .45s fade — the relay lands while the page is being revealed, not
+     hidden underneath it. One-shot: later re-renders never replay these. */
+  @keyframes riseIn { from { opacity: 0; transform: translateY(16px); } }
+  body.booted header { animation: riseIn .65s cubic-bezier(.22,1,.36,1) .15s backwards; }
+  body.booted .premieres { animation: riseIn .65s cubic-bezier(.22,1,.36,1) .3s backwards; }
   body.booted .toolbar,
-  body.booted .subfilters { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .3s backwards; }
+  body.booted .subfilters { animation: riseIn .65s cubic-bezier(.22,1,.36,1) .45s backwards; }
   body.booted .section-h,
   body.booted .prio,
-  body.booted .logs { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .4s backwards; }
+  body.booted .logs { animation: riseIn .65s cubic-bezier(.22,1,.36,1) .6s backwards; }
 
   /* Header "Last sync" value glints once when a newer stamp lands. */
   #synchip.flash b { animation: syncFlash 1.2s ease; }
@@ -1267,8 +1280,11 @@ function searchMatch(s) {
 function renderCards() {
   $("search").hidden = activeType === "schedule";
   $("cards").classList.toggle("schedule", activeType === "schedule");
-  // Consume the one-shot animation gate set by user-driven switches.
+  // Consume the one-shot animation gate set by user-driven switches. Any
+  // re-render also drops the boot-time waterfall offset — user-driven replays
+  // must start instantly.
   $("cards").classList.toggle("anim", animateCards);
+  $("cards").style.removeProperty("--stagger-base");
   animateCards = false;
   renderWatchFilters();
   if (activeType === "schedule") {
@@ -1555,14 +1571,20 @@ function bootDone() {
   clearTimeout(bootRetry);
   $("bootfill").style.width = "100%";
   $("bootpct").textContent = "100%";
-  // Opening choreography: the page relays in (header → banners → toolbar)
-  // while the overlay lifts, and the first card waterfall plays. The initial
-  // render ran with the gate closed, so this is the replay the user sees.
-  document.body.classList.add("booted");
-  $("cards").classList.add("anim");
-  applyStagger();
-  // Let the bar visibly reach 100% before the fade, then drop the node.
-  setTimeout(() => { el.classList.add("done"); setTimeout(() => el.remove(), 500); }, 200);
+  // Let the bar visibly reach 100%, then lift the overlay and start the
+  // opening choreography in the same beat — riseIn delays are timed against
+  // the .45s fade, and the card waterfall waits out --stagger-base so it
+  // plays on the revealed page instead of finishing underneath the overlay.
+  // (The initial render ran with the gate closed; this is the visible replay.)
+  setTimeout(() => {
+    el.classList.add("done");
+    document.body.classList.add("booted");
+    const c = $("cards");
+    c.style.setProperty("--stagger-base", ".55s");
+    c.classList.add("anim");
+    applyStagger();
+    setTimeout(() => el.remove(), 500);
+  }, 200);
 }
 
 async function refresh() {
