@@ -29,8 +29,9 @@
     --btn-text: #0b0d12;
     --hover-border: rgba(255,255,255,.16);
     --scroll-thumb: rgba(255,255,255,.16);
-    --glow-a: rgba(139,92,246,.24);
-    --glow-b: rgba(34,211,238,.17);
+    --glow-a: rgba(139,92,246,.46);
+    --glow-b: rgba(34,211,238,.34);
+    --glow-c: rgba(139,92,246,.26);
     --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     --radius: 18px;
   }
@@ -54,8 +55,9 @@
     --btn-text: #ffffff;
     --hover-border: rgba(13,23,40,.25);
     --scroll-thumb: rgba(13,23,40,.22);
-    --glow-a: rgba(124,58,237,.22);
-    --glow-b: rgba(8,145,178,.18);
+    --glow-a: rgba(124,58,237,.42);
+    --glow-b: rgba(8,145,178,.36);
+    --glow-c: rgba(124,58,237,.24);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -76,19 +78,28 @@
   body::before, body::after {
     content: ""; position: fixed; inset: -14%; z-index: -1; pointer-events: none;
   }
+  /* vw/vh blob geometry, spread down the whole page: cards hide most of the
+     background, so the wash concentrates where it stays visible — the top
+     band (purple), the side margins mid-page (teal, left), and below the grid
+     (faint purple, bottom-right). Works at any window width. */
   body::before {
-    background: radial-gradient(1150px 640px at 85% -10%, var(--glow-a), transparent 62%);
-    animation: drift 16s ease-in-out infinite alternate;
+    background:
+      radial-gradient(95vw 72vh at 85% -10%, var(--glow-a), transparent 66%),
+      radial-gradient(70vw 55vh at 108% 92%, var(--glow-c), transparent 68%);
+    animation: drift 9s ease-in-out infinite alternate;
   }
   body::after {
-    background: radial-gradient(950px 560px at -5% 15%, var(--glow-b), transparent 62%);
-    animation: drift2 21s ease-in-out infinite alternate;
+    background: radial-gradient(80vw 62vh at -6% 42%, var(--glow-b), transparent 66%);
+    animation: drift2 13s ease-in-out infinite alternate;
   }
+  /* Visible breathing: a ~1.8:1 bright/dim swing at a pace the eye actually
+     registers (~5%/s). The higher base alphas buy back the dim floor — at .55
+     the wash still sits above the perceptibility threshold. */
   @keyframes drift {
-    to { transform: translate3d(-4%, 3%, 0) scale(1.18); opacity: .55; }
+    to { transform: translate3d(-5%, 4%, 0) scale(1.26); opacity: .55; }
   }
   @keyframes drift2 {
-    to { transform: translate3d(3.5%, -2.5%, 0) scale(1.14); opacity: .5; }
+    to { transform: translate3d(4.5%, -3%, 0) scale(1.2); opacity: .52; }
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
@@ -571,8 +582,9 @@
     background: var(--bg);
     /* Same blob geometry as body::before/::after, so nothing jumps at lift-off. */
     background-image:
-      radial-gradient(1150px 640px at 85% -10%, var(--glow-a), transparent 62%),
-      radial-gradient(950px 560px at -5% 15%, var(--glow-b), transparent 62%);
+      radial-gradient(95vw 72vh at 85% -10%, var(--glow-a), transparent 66%),
+      radial-gradient(70vw 55vh at 108% 92%, var(--glow-c), transparent 68%),
+      radial-gradient(80vw 62vh at -6% 42%, var(--glow-b), transparent 66%);
     transition: opacity .45s ease, visibility .45s ease;
   }
   #boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
