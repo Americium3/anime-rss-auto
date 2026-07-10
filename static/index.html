@@ -66,10 +66,20 @@
     font-size: 14px;
     line-height: 1.5;
     min-height: 100vh;
-    background-image:
+  }
+  /* Ambient glow lives on a fixed pseudo-element (not body background) so it
+     can drift/breathe on the compositor. Oversized inset hides the edges of
+     the travel; reduced-motion stills it into the old static gradient. */
+  body::before {
+    content: ""; position: fixed; inset: -12%; z-index: -1; pointer-events: none;
+    background:
       radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%),
       radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
-    background-attachment: fixed;
+    animation: drift 36s ease-in-out infinite alternate;
+  }
+  @keyframes drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to   { transform: translate3d(-2.5%, 1.8%, 0) scale(1.08); }
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
@@ -84,6 +94,11 @@
   .brand .logo {
     width: 26px; height: 26px; flex: none; align-self: center;
     filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-a) 55%, transparent));
+    transition: transform .5s cubic-bezier(.34,1.56,.64,1), filter .3s ease;
+  }
+  .brand:hover .logo {
+    transform: rotate(-10deg) scale(1.1);
+    filter: drop-shadow(0 0 16px color-mix(in srgb, var(--accent-a) 85%, transparent));
   }
   .brand h1 { font-size: 19px; font-weight: 650; letter-spacing: .12em; margin: 0; }
   .brand small { color: var(--text-faint); letter-spacing: .05em; font-size: 11.5px; }
@@ -100,9 +115,21 @@
     background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
     transition: transform .15s ease, box-shadow .15s ease, opacity .15s;
     box-shadow: 0 4px 18px color-mix(in srgb, var(--accent-a) 35%, transparent);
+    position: relative; overflow: hidden;
   }
   .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 22px color-mix(in srgb, var(--accent-a) 50%, transparent); }
+  .btn:active:not(:disabled) { transform: translateY(0) scale(.97); }
   .btn:disabled { opacity: .55; cursor: default; transform: none; }
+  /* Busy sheen: a light band sweeps a disabled (= in-progress) button. The
+     element's own transform parks it off-canvas, so with animations disabled
+     (reduced motion) it simply never shows. */
+  .btn:disabled::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+    transform: translateX(-120%);
+    animation: sheen 1.4s ease-in-out .2s infinite;
+  }
+  @keyframes sheen { to { transform: translateX(120%); } }
   .btn.ghost {
     background: var(--panel); color: var(--text-dim);
     border: 1px solid var(--panel-border); box-shadow: none; font-weight: 500;
@@ -125,6 +152,23 @@
     transform: translateY(-2px);
   }
   .card:active, .sched-item:active, .premiere:active { transform: scale(.99); }
+  /* Entry waterfall: cards (and season dividers) rise in one after another.
+     #cards only carries .anim on user-driven re-renders (first paint, tab or
+     filter switches) — silent 30s poll updates swap content with no replay.
+     --i is stamped by applyStagger(); capped so huge grids don't take forever. */
+  @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  #cards.anim > .card, #cards.anim > .season-divider, #cards.anim > .empty {
+    animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(min(var(--i, 0), 18) * 26ms);
+  }
+  #cards.anim .sched-item {
+    animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(min(var(--i, 0), 8) * 45ms);
+  }
+  /* Covers fade in with the same user-driven gate, so a background data poll
+     never strobes every poster at once. */
+  @keyframes imgIn { from { opacity: 0; } }
+  #cards.anim .cover img, #cards.anim .scover img { animation: imgIn .5s ease backwards; }
   /* Hover glow tinted by the show's bgm collection type (cards + timetable). */
   .t-watching { --card-glow: var(--ok); }
   .t-want { --card-glow: var(--accent-b); }
@@ -132,8 +176,10 @@
   .t-onhold { --card-glow: var(--warn); }
   .t-dropped { --card-glow: #f87171; }
   html[data-theme="light"] .t-dropped { --card-glow: #dc2626; }
-  .cover { width: 112px; min-width: 112px; background: var(--media-bg); position: relative; }
+  .cover { width: 112px; min-width: 112px; background: var(--media-bg); position: relative; overflow: hidden; }
   .cover img, .pcover img, .scover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover img { transition: transform .5s cubic-bezier(.22,1,.36,1); }
+  .card:hover .cover img { transform: scale(1.06); }
   .cover .ph, .pcover .ph, .scover .ph {
     position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint);
   }
@@ -296,9 +342,14 @@
     border: 1px solid color-mix(in srgb, var(--accent-a) 35%, transparent);
     border-radius: var(--radius);
     padding: 12px 16px; backdrop-filter: blur(8px);
-    animation: slidein .35s ease;
+    /* Multiple banners cascade in; --i is stamped after each render. */
+    animation: slidein .4s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--i, 0) * 90ms);
   }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
+  /* The banner's leading emoji waves twice on arrival, then rests. */
+  .bemo { display: inline-block; animation: wave .8s ease .5s 2; }
+  @keyframes wave { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
   .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: var(--media-bg); position: relative; }
   .premiere .pcover .ph { font-size: 18px; }
   .premiere .pbody { flex: 1; min-width: 0; }
@@ -348,6 +399,9 @@
   .fchip b { color: var(--text); font-family: var(--mono); margin-left: 6px; font-weight: 600; }
   .fchip.active { color: var(--btn-text); background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
   .fchip.active b { color: var(--btn-text); }
+  /* Chip rows rebuild on every filter change, so the fresh .active pops once. */
+  .fchip.active { animation: chipPop .35s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes chipPop { 0% { transform: scale(.9); } 60% { transform: scale(1.05); } }
   .search {
     appearance: none; font: inherit; font-size: 12.5px; color: var(--text);
     background: var(--input-bg); border: 1px solid var(--panel-border);
@@ -425,6 +479,30 @@
     background: color-mix(in srgb, var(--accent-b) 6%, transparent);
     border-color: color-mix(in srgb, var(--accent-b) 28%, transparent);
     box-shadow: 0 0 18px color-mix(in srgb, var(--accent-b) 10%, transparent);
+    animation: todayGlow 4.5s ease-in-out infinite;
+  }
+  @keyframes todayGlow {
+    50% { box-shadow: 0 0 26px color-mix(in srgb, var(--accent-b) 18%, transparent); }
+  }
+  /* "Now" marker inside the today column: sits between the last aired and the
+     next upcoming slot. The line is information (kept under reduced motion);
+     only the dot's pulse is decoration. */
+  .now-line {
+    display: flex; align-items: center; gap: 6px; margin: 2px 0;
+    height: 8px; pointer-events: none;
+  }
+  .now-line::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+    background: var(--accent-b);
+    box-shadow: 0 0 8px var(--accent-b);
+    animation: nowPulse 2.2s ease-in-out infinite;
+  }
+  .now-line::after {
+    content: ""; flex: 1; height: 2px; border-radius: 1px;
+    background: linear-gradient(90deg, var(--accent-b), color-mix(in srgb, var(--accent-b) 15%, transparent));
+  }
+  @keyframes nowPulse {
+    50% { box-shadow: 0 0 2px var(--accent-b); opacity: .55; }
   }
   .sched-col.today .sched-day { color: var(--accent-b); }
   .sched-col.today .sched-day::after { background: color-mix(in srgb, var(--accent-b) 35%, transparent); }
@@ -459,7 +537,9 @@
     position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: var(--toast-bg); border: 1px solid var(--panel-border); color: var(--text);
     padding: 10px 20px; border-radius: 12px; font-size: 13px; opacity: 0;
-    transition: opacity .25s ease, transform .25s ease; pointer-events: none; max-width: 80vw;
+    /* Springy entrance (slight overshoot), plain fade on the way out. */
+    transition: opacity .25s ease, transform .4s cubic-bezier(.34,1.56,.64,1);
+    pointer-events: none; max-width: 80vw;
     box-shadow: 0 10px 30px rgba(0,0,0,.5);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -523,6 +603,28 @@
   #boot.err .boot-status { color: var(--warn); }
   #boot.err .boot-bar i { background: var(--warn); box-shadow: none; }
 
+  /* ---------- entrance choreography ---------- */
+  /* bootDone() adds body.booted as the overlay lifts; the page rises in as a
+     relay — header, banners, toolbar, then the card waterfall (its own timing
+     via #cards.anim). One-shot: later re-renders never replay these. */
+  @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } }
+  body.booted header { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .1s backwards; }
+  body.booted .premieres { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .2s backwards; }
+  body.booted .toolbar,
+  body.booted .subfilters { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .3s backwards; }
+  body.booted .section-h,
+  body.booted .prio,
+  body.booted .logs { animation: riseIn .55s cubic-bezier(.22,1,.36,1) .4s backwards; }
+
+  /* Header "Last sync" value glints once when a newer stamp lands. */
+  #synchip.flash b { animation: syncFlash 1.2s ease; }
+  @keyframes syncFlash {
+    25% { color: var(--accent-b); text-shadow: 0 0 12px color-mix(in srgb, var(--accent-b) 70%, transparent); }
+  }
+
+  /* Theme switches cross-fade via the View Transitions API (where supported). */
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .3s; }
+
   /* ---------- small screens / touch ---------- */
   @media (max-width: 480px) {
     .wrap { padding: 16px 12px 64px; }
@@ -537,6 +639,10 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
     .spin, .boot-arc { animation: rot 1.5s linear infinite !important; }  /* progress convention */
+    /* View-transition pseudos live outside the page tree — silence explicitly. */
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+      animation: none !important;
+    }
   }
 </style>
 </head>
@@ -791,6 +897,24 @@ function setHTML(el, html) {
   el.innerHTML = html;
 }
 
+// Entry-animation gate: user-driven re-renders (tab/filter/language switches)
+// replay the card waterfall; silent data polls and search keystrokes don't.
+// Starts false — the first paint happens under the boot overlay, so bootDone()
+// triggers the opening replay itself, timed to the overlay lift.
+let animateCards = false;
+
+// Stamp each animatable child with its index for the CSS stagger delay.
+// Timetable mode staggers per column (a wave), grids stagger across the run.
+function applyStagger() {
+  const c = $("cards");
+  if (activeType === "schedule") {
+    c.querySelectorAll(".sched-col").forEach(col =>
+      col.querySelectorAll(".sched-item").forEach((el, i) => el.style.setProperty("--i", i)));
+  } else {
+    [...c.children].forEach((el, i) => el.style.setProperty("--i", i));
+  }
+}
+
 const coverHtml = url => url ? `<img src="${esc(url)}" loading="lazy" alt="">` : `<div class="ph">◌</div>`;
 const bgmLink = (id, text) => `<a href="https://bgm.tv/subject/${id}" target="_blank" rel="noopener">${text}</a>`;
 
@@ -889,6 +1013,7 @@ function setLang(l) {
 function toggleLang() {
   const l = lang === "zh" ? "en" : "zh";
   localStorage.setItem("lang", l);
+  animateCards = true;   // retitled cards re-enter
   setLang(l);
 }
 
@@ -901,8 +1026,10 @@ function applyTheme() {
 function cycleTheme() {
   themeMode = themeMode === "auto" ? "dark" : themeMode === "dark" ? "light" : "auto";
   localStorage.setItem("theme", themeMode);
-  applyTheme();
-  applyStatic();
+  const apply = () => { applyTheme(); applyStatic(); };
+  // Cross-fade the palette swap where View Transitions exist; plain swap elsewhere.
+  if (document.startViewTransition) document.startViewTransition(apply);
+  else apply();
 }
 themeMedia.addEventListener("change", () => { if (themeMode === "auto") applyTheme(); });
 
@@ -1083,6 +1210,7 @@ function renderFilters() {
 function setFilter(k) {
   activeType = k;
   localStorage.setItem("tab", k);
+  animateCards = true;
   renderFilters();
   renderCards();
 }
@@ -1139,9 +1267,13 @@ function searchMatch(s) {
 function renderCards() {
   $("search").hidden = activeType === "schedule";
   $("cards").classList.toggle("schedule", activeType === "schedule");
+  // Consume the one-shot animation gate set by user-driven switches.
+  $("cards").classList.toggle("anim", animateCards);
+  animateCards = false;
   renderWatchFilters();
   if (activeType === "schedule") {
     renderSchedule();
+    applyStagger();
     return;
   }
   // Leave the grid alone while a subgroup dropdown is open/focused — replacing
@@ -1167,6 +1299,7 @@ function renderCards() {
   if (list === null) return;
   const empty = ($("search").value || "").trim() ? t("noMatch") : "—";
   setHTML($("cards"), list.join("") || `<div class="empty">${empty}</div>`);
+  applyStagger();
 }
 
 // Airing-weekday sub-filter for the 在看 grid: "all" + one chip per weekday,
@@ -1196,6 +1329,7 @@ function renderWatchFilters() {
 function setWatchWeekday(k) {
   watchWeekday = k;
   localStorage.setItem("watchWeekday", k);
+  animateCards = true;
   renderCards();
 }
 
@@ -1241,9 +1375,18 @@ function renderSchedule() {
   const minuteOf = s => { const d = new Date(s.airing_at * 1000); return d.getHours() * 60 + d.getMinutes(); };
   const today = (new Date().getDay() + 6) % 7;
   const names = t("days");
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
   const col = (name, isToday, list) => {
     const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
-    const body = list.length ? list.map(schedItem).join("") : `<div class="empty">—</div>`;
+    const items = list.map(schedItem);
+    // "Now" marker: slot the pulse line where the current time falls in
+    // today's column (between the last aired and the next upcoming show).
+    if (isToday && items.length) {
+      let at = list.findIndex(s => minuteOf(s) > nowMin);
+      if (at === -1) at = items.length;
+      items.splice(at, 0, `<div class="now-line" aria-hidden="true"></div>`);
+    }
+    const body = items.length ? items.join("") : `<div class="empty">—</div>`;
     return `<div class="sched-col ${isToday ? "today" : ""}">
       <div class="sched-day">${name}${badge}</div>${body}
     </div>`;
@@ -1299,12 +1442,14 @@ function attachSchedDrag(board) {
 function setSchedFilter(k) {
   schedFilter = k;
   localStorage.setItem("schedFilter", k);
+  animateCards = true;
   renderCards();
 }
 
 function setSchedSeasonOnly(on) {
   schedSeasonOnly = !!on;
   localStorage.setItem("schedSeasonOnly", on ? "1" : "0");
+  animateCards = true;
   renderCards();
 }
 
@@ -1333,8 +1478,18 @@ function renderHeader() {
   $("season").textContent = state.season;
   const chip = $("synchip");
   chip.classList.remove("warn");
-  $("lastsync").textContent = state.last_sync ? fmtStamp(state.last_sync) : "—";
-  $("lastsync").title = state.last_sync || "";
+  const ls = $("lastsync");
+  // Glint once when a fresh sync stamp lands — compare the raw value so a
+  // language switch (same stamp, new format) doesn't false-trigger, and skip
+  // the very first paint.
+  if (ls._raw !== undefined && ls._raw !== state.last_sync) {
+    chip.classList.remove("flash");
+    void chip.offsetWidth;   // restart the one-shot animation
+    chip.classList.add("flash");
+  }
+  ls._raw = state.last_sync;
+  ls.textContent = state.last_sync ? fmtStamp(state.last_sync) : "—";
+  ls.title = state.last_sync || "";
   const qb = $("qbwarn");
   qb.hidden = state.qb_ok !== false;
   if (!qb.hidden) qb.textContent = t("qbDown");
@@ -1400,6 +1555,12 @@ function bootDone() {
   clearTimeout(bootRetry);
   $("bootfill").style.width = "100%";
   $("bootpct").textContent = "100%";
+  // Opening choreography: the page relays in (header → banners → toolbar)
+  // while the overlay lifts, and the first card waterfall plays. The initial
+  // render ran with the gate closed, so this is the replay the user sees.
+  document.body.classList.add("booted");
+  $("cards").classList.add("anim");
+  applyStagger();
   // Let the bar visibly reach 100% before the fade, then drop the node.
   setTimeout(() => { el.classList.add("done"); setTimeout(() => el.remove(), 500); }, 200);
 }
@@ -1473,7 +1634,7 @@ async function refreshPremieres() {
         return `<div class="premiere completed" data-bgm="${n.bgm_id}">
           <div class="pcover">${coverHtml(n.image)}</div>
           <div class="pbody">
-            <div class="ptitle">🏁 <span class="ptag">${t("completed")}</span>${bgmLink(n.bgm_id, esc(title))}${seasonBadge}${showLinks(src)}</div>
+            <div class="ptitle"><span class="bemo">🏁</span> <span class="ptag">${t("completed")}</span>${bgmLink(n.bgm_id, esc(title))}${seasonBadge}${showLinks(src)}</div>
             <div class="psub" title="${sub}">${sub}</div>
           </div>
           <a class="btn small rate" href="https://bgm.tv/subject/${n.bgm_id}" target="_blank" rel="noopener">${t("rateOnBgm")}</a>
@@ -1486,7 +1647,7 @@ async function refreshPremieres() {
       return `<div class="premiere" data-bgm="${n.bgm_id}">
         <div class="pcover">${coverHtml(n.image)}</div>
         <div class="pbody">
-          <div class="ptitle">🎬 <span class="ptag">${t("premiered")}</span>${bgmLink(n.bgm_id, esc(title))}${badge}${showLinks(src)}</div>
+          <div class="ptitle"><span class="bemo">🎬</span> <span class="ptag">${t("premiered")}</span>${bgmLink(n.bgm_id, esc(title))}${badge}${showLinks(src)}</div>
           <div class="psub" title="${sub}">${sub}</div>
         </div>
         <button class="btn ghost small" onclick="dismissPremiere(${n.bgm_id})">${t("gotIt")}</button>
@@ -1498,6 +1659,7 @@ async function refreshPremieres() {
       </div>`);
     }
     setHTML($("premieres"), banners.join(""));
+    [...$("premieres").children].forEach((el, i) => el.style.setProperty("--i", i));
   } catch (e) { /* transient */ }
 }
 
@@ -1548,7 +1710,7 @@ async function refreshUnresolved() {
       return `<div class="premiere unresolved" data-bgm="${u.bgm_id}">
         <div class="pcover">${coverHtml(u.image)}</div>
         <div class="pbody">
-          <div class="ptitle">⚠ <span class="ptag">${t("unresolvedTag")}</span>${bgmLink(u.bgm_id, esc(title))}${showLinks(src)}</div>
+          <div class="ptitle"><span class="bemo">⚠</span> <span class="ptag">${t("unresolvedTag")}</span>${bgmLink(u.bgm_id, esc(title))}${showLinks(src)}</div>
           <div class="psub" title="${sub}">${sub}</div>
         </div>
         <button class="btn ghost small" onclick="dismissUnresolved(${u.bgm_id})">${t("gotIt")}</button>
@@ -1560,6 +1722,7 @@ async function refreshUnresolved() {
       </div>`);
     }
     setHTML($("unresolveds"), banners.join(""));
+    [...$("unresolveds").children].forEach((el, i) => el.style.setProperty("--i", i));
   } catch (e) { /* transient */ }
 }
 
