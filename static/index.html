@@ -29,9 +29,9 @@
     --btn-text: #0b0d12;
     --hover-border: rgba(255,255,255,.16);
     --scroll-thumb: rgba(255,255,255,.16);
-    --glow-a: rgba(139,92,246,.36);
-    --glow-b: rgba(34,211,238,.26);
-    --glow-c: rgba(139,92,246,.20);
+    --glow-a: rgba(139,92,246,.46);
+    --glow-b: rgba(34,211,238,.34);
+    --glow-c: rgba(139,92,246,.26);
     --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     --radius: 18px;
   }
@@ -55,9 +55,9 @@
     --btn-text: #ffffff;
     --hover-border: rgba(13,23,40,.25);
     --scroll-thumb: rgba(13,23,40,.22);
-    --glow-a: rgba(124,58,237,.32);
-    --glow-b: rgba(8,145,178,.28);
-    --glow-c: rgba(124,58,237,.18);
+    --glow-a: rgba(124,58,237,.42);
+    --glow-b: rgba(8,145,178,.36);
+    --glow-c: rgba(124,58,237,.24);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -86,19 +86,20 @@
     background:
       radial-gradient(95vw 72vh at 85% -10%, var(--glow-a), transparent 66%),
       radial-gradient(70vw 55vh at 108% 92%, var(--glow-c), transparent 68%);
-    animation: drift 16s ease-in-out infinite alternate;
+    animation: drift 9s ease-in-out infinite alternate;
   }
   body::after {
     background: radial-gradient(80vw 62vh at -6% 42%, var(--glow-b), transparent 66%);
-    animation: drift2 21s ease-in-out infinite alternate;
+    animation: drift2 13s ease-in-out infinite alternate;
   }
-  /* Near-constant glow with a gentle swing: the dim floor sits at ~.85 so the
-     wash never drops toward invisibility mid-cycle (it did at .5, then .7). */
+  /* Visible breathing: a ~1.8:1 bright/dim swing at a pace the eye actually
+     registers (~5%/s). The higher base alphas buy back the dim floor — at .55
+     the wash still sits above the perceptibility threshold. */
   @keyframes drift {
-    to { transform: translate3d(-4%, 3%, 0) scale(1.18); opacity: .86; }
+    to { transform: translate3d(-5%, 4%, 0) scale(1.26); opacity: .55; }
   }
   @keyframes drift2 {
-    to { transform: translate3d(3.5%, -2.5%, 0) scale(1.14); opacity: .84; }
+    to { transform: translate3d(4.5%, -3%, 0) scale(1.2); opacity: .52; }
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
