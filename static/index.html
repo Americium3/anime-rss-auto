@@ -29,8 +29,8 @@
     --btn-text: #0b0d12;
     --hover-border: rgba(255,255,255,.16);
     --scroll-thumb: rgba(255,255,255,.16);
-    --glow-a: rgba(139,92,246,.14);
-    --glow-b: rgba(34,211,238,.10);
+    --glow-a: rgba(139,92,246,.24);
+    --glow-b: rgba(34,211,238,.17);
     --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     --radius: 18px;
   }
@@ -54,8 +54,8 @@
     --btn-text: #ffffff;
     --hover-border: rgba(13,23,40,.25);
     --scroll-thumb: rgba(13,23,40,.22);
-    --glow-a: rgba(124,58,237,.10);
-    --glow-b: rgba(8,145,178,.08);
+    --glow-a: rgba(124,58,237,.22);
+    --glow-b: rgba(8,145,178,.18);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -77,11 +77,11 @@
     content: ""; position: fixed; inset: -14%; z-index: -1; pointer-events: none;
   }
   body::before {
-    background: radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%);
+    background: radial-gradient(1150px 640px at 85% -10%, var(--glow-a), transparent 62%);
     animation: drift 16s ease-in-out infinite alternate;
   }
   body::after {
-    background: radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
+    background: radial-gradient(950px 560px at -5% 15%, var(--glow-b), transparent 62%);
     animation: drift2 21s ease-in-out infinite alternate;
   }
   @keyframes drift {
@@ -566,9 +566,10 @@
     position: fixed; inset: 0; z-index: 200;
     display: grid; place-items: center;
     background: var(--bg);
+    /* Same blob geometry as body::before/::after, so nothing jumps at lift-off. */
     background-image:
-      radial-gradient(900px 500px at 85% -10%, var(--glow-a), transparent 60%),
-      radial-gradient(700px 400px at -5% 15%, var(--glow-b), transparent 60%);
+      radial-gradient(1150px 640px at 85% -10%, var(--glow-a), transparent 62%),
+      radial-gradient(950px 560px at -5% 15%, var(--glow-b), transparent 62%);
     transition: opacity .45s ease, visibility .45s ease;
   }
   #boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
