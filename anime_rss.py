@@ -133,12 +133,16 @@ LANG_PRIORITY = [
 #   * A（feed 层）：这类组的 mustContain 设为 CJK_SUB_REQUIRED——要求标题含任一中文
 #     字幕标记。qB 非正则里单个词内的 `|` = 或、词之间的空格 = 且，故这里必须是「无
 #     空格的单个 `|` 串」才表达「含其一即可」；带空格会污染整条过滤词语义，切忌。
+#     其中 `CR`（Crunchyroll 平台版）虽只标平台名、标题不写语言，但内封官方简繁中字，
+#     故一并放行——否则「只有搬运组、按 CR/ABEMA 平台命名」的番会被整条 feed 误挡。同
+#     为流媒体却无中文翻译的 ABEMA/B-Global 已在 SOURCE_BLACKLIST 走 mustNotContain
+#     拦截，不受此白名单影响，每集仍只落地 CR 那一份。
 #   * B（下载后）：HARD_REJECT_TAGS 命中的种子无条件删（含文件），不参与版本排序、
 #     不受「唯一版本」保护，补住 A 漏网的（如未加 A 的老规则）。多词子串在 Python 里
 #     匹配没有 qB 那种空格歧义，故可放心用带空格/点的平台标记。
 CJK_SUB_REQUIRED = str(CONFIG.get(
     "cjk_sub_required",
-    "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文"))
+    "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR"))
 # 归一化（点/空格/下划线并成单空格）后子串匹配，故 "NF.WEB-DL" 与 "NF WEB-DL" 同拒。
 HARD_REJECT_TAGS = [str(t).lower() for t in CONFIG.get("hard_reject_tags", [
     "nf web-dl", "amzn web-dl", "dsnp web-dl", "atvp web-dl", "hulu web-dl",
