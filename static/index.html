@@ -29,8 +29,8 @@
     --btn-text: #0b0d12;
     --hover-border: rgba(255,255,255,.16);
     --scroll-thumb: rgba(255,255,255,.16);
-    --glow-a: rgba(139,92,246,.24);
-    --glow-b: rgba(34,211,238,.17);
+    --glow-a: rgba(139,92,246,.30);
+    --glow-b: rgba(34,211,238,.22);
     --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     --radius: 18px;
   }
@@ -54,8 +54,8 @@
     --btn-text: #ffffff;
     --hover-border: rgba(13,23,40,.25);
     --scroll-thumb: rgba(13,23,40,.22);
-    --glow-a: rgba(124,58,237,.22);
-    --glow-b: rgba(8,145,178,.18);
+    --glow-a: rgba(124,58,237,.28);
+    --glow-b: rgba(8,145,178,.24);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -84,11 +84,13 @@
     background: radial-gradient(950px 560px at -5% 15%, var(--glow-b), transparent 62%);
     animation: drift2 21s ease-in-out infinite alternate;
   }
+  /* Dim phase floors at ~.7: the swing stays visible as breathing, but the
+     blobs never drop back under the perceptibility threshold mid-cycle. */
   @keyframes drift {
-    to { transform: translate3d(-4%, 3%, 0) scale(1.18); opacity: .55; }
+    to { transform: translate3d(-4%, 3%, 0) scale(1.18); opacity: .72; }
   }
   @keyframes drift2 {
-    to { transform: translate3d(3.5%, -2.5%, 0) scale(1.14); opacity: .5; }
+    to { transform: translate3d(3.5%, -2.5%, 0) scale(1.14); opacity: .68; }
   }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
