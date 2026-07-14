@@ -59,6 +59,25 @@ Each module is independently toggleable in config — take what you need.
 - `mikan_overrides.example.json` — optional `bgm_id → mikan bangumiId` map; copy
   to `mikan_overrides.json` only when a show's "no mikan match" banner persists
   and aliases can't resolve it (find the id in `mikanani.me/Home/Bangumi/<id>`).
+- Runtime caches (auto-created, gitignored, safe to delete — rebuilt next pass):
+  `mikan_resolve_cache.json` (bgm_id → mikan resolution), `episode_span_cache.json`
+  (per-episode airdate schedule, shared with the panel), `subject_season_cache.json`
+  (immutable air cour), `heal_pending.json` (a flag for the Jellyfin empty-series scan).
+
+## Performance
+
+A steady-state 5-minute pass completes in **well under a second** (~108s → ~0.8s on the
+reference setup). Every network-heavy pass shares one per-run context, so each show is
+resolved / spanned / typed at most once; mikan resolutions persist across runs, and a show
+that already has a qB rule needs **zero** mikan calls (its `bangumiId` is read straight from
+the rule's feed). A short-lived negative cache stops re-searching 想看 movies/specials mikan
+will never index. The Jellyfin empty-series `/Items` scan and the library-folder check are
+gated to run only when the mirror changed or every N passes, not every pass. Knobs:
+`resolve_ttl_seconds` (default 24h — resolved-identity refresh; a ruled show never refetches),
+`resolve_negative_ttl_seconds` (default 30 min — how long an unindexed show is skipped before
+re-search; set `0` to disable and re-search every pass), `heal_backstop_passes` (default 12 —
+the quiet-pass backstop period for the Jellyfin scans). Shows in ANi grace or with a manual
+override always refetch their subgroup roster, so a late higher-priority group is never missed.
 
 ## Setup
 

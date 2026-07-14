@@ -63,6 +63,14 @@ PREMIERE_TIMES_PATH = Path(__file__).with_name("premiere_times.json")
 MIKAN_OVERRIDES_PATH = Path(__file__).with_name("mikan_overrides.json")
 # 面板「未匹配 mikan」横幅的状态镜像：每轮 sync 覆盖写当前所有 UNRESOLVED 的番
 UNRESOLVED_PATH = Path(__file__).with_name("unresolved.json")
+# 性能缓存（都可安全删除，下轮自动重建）：
+#   * episode_span_cache.json —— 与 webui.py 共用同一份逐集放送日程缓存（同目录同格式）。
+#   * mikan_resolve_cache.json —— bgm_id -> mikan 解析结果，避免每轮重搜（见 SyncContext）。
+#   * heal_pending.json —— jellyfin 空系列自愈的「本轮有镜像变动」触发旗标。
+SPAN_CACHE_PATH = Path(__file__).with_name("episode_span_cache.json")
+MIKAN_RESOLVE_CACHE_PATH = Path(__file__).with_name("mikan_resolve_cache.json")
+SEASON_CACHE_PATH = Path(__file__).with_name("subject_season_cache.json")
+HEAL_PENDING_PATH = Path(__file__).with_name("heal_pending.json")
 BGM_AUTHORIZE = "https://bgm.tv/oauth/authorize"
 BGM_OAUTH_TOKEN = "https://bgm.tv/oauth/access_token"
 ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
@@ -188,6 +196,17 @@ _COUR_MONTH = {1: 1, 2: 1, 3: 1, 4: 4, 5: 4, 6: 4,
 PREFERRED_GID = PRIORITY_IDS[0]
 GRACE_HOURS = float(CONFIG.get("ani_grace_hours", 3))
 GRACE_PATH = Path(__file__).with_name("group_grace.json")
+
+# 性能缓存的有效期/触发阈值（见 SyncContext / run_sync_once）：
+#   * RESOLVE_TTL —— 已解析的 bgm_id->mikan_id 缓存多久后重搜（有 qB 规则的番永不重搜）。
+#   * HEAL_BACKSTOP_PASSES —— jellyfin 空系列自愈的兜底周期（无镜像变动时每 N 轮扫一次）。
+#     宽限期/override 的番不吃 TTL，每轮强制刷字幕组名册（防漏掉迟到的高优先组）。
+RESOLVE_TTL = int(CONFIG.get("resolve_ttl_seconds", 86400))
+# 未解析（UNRESOLVED）的番在此时长内不重搜。想看列表里的剧场版/特别篇 mikan 永不收录，
+# 否则每轮都白搜一遍。代价：番真正被 mikan 收录后，横幅/开播自动追最多滞后这么久才反应
+# （默认 1h；调 0 关闭负缓存 = 每轮实时重搜）。
+NEGATIVE_TTL = int(CONFIG.get("resolve_negative_ttl_seconds", 1800))
+HEAL_BACKSTOP_PASSES = int(CONFIG.get("heal_backstop_passes", 12))
 
 
 def load_grace() -> dict[str, float]:
@@ -533,6 +552,8 @@ def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
     front, so 'last' is the final scheduled airdate even mid-run. Cached per subject:
     a finished show (last airdate in the past) is kept forever; a still-airing or
     unknown one is refetched after a day so newly scheduled airdates fill in."""
+    if subject_id is None:
+        return {"first": None, "last": None, "count": 0, "_ts": time.time()}
     today = str(datetime.date.today())
     hit = cache.get(subject_id)
     if hit is not None:
@@ -1056,12 +1077,16 @@ def cmd_list(args):
         print(f"  [{s['bgm_id']}] {s['name_cn'] or s['name']}  /  {s['name']}  ({s['date']})")
 
 
-def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
-    shows = bgm_watching(user)
+def build_plan(user: str, season: str, *, ctx: "SyncContext | None" = None,
+               verbose: bool = True) -> list[dict]:
+    ctx = ctx or SyncContext(user)
+    shows = ctx.collection(3)   # 在看 (fetched lazily post-premiere so promotions show up)
     if verbose:
         print(f"# season = {season}\n# 在看动画: {len(shows)}")
 
-    rules = existing_rules()
+    # Inclusion/skip keys off the LIVE rule snapshot (never the resolve cache), so a panel
+    # subgroup-switch can't be reverted.
+    rules = ctx.rules()
     existing_feeds, existing_names = set(), set()
     for rname, rdef in rules.items():
         existing_names.add(rname.strip().lower())
@@ -1071,7 +1096,7 @@ def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
                 existing_feeds.add(int(m.group(1)))
 
     plan = []
-    span_cache: dict[int, dict] = {}
+    span_cache = ctx.span
     for s in shows:
         still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
         if is_manual_old_show(s["date"], s["bgm_id"], still):
@@ -1097,7 +1122,7 @@ def build_plan(user: str, season: str, *, verbose: bool = True) -> list[dict]:
             if verbose:
                 print(f"  - {s['name_cn'] or s['name']!r:40} bgm={s['bgm_id']:<7} {flag}")
             continue
-        resolved = resolve_show(s)
+        resolved = ctx.resolve(s)
         mid = resolved["mikan_id"]
         flag = ""
         if mid is not None and mid in existing_feeds:
@@ -1332,7 +1357,8 @@ def remove_subscription(
 
 
 def reconcile_removed(
-    user: str, cookie: str | None, dry_run: bool, purge_dropped: bool
+    user: str, cookie: str | None, dry_run: bool, purge_dropped: bool,
+    *, ctx: "SyncContext | None" = None,
 ) -> None:
     """Tear down rules whose show left 在看.
 
@@ -1341,16 +1367,16 @@ def reconcile_removed(
     - 未收藏 / 取消收藏 (type none): unsubscribe mikan + DELETE files (if purge_dropped).
     - 想看 / 搁置 (type 1 / 4): conservatively KEEP everything (might resume).
     """
-    rules = existing_rules()
-    feed_paths = rss_feed_paths()
+    ctx = ctx or SyncContext(user)
+    rules = ctx.rules()
+    feed_paths = ctx.feed_paths()
     print(f"# checking {len(rules)} rules against bgm status (user {user})")
 
     rule_only, purge = [], []
-    cache: dict[int, int | None] = {}
-    season_cache: dict[int, str | None] = {}
-    span_cache: dict[int, dict] = {}
+    season_cache = ctx.season
+    span_cache = ctx.span
     for rname, rdef in rules.items():
-        bgm_id = rule_bgm_id(rdef, cache)
+        bgm_id = ctx.rule_bgm_id_of(rdef)
         if not bgm_id:
             print(f"  ?  {rname}: could not resolve bgm id (skip)")
             continue
@@ -1360,7 +1386,9 @@ def reconcile_removed(
                 and not cour_still_airing(bgm_id, sea, span_cache)):
             print(f"     {rname}: 旧番 {sea} -> 跳过（手动管理，不增不删不删文件）")
             continue
-        ctype = bgm_collection_type(user, bgm_id)
+        # 收藏类型：overlay（本轮 autocomplete 刚标的看过）优先，其次在看列表命中即 3，
+        # 只有真正离开在看的番才付一次逐个查询 —— 严格比原来「每条规则都查」调用更少。
+        ctype = ctx.collection_type_of(bgm_id)
         if ctype == 3:
             print(f"     {rname}: 在看 -> keep")
         elif ctype in (2, 5):
@@ -1468,7 +1496,8 @@ def resolve_torrent_target(
     return bgm_id, eid, "ok"
 
 
-def mark_watched_pass(token: str | None, *, dry_run: bool = False) -> None:
+def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
+                      dry_run: bool = False) -> None:
     """Detect torrents the user just paused and mark that episode 看过 on bgm.
 
     Strictly transition-based: a torrent only fires when it moves from an
@@ -1479,6 +1508,7 @@ def mark_watched_pass(token: str | None, *, dry_run: bool = False) -> None:
     if not token:
         print("# mark-watched: 未配置 bgm_access_token，跳过")
         return
+    ctx = ctx or SyncContext("", token)
     try:
         torrents = qb_get_json("/api/v2/torrents/info")
     except Exception as ex:  # noqa: BLE001
@@ -1492,11 +1522,11 @@ def mark_watched_pass(token: str | None, *, dry_run: bool = False) -> None:
         print(f"# mark-watched: 首轮建立基线（{len(states_new)} 个种子），本轮不标记")
         return
 
-    rule_by_path = rules_by_savepath(existing_rules())
-    mikan_cache: dict[int, int | None] = {}
-    season_cache: dict[int, str | None] = {}
-    span_cache: dict[int, dict] = {}
-    ep_cache: dict[int, dict[int, int]] = {}
+    rule_by_path = rules_by_savepath(ctx.rules())
+    mikan_cache = ctx.rule_bgmid
+    season_cache = ctx.season
+    span_cache = ctx.span
+    ep_cache = ctx.eps
 
     marked = 0
     for t in torrents:
@@ -1807,18 +1837,29 @@ def _jf_req(method: str, path: str, params: dict | None = None,
         return r.status, (json.loads(raw) if raw.strip() else None)
 
 
+_JF_UID_CACHE: dict[str, float | str | None] = {}  # {'uid':..., '_ts':...}
+_JF_UID_TTL = 6 * 3600  # 管理员 uid 实际不变；缓存 6h，跨轮复用，省掉每轮 /Users 调用
+
+
 def _jf_user_id() -> str | None:
-    """取一个用户 id（优先管理员）用于设置 My Media 库顺序。"""
+    """取一个用户 id（优先管理员）用于设置 My Media 库顺序 / 空系列计数。
+
+    uid 基本不变，故进程内缓存 6h：把每轮 sync 的 /Users 调用（~2s）降为首轮一次。
+    """
+    hit = _JF_UID_CACHE.get("uid")
+    if hit is not None and time.time() - float(_JF_UID_CACHE.get("_ts", 0)) < _JF_UID_TTL:
+        return hit or None
     try:
         _, users = _jf_req("GET", "/Users")
     except Exception:  # noqa: BLE001
-        return None
-    if not users:
-        return None
-    for u in users:
-        if (u.get("Policy") or {}).get("IsAdministrator"):
-            return u["Id"]
-    return users[0]["Id"]
+        return _JF_UID_CACHE.get("uid") or None  # 网络抖动时回退到旧值
+    uid = None
+    if users:
+        uid = next((u["Id"] for u in users if (u.get("Policy") or {}).get("IsAdministrator")),
+                   users[0]["Id"])
+    _JF_UID_CACHE["uid"] = uid
+    _JF_UID_CACHE["_ts"] = time.time()
+    return uid
 
 
 def _jf_make_cover_png(name: str) -> bytes | None:
@@ -2175,7 +2216,7 @@ def save_unresolved(items: list[dict]) -> None:
     )
 
 
-def scan_unresolved(user: str) -> list[dict]:
+def scan_unresolved(user: str, *, ctx: "SyncContext | None" = None) -> list[dict]:
     """Refresh unresolved.json to mirror shows that currently miss mikan.
 
     Scans 想看+在看 (new-season only; old shows are manual and never touched),
@@ -2183,18 +2224,23 @@ def scan_unresolved(user: str) -> list[dict]:
     flags and first-seen timestamps are carried over by bgm_id; entries that now
     resolve (or are no longer collected) simply drop out -> the panel banner
     clears itself. Returns the (non-dismissed) list actually worth surfacing.
+
+    Resolution here uses force_search=True: the whole point is to clear the banner
+    the instant mikan indexes a show, so a cached negative must never suppress a
+    fresh search (negatives are never persisted anyway).
     """
+    ctx = ctx or SyncContext(user)
     prev = {str(it.get("bgm_id")): it for it in load_unresolved()}
     now = datetime.datetime.now().isoformat(timespec="seconds")
     today = datetime.date.today().isoformat()
-    span_cache: dict[int, dict] = {}
-    air_cache: dict[int, str | None] = {}
+    span_cache = ctx.span
+    air_cache = ctx.span   # show_premiere_date now reads the span cache
     seen_ids: set[str] = set()
     out: list[dict] = []
     shows: list[tuple[int, dict]] = []
     for ctype in (3, 1):  # 在看, 想看
         try:
-            shows.extend((ctype, s) for s in bgm_collection_subjects(user, ctype))
+            shows.extend((ctype, s) for s in ctx.collection(ctype))
         except Exception as ex:  # noqa: BLE001
             print(f"# unresolved-scan: 读取收藏({ctype})失败，跳过：{ex}")
     for ctype, s in shows:
@@ -2212,7 +2258,12 @@ def scan_unresolved(user: str) -> list[dict]:
         if not aired:
             continue
         try:
-            r = resolve_show(s)
+            # Normal cached resolve: a resolved show is a 0-network cache hit (drops off
+            # the banner); an unresolved show is a cache MISS (negatives are never
+            # persisted) -> a fresh search runs every pass, so the banner clears the
+            # instant mikan indexes it. No force_search needed — it would only re-search
+            # the already-resolved shows for nothing.
+            r = ctx.resolve(s)
         except Exception:  # noqa: BLE001
             continue
         if r.get("mikan_id"):
@@ -2246,29 +2297,17 @@ def _premiere_overrides() -> dict:
     return {}
 
 
-def bgm_first_airdate(subject_id: int, cache: dict[int, str | None]) -> str | None:
+def bgm_first_airdate(subject_id: int, cache: dict[int, dict]) -> str | None:
     """Earliest 本篇 episode airdate 'YYYY-MM-DD' from bgm (= premiere), None if unknown.
 
     This is the self-maintaining premiere signal: bgm's community fills per-episode
-    airdates weeks ahead, the daemon re-pulls it every pass, so no manual per-season
-    upkeep is needed. Cached per subject within a pass.
+    airdates weeks ahead. Now a thin view over bgm_episode_span (same /v0/episodes
+    fetch), so first-airdate shares the persistent span cache and its finished-forever
+    / 24h-TTL logic — the episodes endpoint is hit at most once per subject per pass
+    instead of separately by the span and premiere paths. NOTE: `cache` is now a
+    span cache (bgm_id -> {'first','last','count','_ts'}), not the old date-only dict.
     """
-    if subject_id in cache:
-        return cache[subject_id]
-    out = None
-    try:
-        d = json.loads(
-            http_get(f"{BGM_API}/v0/episodes?subject_id={subject_id}&type=0&limit=100",
-                     retries=2).decode("utf-8", "replace")
-        )
-        dates = [(e.get("airdate") or "").strip() for e in d.get("data", [])]
-        dates = [x for x in dates if re.match(r"\d{4}-\d{2}-\d{2}", x)]
-        if dates:
-            out = min(dates)  # 最早的一集 = 首播日
-    except Exception:  # noqa: BLE001
-        out = None
-    cache[subject_id] = out
-    return out
+    return bgm_episode_span(subject_id, cache)["first"]
 
 
 def show_premiere_date(bgm_id: int, subject_date: str, cache: dict[int, str | None]) -> str | None:
@@ -2321,7 +2360,8 @@ def mikan_feed_real_episodes(mikan_id: int, subgroup: int, premiere_date: str | 
     return False
 
 
-def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = False) -> None:
+def premiere_watch_pass(user: str, token: str | None = None, *,
+                        ctx: "SyncContext | None" = None, dry_run: bool = False) -> None:
     """Detect 想看 shows that just premiered; notify the panel + promote to 在看.
 
     Two guards keep 先行版 (advance / pre-air releases) out:
@@ -2335,15 +2375,15 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
     a token is available the show is flipped to 在看, which the same sync pass's build_plan
     turns into a qB rule automatically. premiere_seen.json prevents re-firing.
     """
+    ctx = ctx or SyncContext(user, token)
     try:
-        wishlist = bgm_collection_subjects(user, 1)
+        wishlist = ctx.collection(1)
     except Exception as ex:  # noqa: BLE001
         print(f"# premiere: 读取想看列表失败，跳过：{ex}")
         return
     auto = bool(CONFIG.get("premiere_auto_watch", True))
     seen = load_premiere_seen()
-    air_cache: dict[int, str | None] = {}
-    span_cache: dict[int, dict] = {}
+    span_cache = ctx.span   # bgm_first_airdate now reads the shared span cache
     today = datetime.date.today().isoformat()
     fired = 0
     for s in wishlist:
@@ -2352,11 +2392,11 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
         if gkey in seen or is_manual_old_show(s["date"], s["bgm_id"], still):
             continue
         # 防线A：未到开播日绝不标在看（不记 seen，下轮再看）
-        pdate = show_premiere_date(s["bgm_id"], s["date"], air_cache)
+        pdate = show_premiere_date(s["bgm_id"], s["date"], span_cache)
         if pdate and today < pdate:
             continue
         try:
-            r = resolve_show(s)
+            r = ctx.resolve(s)
         except Exception:  # noqa: BLE001
             continue
         mid, gid = r["mikan_id"], r["subgroup"]
@@ -2376,6 +2416,7 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
             try:
                 bgm_set_collection_type(token, s["bgm_id"], 3)
                 promoted = True
+                ctx.record_write(s["bgm_id"], 3)  # make 在看 visible to this pass's build_plan
                 print(f"   [premiere] ✓ 已标在看: {title} (bgm {s['bgm_id']})")
             except Exception as ex:  # noqa: BLE001
                 print(f"   [premiere] ! 标在看失败 {title}: {ex}")
@@ -2404,7 +2445,8 @@ def premiere_watch_pass(user: str, token: str | None = None, *, dry_run: bool = 
         print(f"# premiere: 本轮新开播 {fired} 部")
 
 
-def autocomplete_watched_pass(user: str, token: str | None = None, *, dry_run: bool = False) -> None:
+def autocomplete_watched_pass(user: str, token: str | None = None, *,
+                              ctx: "SyncContext | None" = None, dry_run: bool = False) -> None:
     """在看番的本篇全部看过 -> 自动把该 subject 标看过(type 2)。
 
     只收满足全部三条的番：① 本篇集数>0；② 每一集本篇都已标看过；③ finale 已开播
@@ -2417,18 +2459,27 @@ def autocomplete_watched_pass(user: str, token: str | None = None, *, dry_run: b
     if not token:
         print("# autocomplete: 未配置 bgm_access_token，跳过")
         return
+    ctx = ctx or SyncContext(user, token)
     try:
-        watching = bgm_watching(user)
+        watching = ctx.collection(3)
     except Exception as ex:  # noqa: BLE001
         print(f"# autocomplete: 读取在看列表失败，跳过：{ex}")
         return
-    span_cache: dict[int, dict] = {}
+    span_cache = ctx.span
+    today = str(datetime.date.today())
     done = 0
     for s in watching:
         bgm_id = s["bgm_id"]
         sea = season_of(s["date"])
         if is_manual_old_show(s["date"], bgm_id,
                               cour_still_airing(bgm_id, sea, span_cache)):
+            continue
+        # 廉价预筛：finale 尚未开播的番绝不可能收满 -> 用（几乎免费的）span 缓存的末集
+        # airdate 跳过，省掉每轮对全部在看番的逐个 bgm_watched_progress 联网调用（最大的
+        # 剩余 bgm 成本）。span 缺失/None 时不跳（保守），仍走下面的实时进度校验；提前收番
+        # 依旧由实时 bgm_watched_progress 的 finale_aired 把关，绝不会因 span 陈旧而误收。
+        last = bgm_episode_span(bgm_id, span_cache).get("last")
+        if last and last > today:
             continue
         title = s["name_cn"] or s["name"]
         try:
@@ -2445,6 +2496,7 @@ def autocomplete_watched_pass(user: str, token: str | None = None, *, dry_run: b
             continue
         try:
             bgm_set_collection_type(token, bgm_id, 2)
+            ctx.record_write(bgm_id, 2)  # make 看过 visible to this pass's reconcile teardown
             print(f"   [autocomplete] ✓ 已标看过: {title} (bgm {bgm_id}, {total} 集全看完)")
         except Exception as ex:  # noqa: BLE001
             print(f"   [autocomplete] ! 标看过失败 {title} (bgm {bgm_id}): {ex}")
@@ -2612,7 +2664,7 @@ def _torrent_bgm_id(t: dict, rule_by_path: dict[str, dict],
     return rule_bgm_id(rdef, mikan_cache) if rdef else None
 
 
-def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
+def reconcile_rule_blacklist(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """把 SOURCE_BLACKLIST 补进现存 qB 规则的 mustNotContain（幂等，自愈）。
 
     make_rule_def 只保证「新建」规则带黑名单；已存在的老规则靠这一趟补齐，
@@ -2621,9 +2673,9 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     """
     if not SOURCE_BLACKLIST:
         return 0
-    rules = existing_rules()
-    mikan_cache: dict[int, int | None] = {}
-    span_cache: dict[int, dict] = {}
+    rules = ctx.rules() if ctx else existing_rules()
+    mikan_cache = ctx.rule_bgmid if ctx else {}   # reuse the seeded mikan_id->bgm_id map
+    span_cache = ctx.span if ctx else {}
     changed = 0
     for rname, rdef in rules.items():
         sp = (rdef.get("savePath") or "").replace("\\", "/")
@@ -2652,7 +2704,7 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     return changed
 
 
-def reconcile_rule_cjk_whitelist(*, dry_run: bool = False) -> int:
+def reconcile_rule_cjk_whitelist(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """把扩充后的 CJK_SUB_REQUIRED 灌回现存兜底规则的 mustContain（幂等，自愈）。
 
     make_rule_def 只保证「新建」规则用当前白名单；白名单一扩（如 CR 之外再放行
@@ -2665,9 +2717,9 @@ def reconcile_rule_cjk_whitelist(*, dry_run: bool = False) -> int:
     cur = CJK_SUB_REQUIRED
     if not cur:
         return 0
-    rules = existing_rules()
-    mikan_cache: dict[int, int | None] = {}
-    span_cache: dict[int, dict] = {}
+    rules = ctx.rules() if ctx else existing_rules()
+    mikan_cache = ctx.rule_bgmid if ctx else {}
+    span_cache = ctx.span if ctx else {}
     changed = 0
     for rname, rdef in rules.items():
         sp = (rdef.get("savePath") or "").replace("\\", "/")
@@ -2698,7 +2750,7 @@ def reconcile_rule_cjk_whitelist(*, dry_run: bool = False) -> int:
     return changed
 
 
-def reject_hard_variants(*, dry_run: bool = False) -> int:
+def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """删掉命中生肉硬拒绝标记的种子（含文件），无条件、不参与版本排序。
 
     针对 mikan 交叉发布进来的无中文字幕生肉（Netflix/Amazon/… 双语版）。只动
@@ -2708,9 +2760,9 @@ def reject_hard_variants(*, dry_run: bool = False) -> int:
     if not HARD_REJECT_TAGS:
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
-    rule_by_path = rules_by_savepath(existing_rules())
-    mikan_cache: dict[int, int | None] = {}
-    span_cache: dict[int, dict] = {}
+    rule_by_path = rules_by_savepath(ctx.rules() if ctx else existing_rules())
+    mikan_cache = ctx.rule_bgmid if ctx else {}
+    span_cache = ctx.span if ctx else {}
     victims = []
     for t in torrents:
         cour = _cour_of_torrent(t)
@@ -2735,7 +2787,7 @@ def reject_hard_variants(*, dry_run: bool = False) -> int:
     return len(victims)
 
 
-def prefer_variant_dedup(*, dry_run: bool = False) -> int:
+def prefer_variant_dedup(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """同番同集若有多个版本，只留复合优先级最高的，删其余（含文件）。
 
     维度字典序比较（先源、后语言，最后修正版）：源更优者胜；源相同则语言更优
@@ -2747,9 +2799,9 @@ def prefer_variant_dedup(*, dry_run: bool = False) -> int:
     if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
-    rule_by_path = rules_by_savepath(existing_rules())
-    mikan_cache: dict[int, int | None] = {}
-    span_cache: dict[int, dict] = {}
+    rule_by_path = rules_by_savepath(ctx.rules() if ctx else existing_rules())
+    mikan_cache = ctx.rule_bgmid if ctx else {}
+    span_cache = ctx.span if ctx else {}
     groups: dict[tuple[str, str], list[dict]] = {}
     for t in torrents:
         cour = _cour_of_torrent(t)
@@ -2788,56 +2840,415 @@ def prefer_variant_dedup(*, dry_run: bool = False) -> int:
     return len(victims)
 
 
+# --------------------------------------------------------------------------- #
+# 持久缓存 + 每轮共享上下文（性能）
+# --------------------------------------------------------------------------- #
+def _atomic_write_json(path: Path, obj) -> None:
+    """Write JSON via temp + os.replace so a concurrent reader (webui 后台线程共享
+    episode_span_cache.json) never sees a torn/half-written file. Atomic on NTFS."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_span_cache() -> dict[int, dict]:
+    """Load the shared episode-span cache (int-keyed). Byte-compatible with webui.py:
+    on-disk keys are strings (JSON), in-memory keys are ints."""
+    try:
+        raw = json.loads(SPAN_CACHE_PATH.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_span_cache(cache: dict[int, dict]) -> None:
+    try:
+        _atomic_write_json(SPAN_CACHE_PATH, cache)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def load_resolve_cache() -> dict[str, dict]:
+    """bgm_id(str) -> {mikan_id, available_subgroups, mikan_title, confidence,
+    resolved_at, source}. Negatives (UNRESOLVED) are never persisted here."""
+    try:
+        return json.loads(MIKAN_RESOLVE_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_resolve_cache(cache: dict[str, dict]) -> None:
+    try:
+        _atomic_write_json(MIKAN_RESOLVE_CACHE_PATH, cache)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def load_season_cache() -> dict[int, str | None]:
+    """bgm_id(int) -> cour 'YYYY.MM' (or None). A subject's air cour is immutable, so this
+    is cached forever — kills reconcile's per-rule /v0/subjects date fetch across runs."""
+    try:
+        raw = json.loads(SEASON_CACHE_PATH.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_season_cache(cache: dict[int, str | None]) -> None:
+    try:
+        _atomic_write_json(SEASON_CACHE_PATH, cache)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+class SyncContext:
+    """Per-run shared caches, built ONCE at the top of a sync and threaded into every
+    pass so each subject is resolved / spanned / typed at most once per run, and mikan
+    resolutions persist across runs. Cuts a steady-state pass from ~108s to a few s.
+
+    Thread-safety: this object lives entirely inside a single run_sync_once call chain
+    (single-threaded). jfhook runs in a separate thread but keeps its OWN throwaway
+    dicts (it never receives a ctx), so the shared caches are never touched concurrently.
+
+    Correctness contracts (see the perf-audit plan):
+      * resolved bgm_id->mikan_id with a live qB rule -> 0 mikan calls (rule shortcut);
+      * a show in ANi grace or with a manual override -> subgroup roster refetched EVERY
+        pass (bangumi page only), never served stale, so a late higher-priority group is
+        never missed;
+      * UNRESOLVED is NEVER persisted -> scan_unresolved re-searches every pass and the
+        banner clears the instant mikan indexes the show;
+      * inclusion/teardown decisions key off the LIVE rule snapshot (rules()), never off
+        the resolve cache, so a panel subgroup-switch can't be reverted.
+    """
+
+    def __init__(self, user: str, token: str | None = None):
+        self.user = user
+        self.token = token
+        # --- persistent (loaded once here, saved once at run end) ---
+        self.span = load_span_cache()          # bgm_id -> {'first','last','count','_ts'}
+        self.resolve_disk = load_resolve_cache()
+        self.season = load_season_cache()      # bgm_id -> cour (immutable, cached forever)
+        self._season_n0 = len(self.season)     # to detect new entries -> save only if grown
+        self.dirty = False
+        # --- per-run memo (not persisted) ---
+        self.collections: dict[int, list[dict]] = {}   # ctype -> subjects
+        self.override_type: dict[int, int] = {}        # in-run write overlay
+        self._ctype_memo: dict[int, int | None] = {}
+        self.resolve_memo: dict[int, dict] = {}        # bgm_id -> resolved dict
+        self.eps: dict[int, dict[int, int]] = {}
+        self.rule_bgmid: dict[int, int | None] = {}    # mikan_id -> bgm_id
+        self._rules: dict | None = None
+        self._feed_paths: dict | None = None
+        self._feed_by_mikan: dict[int, dict] | None = None
+
+    # ---- qB snapshots (fetched once, cheap/local) ----
+    def rules(self) -> dict:
+        if self._rules is None:
+            self._rules = existing_rules()
+        return self._rules
+
+    def feed_paths(self) -> dict:
+        if self._feed_paths is None:
+            self._feed_paths = rss_feed_paths()
+        return self._feed_paths
+
+    def invalidate_rules(self) -> None:
+        """Drop the qB rule/feed snapshots so the next accessor refetches live state.
+        Called after apply_entries creates rules this pass, so reconcile/mark-watched
+        see the just-added rules."""
+        self._rules = None
+        self._feed_paths = None
+        self._feed_by_mikan = None
+
+    def feed_by_mikan(self) -> dict[int, dict]:
+        """mikan_id -> {'subgroups': sorted[int]} parsed from the LIVE rule feeds
+        (bangumiId=/subgroupid= in affectedFeeds). Zero network."""
+        if self._feed_by_mikan is None:
+            fbm: dict[int, set] = {}
+            for rdef in self.rules().values():
+                for f in rdef.get("affectedFeeds", []):
+                    mm = re.search(r"bangumiId=(\d+)", f)
+                    if not mm:
+                        continue
+                    mid = int(mm.group(1))
+                    fbm.setdefault(mid, set())
+                    sm = re.search(r"subgroupid=(\d+)", f)
+                    if sm:
+                        fbm[mid].add(int(sm.group(1)))
+            self._feed_by_mikan = {k: {"subgroups": sorted(v)} for k, v in fbm.items()}
+        return self._feed_by_mikan
+
+    # ---- collections (fetched once per ctype per run) ----
+    def collection(self, ctype: int) -> list[dict]:
+        if ctype not in self.collections:
+            self.collections[ctype] = bgm_collection_subjects(self.user, ctype)
+        return self.collections[ctype]
+
+    def collection_type_of(self, bgm_id: int) -> int | None:
+        """bgm collection type of a subject, cheaply. Overlay (in-run writes) first, then
+        the already-fetched 在看 list (the common 'still watching -> keep' case, 0 extra
+        calls); only a show that LEFT 在看 (a teardown candidate, rare per pass) pays one
+        authoritative per-subject fetch — strictly fewer calls than the old per-rule scan,
+        and it avoids paginating a potentially huge 看过 history."""
+        bid = int(bgm_id)
+        if bid in self.override_type:
+            return self.override_type[bid]
+        if bid in self._ctype_memo:
+            return self._ctype_memo[bid]
+        for s in self.collection(3):
+            if int(s["bgm_id"]) == bid:
+                self._ctype_memo[bid] = 3
+                return 3
+        ct = bgm_collection_type(self.user, bid)
+        self._ctype_memo[bid] = ct
+        return ct
+
+    def record_write(self, bgm_id: int, ctype: int) -> None:
+        """A pass just changed this subject's collection type on bgm; make it visible to
+        later passes THIS run (premiere 想看->在看=3, autocomplete 在看->看过=2)."""
+        bid = int(bgm_id)
+        self.override_type[bid] = ctype
+        self._ctype_memo[bid] = ctype
+
+    # ---- resolution (the 73s -> ~0 win) ----
+    def rule_bgm_id_of(self, rdef: dict) -> int | None:
+        """bgm_id for a rule, network-free when the reverse map is already seeded
+        (warm_from_rules / prior resolves); falls back to the live mikan page once."""
+        return rule_bgm_id(rdef, self.rule_bgmid)
+
+    def _shape(self, show: dict, mikan_id, subs, title, confidence) -> dict:
+        subgroup = pick_subgroup(subs)
+        out = dict(show)
+        out.update({
+            "mikan_id": mikan_id,
+            "mikan_title": title,
+            "subgroup": subgroup,
+            "subgroup_name": GROUP_NAME.get(subgroup, f"subgroup {subgroup}") if subgroup else None,
+            "available_subgroups": list(subs),
+            "confidence": confidence,
+        })
+        return out
+
+    def _store(self, skey: str, mikan_id: int, subs, title, confidence) -> None:
+        self.resolve_disk[skey] = {
+            "mikan_id": mikan_id,
+            "available_subgroups": list(subs),
+            "mikan_title": title,
+            "confidence": confidence,
+            "resolved_at": time.time(),
+            "source": "search",
+        }
+        self.dirty = True
+
+    def resolve(self, show: dict, *, force_search: bool = False) -> dict:
+        bid = int(show["bgm_id"])
+        if not force_search and bid in self.resolve_memo:
+            return self.resolve_memo[bid]
+        r = self._resolve_impl(show, force_search=force_search)
+        self.resolve_memo[bid] = r
+        return r
+
+    def _resolve_impl(self, show: dict, *, force_search: bool) -> dict:
+        bid = int(show["bgm_id"])
+        skey = str(bid)
+        now = time.time()
+        overrides = load_mikan_overrides()          # read from disk (cheap) -> honors edits
+        in_override = bid in overrides
+        in_grace = skey in load_grace()
+        cached = self.resolve_disk.get(skey)
+
+        # Steady-state HIT (0 network): resolved id, not forced, not grace/override, and
+        # either rule-backed (a live feed carries this bangumiId) or within the 24h TTL.
+        if (not force_search and not in_grace and not in_override
+                and cached and cached.get("mikan_id")):
+            mid = cached["mikan_id"]
+            fbm = self.feed_by_mikan()
+            if mid in fbm or now - cached.get("resolved_at", 0) < RESOLVE_TTL:
+                subs = (fbm[mid]["subgroups"] if mid in fbm and fbm[mid]["subgroups"]
+                        else cached.get("available_subgroups", []))
+                return self._shape(show, mid, subs, cached.get("mikan_title", ""),
+                                   cached.get("confidence", "high"))
+
+        # Cached NEGATIVE (mikan_id is null) within the short negative TTL: skip the search.
+        # Bounds永久-unresolvable 想看 movies/specials to one search per NEGATIVE_TTL instead
+        # of every pass. force_search (none uses it now) and grace/override bypass this.
+        if (not force_search and not in_grace and not in_override and NEGATIVE_TTL > 0
+                and cached is not None and not cached.get("mikan_id")
+                and now - cached.get("resolved_at", 0) < NEGATIVE_TTL):
+            return self._shape(show, None, [], "", "UNRESOLVED")
+
+        # Grace / override with a known mikan_id: mikan_id is fixed, but the subgroup
+        # roster may still be growing — refetch the Bangumi page ONLY (skip Search) every
+        # pass so a late higher-priority group is caught. Bounded: only a handful of shows
+        # are ever in grace/override at once.
+        if not force_search and (in_grace or in_override):
+            mid = overrides[bid] if in_override else (cached.get("mikan_id") if cached else None)
+            if mid:
+                try:
+                    info = mikan_bangumi_info(mid)
+                    conf = ("override" if in_override
+                            else (cached.get("confidence", "high") if cached else "high"))
+                    self._store(skey, mid, info["subgroups"], info["title"], conf)
+                    return self._shape(show, mid, info["subgroups"], info["title"], conf)
+                except Exception:  # noqa: BLE001
+                    pass  # fall through to a full resolve
+
+        # MISS: cold start / expired / forced / unresolved-retry -> full search.
+        r = resolve_show(show)
+        if r["mikan_id"]:
+            self._store(skey, r["mikan_id"], r["available_subgroups"],
+                        r.get("mikan_title", ""), r["confidence"])
+        else:
+            # Store a short-lived NEGATIVE so an unindexed 想看 movie/special isn't
+            # re-searched every pass. resolved_at drives the NEGATIVE_TTL re-search, so the
+            # banner/premiere still react (within the TTL) once mikan indexes a real show.
+            self.resolve_disk[skey] = {
+                "mikan_id": None, "available_subgroups": [], "mikan_title": "",
+                "confidence": "UNRESOLVED", "resolved_at": time.time(), "source": "search",
+            }
+            self.dirty = True
+        return r
+
+    def warm_from_rules(self) -> None:
+        """Seed the mikan_id<->bgm_id reverse map so every ruled show (build_plan resolve,
+        reconcile rule_bgm_id, mark-watched) is network-free. Two tiers:
+          1) From the persisted resolve cache — for every cached bgm_id->mikan_id, seed
+             rule_bgmid[mikan_id]=bgm_id with ZERO network (this is the steady-state path).
+          2) For any ruled mikan_id STILL unmapped (genuine cold start / brand-new rule),
+             fetch its Bangumi page ONCE to learn bgm_id + subgroups + title and seed both
+             maps. That's a one-time ~per-rule cost, then persisted -> 0 forever.
+        """
+        # tier 1: reverse-map from the persisted cache, no network
+        cached_mid_to_bgm = {}
+        for skey, v in self.resolve_disk.items():
+            mid = v.get("mikan_id")
+            if mid:
+                cached_mid_to_bgm[mid] = int(skey)
+        self.rule_bgmid.update(cached_mid_to_bgm)
+        # tier 2: only ruled mikan_ids still unmapped pay a page fetch
+        for mid in self.feed_by_mikan():
+            if mid in self.rule_bgmid:
+                continue
+            try:
+                info = mikan_bangumi_info(mid)
+            except Exception:  # noqa: BLE001
+                continue
+            bgid = info.get("bgm_id")
+            if not bgid:
+                continue
+            self.rule_bgmid[mid] = bgid
+            self.resolve_disk.setdefault(str(bgid), {
+                "mikan_id": mid,
+                "available_subgroups": info["subgroups"],
+                "mikan_title": info["title"],
+                "confidence": "rule",
+                "resolved_at": time.time(),
+                "source": "rule",
+            })
+            self.dirty = True
+
+    def save(self) -> None:
+        """Persist span + resolve + season caches (atomic). Span always (bgm_episode_span
+        refreshes _ts in-place); resolve/season only when changed."""
+        save_span_cache(self.span)
+        if self.dirty:
+            save_resolve_cache(self.resolve_disk)
+        if len(self.season) != self._season_n0:
+            save_season_cache(self.season)
+
+
+_PASS_COUNT = 0  # watch-loop pass counter (single-threaded), for the heal backstop
+
+
+def _set_heal_pending() -> None:
+    """Flag that this pass changed the mirror/libraries, so next pass's heal scan runs."""
+    try:
+        HEAL_PENDING_PATH.write_text(json.dumps({"pending": True}), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _clear_heal_pending() -> None:
+    try:
+        HEAL_PENDING_PATH.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _heal_should_run() -> bool:
+    """Run the empty-series /Items scan only when a mirror change is pending (files could
+    have landed) OR every HEAL_BACKSTOP_PASSES passes as an out-of-band-change backstop.
+    Quiet passes skip the ~2s scan entirely."""
+    if HEAL_PENDING_PATH.exists():
+        return True
+    return _PASS_COUNT % HEAL_BACKSTOP_PASSES == 0
+
+
 def run_sync_once(user, cookie, season, purge, token=None):
-    """One pass: add new 在看, reconcile removed, mark paused eps. Shared by `sync`/`watch`."""
+    """One pass: add new 在看, reconcile removed, mark paused eps. Shared by `sync`/`watch`.
+
+    All network-heavy passes share ONE SyncContext (collections/resolutions/spans computed
+    at most once per run; mikan resolutions persisted across runs), so a steady-state pass
+    goes from ~108s to a few seconds. jellyfin heal is gated to file-change/backstop only.
+    """
+    global _PASS_COUNT
+    _PASS_COUNT += 1
     print(f"=== sync @ {datetime.datetime.now():%Y-%m-%d %H:%M:%S} (user {user}) ===")
+    ctx = SyncContext(user, token)
+    ctx.warm_from_rules()   # cold-start: seed bgm_id<->mikan_id from live rules once
     if CONFIG.get("premiere_watch_enabled", True):
         try:
-            premiere_watch_pass(user, token)
+            premiere_watch_pass(user, token, ctx=ctx)
         except Exception:  # noqa: BLE001
             print("!!! premiere-watch 出错（不影响本轮 sync）：")
             traceback.print_exc()
-    plan = build_plan(user, season)
+    plan = build_plan(user, season, ctx=ctx)
     to_add = [e for e in plan if e["include"] and e.get("feed") and e.get("name")]
     if to_add:
         apply_entries(to_add, cookie, dry_run=False)
+        ctx.invalidate_rules()   # rules changed this pass -> later passes see them fresh
     else:
         print("# no new shows to add")
     if CONFIG.get("autocomplete_watched_enabled", True):
         # 在看番本篇全看完 -> 标看过；放在 reconcile 之前，同一轮紧接着删 qB 规则。
         try:
-            autocomplete_watched_pass(user, token)
+            autocomplete_watched_pass(user, token, ctx=ctx)
         except Exception:  # noqa: BLE001
             print("!!! autocomplete 出错（不影响本轮 sync）：")
             traceback.print_exc()
-    reconcile_removed(user, cookie, dry_run=False, purge_dropped=purge)
+    reconcile_removed(user, cookie, dry_run=False, purge_dropped=purge, ctx=ctx)
     if CONFIG.get("prefer_variant_enabled", True):
         # 同组同集多版本取舍：补规则黑名单（永不 ABEMA）+ 同集只留最优版本
         # （源 Baha＞CR、语言 简＞繁）。
         try:
-            reconcile_rule_blacklist()
-            reconcile_rule_cjk_whitelist()
-            reject_hard_variants()   # 先删无中文字幕生肉（Netflix 等）
-            prefer_variant_dedup()
+            reconcile_rule_blacklist(ctx=ctx)
+            reconcile_rule_cjk_whitelist(ctx=ctx)
+            reject_hard_variants(ctx=ctx)   # 先删无中文字幕生肉（Netflix 等）
+            prefer_variant_dedup(ctx=ctx)
         except Exception:  # noqa: BLE001
             print("!!! prefer-variant 出错（不影响本轮 sync）：")
             traceback.print_exc()
     if CONFIG.get("mark_watched_enabled", True):
         try:
-            mark_watched_pass(token)
+            mark_watched_pass(token, ctx=ctx)
         except Exception:  # noqa: BLE001
             print("!!! mark-watched 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    mirror_changed = False
     if CONFIG.get("jellyfin_heal_empty_enabled", True):
-        # 先修上一轮沉淀下来的「空系列」竞态（此时扫描已结束，不与本轮 mirror-sync 抢跑）
+        # 空系列自愈的 /Items 全库扫描（~2s）只在「上轮有镜像变动」或每 N 轮兜底时才跑，
+        # 平时安静轮直接跳过。先修上一轮沉淀的竞态（此时扫描已结束，不与本轮 mirror 抢跑）。
         try:
-            jellyfin_heal_empty_series()
+            if _heal_should_run():
+                if jellyfin_heal_empty_series() >= 0:
+                    _clear_heal_pending()
         except Exception:  # noqa: BLE001
             print("!!! jellyfin-heal 出错（不影响本轮 sync）：")
             traceback.print_exc()
     if CONFIG.get("jellyfin_mirror_enabled", True):
         try:
-            mirror_sync_pass()
+            if mirror_sync_pass() > 0:
+                mirror_changed = True
         except Exception:  # noqa: BLE001
             print("!!! mirror-sync 出错（不影响本轮 sync）：")
             traceback.print_exc()
@@ -2849,18 +3260,25 @@ def run_sync_once(user, cookie, season, purge, token=None):
             print("!!! jellyfin-prune 出错（不影响本轮 sync）：")
             traceback.print_exc()
     if CONFIG.get("jellyfin_autolib_enabled", True):
+        # 新建库要 GET /Library/VirtualFolders（~2s）。只在本轮镜像有新增、或每 N 轮兜底时跑；
+        # 新季库晚建几分钟无害（剧集照下照镜像，只是 Jellyfin 库视图稍滞后）。
         try:
-            jellyfin_ensure_libraries()
+            if mirror_changed or _PASS_COUNT % HEAL_BACKSTOP_PASSES == 1:
+                if jellyfin_ensure_libraries() > 0:
+                    mirror_changed = True
         except Exception:  # noqa: BLE001
             print("!!! jellyfin-autolib 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    if mirror_changed:
+        _set_heal_pending()   # 本轮有镜像/建库变动 -> 下轮 heal 扫一遍
     if CONFIG.get("unresolved_scan_enabled", True):
         # 刷新「未匹配 mikan」快照，供面板横幅展示（名字/别名/override 都没命中的番）。
         try:
-            scan_unresolved(user)
+            scan_unresolved(user, ctx=ctx)
         except Exception:  # noqa: BLE001
             print("!!! unresolved-scan 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    ctx.save()   # persist span + mikan-resolve caches (atomic)
     print("=== sync done ===")
 
 

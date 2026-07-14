@@ -11,6 +11,9 @@
   "cross_season_year_min_weeks": 40,
   "purge_dropped_files": true,
   "ani_grace_hours": 3,
+  "resolve_ttl_seconds": 86400,
+  "resolve_negative_ttl_seconds": 1800,
+  "heal_backstop_passes": 12,
   "group_priority": [
     [583, "ANi", ""],
     [370, "LoliHouse", "LoliHouse"],

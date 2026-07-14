@@ -178,8 +178,13 @@ def _load_span_cache() -> dict:
 
 
 def _save_span_cache() -> None:
+    # Atomic temp+replace: anime_rss.py shares this file (loads it into its per-pass span
+    # cache), so a torn half-write here would make its next sync drop the whole span cache
+    # and refetch. os.replace is atomic on NTFS, so a concurrent reader never sees a partial.
     try:
-        _SPAN_CACHE_PATH.write_text(json.dumps(_span_cache, ensure_ascii=False), encoding="utf-8")
+        tmp = _SPAN_CACHE_PATH.with_suffix(_SPAN_CACHE_PATH.suffix + ".tmp")
+        tmp.write_text(json.dumps(_span_cache, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, _SPAN_CACHE_PATH)
     except Exception:  # noqa: BLE001
         pass
 

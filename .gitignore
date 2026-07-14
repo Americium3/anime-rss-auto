@@ -10,6 +10,10 @@ mikan_overrides.json
 unresolved.json
 airing_cache.json
 episode_span_cache.json
+mikan_resolve_cache.json
+subject_season_cache.json
+heal_pending.json
+*.tmp
 *.log
 .codegraph/
 .claude/

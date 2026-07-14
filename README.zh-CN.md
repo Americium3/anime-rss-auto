@@ -58,6 +58,21 @@ Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**
 - `mikan_overrides.example.json` —— 可选的 `bgm_id → mikan bangumiId` 映射；仅当
   某番「未匹配 mikan」横幅一直不消、别名又救不回时，复制为 `mikan_overrides.json`
   再加一条（id 见 `mikanani.me/Home/Bangumi/<id>`）。
+- 运行时缓存（自动生成、已 gitignore、可随时删除，下轮自动重建）：
+  `mikan_resolve_cache.json`（bgm_id → mikan 解析结果）、`episode_span_cache.json`
+  （逐集放送日程，与面板共用）、`subject_season_cache.json`（不变的开播季度）、
+  `heal_pending.json`（Jellyfin 空系列扫描的触发旗标）。
+
+## 性能
+
+稳态下一轮 5 分钟同步在**一秒以内**完成（参考环境 ~108s → ~0.8s）。所有联网 pass 共用一个
+每轮上下文，每部番最多解析/取日程/查收藏一次；mikan 解析结果跨轮持久化，已建 qB 规则的番
+**零** mikan 调用（mikan_id 直接从规则 feed 的 `bangumiId` 读出）。短时负缓存避免每轮重搜
+mikan 永不收录的剧场版/特别篇。Jellyfin 空系列 `/Items` 扫描与库文件夹检查改为「仅镜像有变动
+或每 N 轮」触发，不再每轮跑。可调项：`resolve_ttl_seconds`（默认 24h，已解析身份的刷新周期；
+有规则的番永不重取）、`resolve_negative_ttl_seconds`（默认 30 分钟，未收录的番多久后重搜；设 `0`
+关闭负缓存改为每轮实时重搜）、`heal_backstop_passes`（默认 12，Jellyfin 扫描的安静轮兜底周期）。
+处于 ANi 宽限期或有手动 override 的番每轮都会强制刷新字幕组名册，故迟到的高优先组绝不会漏掉。
 
 ## 部署
 
