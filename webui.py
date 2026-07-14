@@ -47,6 +47,23 @@ _group_names: dict[int, str] = dict(core.GROUP_NAME)  # subgroup id -> display n
 _scanned_mids: set[int] = set()                 # mikan ids whose page we already parsed for group names
 
 
+def _seed_mikan_bgm() -> None:
+    """Seed mikan_id -> bgm_id from the persistent resolve cache the sync pipeline
+    maintains (mikan_resolve_cache.json), so the FIRST /api/overview after a webui
+    restart doesn't refetch ~15 mikan pages via rule_bgm_id (~12s cold). Reverse of
+    the bgm_id -> mikan_id entries; positives only. Best-effort."""
+    try:
+        for skey, v in core.load_resolve_cache().items():
+            mid = v.get("mikan_id")
+            if mid:
+                _mikan_bgm.setdefault(int(mid), int(skey))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_seed_mikan_bgm()
+
+
 # --------------------------------------------------------------------------- #
 # AniList airing time + English titles (self-maintaining; bgm has neither)
 # --------------------------------------------------------------------------- #
@@ -368,7 +385,6 @@ def api_overview():
             rule_of[bid] = (rname, rdef)
 
     airing_cache = _load_airing_cache()
-    prem_cache: dict[int, str | None] = {}
     out_shows = []
     cur_season = core.current_season()
     for s in shows:
@@ -417,7 +433,10 @@ def api_overview():
         if g is not None and entry["status"] != "subscribed":
             entry["status"] = "grace"
             entry["grace"] = {"expires": g + core.GRACE_HOURS * 3600}
-        entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
+        # Reuse the span cache classify_broadcast just warmed for this show (same
+        # /v0/episodes data) instead of a throwaway dict — otherwise every overview
+        # re-fetches all 在看 shows' episode schedules from bgm (~3.3s -> ~0s).
+        entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
         air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
         entry["airing_at"] = air["at"]
         entry["title_en"] = air["en"]
@@ -455,7 +474,6 @@ def api_collections():
         return _collections_cache["data"]
     user = str(core.CONFIG.get("bgm_user"))
     airing_cache = _load_airing_cache()
-    prem_cache: dict[int, str | None] = {}
     groups: dict[str, list] = {}
     counts: dict[str, int] = {}
     backfill: list[tuple[int, str, str]] = []
@@ -496,7 +514,9 @@ def api_collections():
                 "premiere_date": None,
             }
             if inline:  # 在看/想看：只对当前/即将播的番查精确开播时间
-                e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], prem_cache)
+                # Reuse the span cache classify_broadcast just warmed (0 network) rather
+                # than a throwaway dict that re-fetches every inline show's schedule (~7s).
+                e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
                 air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
                 e["airing_at"] = air["at"]
                 e["title_en"] = air["en"]

@@ -1609,23 +1609,25 @@ function bootDone() {
 
 async function refresh() {
   const q = ++seqO;
-  bootStage(35, "bootConnect");
+  bootStage(45, "bootConnect");
   try {
     const d = await (await fetch("/api/overview")).json();
     if (q !== seqO) return;   // an out-of-order older response must not win
     state = d;
     offline = false;
     render();
-    // This pass also reads each show's broadcast schedule (bgm episode airdates)
-    // to classify 半年番/年番 + still-airing, so the copy names that work too.
-    bootStage(78, "bootCollections");
-    await refreshCollections();
-    bootStage(94, "bootNotif");
-    // after collections so banner titles can follow the UI language; awaited
-    // only so the boot bar reflects it — they swallow their own errors.
+    // The default 在看 tab is fully rendered from /api/overview above, so the boot
+    // screen lifts as soon as it (+ the cheap notification/unresolved calls) land.
+    // /api/collections powers only the other tabs (想看/看过/…/timetable); it's the
+    // slow one (5 bgm lists incl. the big 看过 history), so it loads in the
+    // background — renderCards() shows a brief "Loading…" if one of those tabs is
+    // the pinned start tab, then fills in. refreshPremieres re-runs once collections
+    // arrive so banner titles can follow the UI language.
+    bootStage(90, "bootNotif");
     await refreshPremieres();
     await refreshUnresolved();
     bootDone();
+    refreshCollections().then(refreshPremieres);
   } catch (e) {
     if (q !== seqO) return;
     // Toast once per outage, then hold a persistent indicator in the header —
