@@ -782,6 +782,30 @@ def load_mikan_overrides() -> dict[int, int]:
 # --------------------------------------------------------------------------- #
 # mikan
 # --------------------------------------------------------------------------- #
+_TILDE_RE = re.compile(r"[～〜~]")
+
+
+def mikan_query_variants(q: str) -> list[str]:
+    """[q, tilde-stripped q, pre-tilde main title] — deduped, empty-safe.
+
+    Mikan's search endpoint returns NOTHING for any query containing a tilde
+    (～/〜/~), and `main ～subtitle～` naming is endemic in anime titles: bgm's
+    '恶女不才，请多关照 ～雏宫蝶鼠换身传～' finds zero results while the same
+    string minus tildes hits its bangumi page. Variants are ordered strict →
+    loose; callers stop at the first variant that returns candidates. Loose
+    variants stay safe because every candidate still passes resolve_show's
+    bgm_id confirmation gate.
+    """
+    out = [q]
+    stripped = " ".join(_TILDE_RE.sub(" ", q).split())
+    if stripped and stripped not in out:
+        out.append(stripped)
+    main = _TILDE_RE.split(q, maxsplit=1)[0].strip()
+    if main and main not in out:
+        out.append(main)
+    return out
+
+
 def mikan_search_candidates(query: str) -> list[int]:
     if not query.strip():
         return []
@@ -871,12 +895,18 @@ def resolve_show(show: dict) -> dict:
     alias_cands: list[int] = []
     if matched_mikan is None:
         # 1) primary search by name_cn / name (name_cn usually enough -> break).
+        # Each name is tried strict → loose via mikan_query_variants (mikan's
+        # search chokes on tilde subtitles); first variant with hits wins.
         for q in (show["name_cn"], show["name"]):
             if not q:
                 continue
-            for c in mikan_search_candidates(q):
-                if c not in primary:
-                    primary.append(c)
+            for v in mikan_query_variants(q):
+                cands = mikan_search_candidates(v)
+                for c in cands:
+                    if c not in primary:
+                        primary.append(c)
+                if cands:
+                    break
             if primary:
                 break
         matched_mikan, matched_subs, matched_title = _confirm_mikan_candidate(primary, bgm_id)
@@ -884,9 +914,13 @@ def resolve_show(show: dict) -> dict:
     if matched_mikan is None:
         # 2) alias search — extra queries from the subject's infobox aliases.
         for q in bgm_alias_names(bgm_id):
-            for c in mikan_search_candidates(q):
-                if c not in alias_cands and c not in primary:
-                    alias_cands.append(c)
+            for v in mikan_query_variants(q):
+                cands = mikan_search_candidates(v)
+                for c in cands:
+                    if c not in alias_cands and c not in primary:
+                        alias_cands.append(c)
+                if cands:
+                    break
         matched_mikan, matched_subs, matched_title = _confirm_mikan_candidate(alias_cands, bgm_id)
 
     if matched_mikan is None:
