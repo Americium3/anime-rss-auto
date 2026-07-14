@@ -133,16 +133,18 @@ LANG_PRIORITY = [
 #   * A（feed 层）：这类组的 mustContain 设为 CJK_SUB_REQUIRED——要求标题含任一中文
 #     字幕标记。qB 非正则里单个词内的 `|` = 或、词之间的空格 = 且，故这里必须是「无
 #     空格的单个 `|` 串」才表达「含其一即可」；带空格会污染整条过滤词语义，切忌。
-#     其中 `CR`（Crunchyroll 平台版）虽只标平台名、标题不写语言，但内封官方简繁中字，
-#     故一并放行——否则「只有搬运组、按 CR/ABEMA 平台命名」的番会被整条 feed 误挡。同
-#     为流媒体却无中文翻译的 ABEMA/B-Global 已在 SOURCE_BLACKLIST 走 mustNotContain
-#     拦截，不受此白名单影响，每集仍只落地 CR 那一份。
+#     其中 `CR`（Crunchyroll）与 `Baha`（巴哈姆特动画疯）虽只标平台名、标题不写语言，
+#     但都带官方中文字幕（CR 内封简繁双轨、Baha 内嵌繁中），故一并放行——否则「只有
+#     搬运组、按平台命名」的番会被整条 feed 误挡（Baha 版曾因此被误拒，SOURCE_PRIORITY
+#     的 Baha＞CR 在下载后取舍层根本无从生效）。同为流媒体却无中文翻译的 ABEMA/B-Global
+#     已在 SOURCE_BLACKLIST 走 mustNotContain 拦截，不受此白名单影响。白名单只允许在
+#     尾部追加新词——reconcile_rule_cjk_whitelist 靠前缀识别存量规则里的旧版串。
 #   * B（下载后）：HARD_REJECT_TAGS 命中的种子无条件删（含文件），不参与版本排序、
 #     不受「唯一版本」保护，补住 A 漏网的（如未加 A 的老规则）。多词子串在 Python 里
 #     匹配没有 qB 那种空格歧义，故可放心用带空格/点的平台标记。
 CJK_SUB_REQUIRED = str(CONFIG.get(
     "cjk_sub_required",
-    "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR"))
+    "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR|Baha"))
 # 归一化（点/空格/下划线并成单空格）后子串匹配，故 "NF.WEB-DL" 与 "NF WEB-DL" 同拒。
 HARD_REJECT_TAGS = [str(t).lower() for t in CONFIG.get("hard_reject_tags", [
     "nf web-dl", "amzn web-dl", "dsnp web-dl", "atvp web-dl", "hulu web-dl",
@@ -2616,6 +2618,52 @@ def reconcile_rule_blacklist(*, dry_run: bool = False) -> int:
     return changed
 
 
+def reconcile_rule_cjk_whitelist(*, dry_run: bool = False) -> int:
+    """把扩充后的 CJK_SUB_REQUIRED 灌回现存兜底规则的 mustContain（幂等，自愈）。
+
+    make_rule_def 只保证「新建」规则用当前白名单；白名单一扩（如 CR 之外再放行
+    Baha），已建规则还冻着旧串，新放行的版本会被 feed 层继续误拒。识别旧串靠
+    前缀：白名单只在尾部追加（`…|CR` -> `…|CR|Baha`），故「规则 mustContain 是
+    当前串的真前缀、且断点落在 `|` 上」即为旧版兜底串，升级为完整串。组自定义
+    过滤词（GROUP_FILTER）几乎不可能恰好构成该前缀，即便撞上也只是放宽过滤，
+    不会收紧。旧番规则不碰，与 reconcile_rule_blacklist 同一红线。
+    """
+    cur = CJK_SUB_REQUIRED
+    if not cur:
+        return 0
+    rules = existing_rules()
+    mikan_cache: dict[int, int | None] = {}
+    span_cache: dict[int, dict] = {}
+    changed = 0
+    for rname, rdef in rules.items():
+        sp = (rdef.get("savePath") or "").replace("\\", "/")
+        m = _COUR_IN_PATH_RE.search(sp)
+        if (m and m.group(1) < SKIP_BEFORE_SEASON
+                and not _old_cour_exempt(
+                    m.group(1), rule_bgm_id(rdef, mikan_cache), span_cache)):
+            continue  # 旧番规则不碰（正在更新的半年番/年番豁免，照常升级）
+        old = rdef.get("mustContain", "") or ""
+        if not old or old == cur:
+            continue
+        if not (cur.startswith(old) and cur[len(old)] == "|"):
+            continue  # 非旧版兜底串（组自定义过滤词等）：不碰
+        print(f"  rule-cjk: {rname}  mustContain: {old!r} -> {cur!r}")
+        if not dry_run:
+            nd = dict(rdef)
+            nd["mustContain"] = cur
+            try:
+                qb_post("/api/v2/rss/setRule",
+                        {"ruleName": rname, "ruleDef": json.dumps(nd)})
+            except Exception as ex:  # noqa: BLE001
+                print(f"     ! setRule 失败: {ex}")
+                continue
+        changed += 1
+    if changed:
+        print(f"# rule-cjk: 更新 {changed} 条规则"
+              f"{'（dry-run 未实写）' if dry_run else ''}")
+    return changed
+
+
 def reject_hard_variants(*, dry_run: bool = False) -> int:
     """删掉命中生肉硬拒绝标记的种子（含文件），无条件、不参与版本排序。
 
@@ -2734,6 +2782,7 @@ def run_sync_once(user, cookie, season, purge, token=None):
         # （源 Baha＞CR、语言 简＞繁）。
         try:
             reconcile_rule_blacklist()
+            reconcile_rule_cjk_whitelist()
             reject_hard_variants()   # 先删无中文字幕生肉（Netflix 等）
             prefer_variant_dedup()
         except Exception:  # noqa: BLE001
@@ -2796,6 +2845,7 @@ def cmd_mark(args):
 def cmd_dedup(args):
     """独立跑一趟同组同集多版本取舍：补规则黑名单 + 删生肉 + 同集只留最优版本。"""
     reconcile_rule_blacklist(dry_run=args.dry_run)
+    reconcile_rule_cjk_whitelist(dry_run=args.dry_run)
     reject_hard_variants(dry_run=args.dry_run)
     prefer_variant_dedup(dry_run=args.dry_run)
 

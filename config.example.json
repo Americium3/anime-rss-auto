@@ -33,7 +33,7 @@
     ["简", "简体", "简中", "简日", "CHS", "SC", "GB"],
     ["繁", "繁体", "繁中", "繁日", "CHT", "TC", "BIG5"]
   ],
-  "cjk_sub_required": "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR",
+  "cjk_sub_required": "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR|Baha",
   "hard_reject_tags": ["NF WEB-DL", "AMZN WEB-DL", "DSNP WEB-DL", "ATVP WEB-DL", "Hulu WEB-DL", "MAX WEB-DL", "DSNP", "ATVP"],
 
   "bgm_access_token": "<365-day personal token, or use OAuth below>",
