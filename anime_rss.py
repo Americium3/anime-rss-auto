@@ -32,6 +32,7 @@ import threading
 import time
 import datetime
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -325,17 +326,60 @@ def _old_cour_exempt(cour: str, bgm_id: int | None,
 # --------------------------------------------------------------------------- #
 # HTTP
 # --------------------------------------------------------------------------- #
+class HttpError(RuntimeError):
+    """A failed GET, carrying the status code when the server actually sent one.
+
+    Subclasses RuntimeError so every existing `except Exception` / `except
+    RuntimeError` caller is unaffected. `code` is None when nothing answered at all
+    (DNS, refused connection, read timeout, unparseable body) — the case callers must
+    never write down as a fact. See `_bgm_said_no`.
+    """
+
+    def __init__(self, msg: str, code: int | None = None):
+        super().__init__(msg)
+        self.code = code
+
+
+# 4xx is the server's considered answer and won't change if we ask again — except
+# these two, which explicitly mean "ask again later".
+_RETRYABLE_4XX = {408, 429}
+
+
 def http_get(url: str, *, retries: int = 3, timeout: int = 15) -> bytes:
-    last = None
+    last: Exception | None = None
+    code: int | None = None
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
-        except Exception as e:  # noqa: BLE001
-            last = e
+        except urllib.error.HTTPError as e:
+            last, code = e, e.code
+            if 400 <= e.code < 500 and e.code not in _RETRYABLE_4XX:
+                break  # a definitive "no" — retrying just burns 3.6s of sleep
+        except Exception as e:  # noqa: BLE001 — network layer, no status to report
+            last, code = e, None
+        if attempt < retries - 1:
             time.sleep(1.2 * (attempt + 1))
-    raise RuntimeError(f"GET failed: {url}\n  {last}")
+    raise HttpError(f"GET failed: {url}\n  {last}", code)
+
+
+# Returned by the bgm helpers when bgm never answered (outage, timeout, rate limit),
+# as opposed to None/empty, which is bgm answering "there is no such thing". Callers
+# may cache an answer as a fact; they must never cache a _NO_ANSWER as one, and the
+# passes that gate destructive work must skip the show entirely when they see it.
+_NO_ANSWER = object()
+
+
+def _bgm_said_no(ex: Exception) -> bool:
+    """True when bgm answered and its answer was "no such thing".
+
+    404 is the only status that says anything about the subject: bgm returns it for a
+    subject that doesn't exist and for a collection entry the user doesn't have. Every
+    other failure — 5xx, 429, a timeout, a connection reset — is bgm declining to
+    speak, and a caller that records it as data is inventing the answer.
+    """
+    return isinstance(ex, HttpError) and ex.code == 404
 
 
 def qb_post(path: str, data: dict) -> str:
@@ -516,10 +560,16 @@ def bgm_watching(user: str) -> list[dict]:
     return bgm_collection_subjects(user, 3)
 
 
-def bgm_collection_type(user: str, subject_id: int) -> int | None:
+def bgm_collection_type(user: str, subject_id: int):
     """Collection status of one subject for a user.
 
-    bgm type codes: 1=想看 2=看过 3=在看 4=搁置 5=抛弃. None = not collected.
+    bgm type codes: 1=想看 2=看过 3=在看 4=搁置 5=抛弃. None = not collected (bgm
+    answered 404, which is exactly how it reports an entry the user doesn't have).
+    _NO_ANSWER = bgm never told us.
+
+    The two must not be conflated: reconcile_removed reads None as "未收藏" and
+    responds by unsubscribing from mikan and deleting the show's files. Returning
+    None for a timeout would let one bad minute delete a library.
     """
     url = (
         f"{BGM_API}/v0/users/{urllib.parse.quote(user)}"
@@ -528,22 +578,47 @@ def bgm_collection_type(user: str, subject_id: int) -> int | None:
     try:
         d = json.loads(http_get(url, retries=2).decode("utf-8", "replace"))
         return d.get("type")
-    except Exception:  # noqa: BLE001
-        return None
+    except Exception as ex:  # noqa: BLE001
+        return None if _bgm_said_no(ex) else _NO_ANSWER
 
 
-def bgm_subject_season(subject_id: int, cache: dict[int, str | None]) -> str | None:
-    """Cour string 'YYYY.MM' for a bgm subject's air date (cached, None if unknown)."""
+def bgm_subject_season(subject_id: int, cache: dict[int, str | None]):
+    """Cour string 'YYYY.MM' for a bgm subject's air date, or:
+
+      * None       — bgm answered and has no usable date for it (an undated brand-new
+                     subject, or no such subject). Cached forever, like any cour: an
+                     air date is immutable, which is why this cache has no expiry.
+      * _NO_ANSWER — bgm never answered. Cached NOWHERE, so the next call retries.
+
+    Conflating the two is not cosmetic. None reads as "not an old show" at every call
+    site — is_manual_old_show treats an unknown date as current on purpose, so a
+    brand-new show whose date bgm hasn't filled in yet is still managed. So a cour
+    memoised as None during an outage hands a genuinely old, hands-off show to
+    reconcile_removed, which unsubscribes it and deletes its files. And because there
+    is no expiry path for this cache, one blip used to freeze that for the life of
+    subject_season_cache.json.
+    """
     if subject_id in cache:
         return cache[subject_id]
     try:
         d = json.loads(
             http_get(f"{BGM_API}/v0/subjects/{subject_id}", retries=2).decode("utf-8", "replace")
         )
-        cache[subject_id] = season_of(d.get("date", ""))
-    except Exception:  # noqa: BLE001
-        cache[subject_id] = None
+    except Exception as ex:  # noqa: BLE001
+        if not _bgm_said_no(ex):
+            return _NO_ANSWER
+        d = {}  # 404 = no such subject, which is an answer and worth remembering
+    cache[subject_id] = season_of(d.get("date", ""))
     return cache[subject_id]
+
+
+# Marks a span entry as "bgm didn't answer", not "bgm says there are no episodes".
+# Stripped before the cache is written, so it can never be mistaken for data later.
+_SPAN_NO_ANSWER = "_noanswer"
+# How long such a note is honoured. Long enough that one sync's several passes don't
+# each re-ask (and re-sleep through the retries) for the same subject, short enough
+# that the next run tries again — unlike the 24h a blank span used to be believed for.
+_SPAN_FAULT_TTL = 300
 
 
 def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
@@ -551,26 +626,50 @@ def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
     the authoritative broadcast schedule. bgm publishes future episode airdates up
     front, so 'last' is the final scheduled airdate even mid-run. Cached per subject:
     a finished show (last airdate in the past) is kept forever; a still-airing or
-    unknown one is refetched after a day so newly scheduled airdates fill in."""
+    unknown one is refetched after a day so newly scheduled airdates fill in.
+
+    A fetch bgm didn't answer still returns the empty span, because every safety
+    caller reads that the conservative way — still_broadcasting(None) is False, so
+    _old_cour_exempt says "not exempt" and the destructive passes leave the show
+    alone. That direction is deliberate and stays. What changes is that the blank is
+    no longer written down as though bgm had reported an empty schedule: it used to
+    be held for 24h, which broke cour_kind, show_premiere_date and the 半年番/年番
+    classification for a day after any blip, and suspended a running long-runner's
+    auto-management for just as long.
+    """
     if subject_id is None:
         return {"first": None, "last": None, "count": 0, "_ts": time.time()}
     today = str(datetime.date.today())
     hit = cache.get(subject_id)
     if hit is not None:
-        finished = hit.get("last") and hit["last"] < today
-        if finished or time.time() - hit.get("_ts", 0) < 86400:
-            return hit
-    airs = []
+        if hit.get(_SPAN_NO_ANSWER):
+            # Not a span — a note that bgm was down, kept only long enough to stop one
+            # run's several passes from re-asking (and re-sleeping through the retries)
+            # for the same subject. It never reaches disk; see save_span_cache.
+            if time.time() - hit.get("_ts", 0) < _SPAN_FAULT_TTL:
+                return hit
+        else:
+            finished = hit.get("last") and hit["last"] < today
+            if finished or time.time() - hit.get("_ts", 0) < 86400:
+                return hit
+    airs: list[str] = []
+    answered = True
     try:
         d = json.loads(http_get(
             f"{BGM_API}/v0/episodes?subject_id={subject_id}&type=0&limit=100", retries=2
         ).decode("utf-8", "replace"))
         airs = sorted(e["airdate"] for e in d.get("data", []) if e.get("airdate"))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as ex:  # noqa: BLE001
+        # 404 = no such subject = it genuinely has no episodes, a cacheable fact. An
+        # outage is not: an empty span is indistinguishable from "this show has no
+        # dated episodes", and 8 subjects in the live cache legitimately look like
+        # that, so a blank written during a blip is unrecoverable once on disk.
+        answered = _bgm_said_no(ex)
     meta = {"first": airs[0] if airs else None,
             "last": airs[-1] if airs else None,
             "count": len(airs), "_ts": time.time()}
+    if not answered:
+        meta[_SPAN_NO_ANSWER] = True
     cache[subject_id] = meta
     return meta
 
@@ -595,11 +694,14 @@ def bgm_subject_episodes(subject_id: int, cache: dict[int, dict[int, int]]) -> d
     So we key by BOTH. 'sort' is filled first and 'ep' overrides, so when a number
     is a valid per-season ep it wins; numbers that only exist as a running 'sort'
     (continuation seasons) still resolve. type=0 is 本篇, so SP/OP/ED never
-    collide with a numeric episode. Cached per subject.
+    collide with a numeric episode. Cached per subject — but only when bgm answered,
+    so a blip can't memoise an empty map and make every episode of that show
+    unresolvable ("集数找不到") for the rest of the run.
     """
     if subject_id in cache:
         return cache[subject_id]
     out: dict[int, int] = {}
+    answered = True
     try:
         d = json.loads(
             http_get(
@@ -616,9 +718,10 @@ def bgm_subject_episodes(subject_id: int, cache: dict[int, dict[int, int]]) -> d
             eid, n = e.get("id"), _int_key(e.get("ep"))
             if eid is not None and n is not None:
                 out[n] = int(eid)
-    except Exception:  # noqa: BLE001
-        pass
-    cache[subject_id] = out
+    except Exception as ex:  # noqa: BLE001
+        answered = _bgm_said_no(ex)  # 404 = no such subject = genuinely no episodes
+    if answered:
+        cache[subject_id] = out
     return out
 
 
@@ -1381,6 +1484,12 @@ def reconcile_removed(
             print(f"  ?  {rname}: could not resolve bgm id (skip)")
             continue
         sea = bgm_subject_season(bgm_id, season_cache)
+        if sea is _NO_ANSWER:
+            # Unknown cour reads as "current" below, which would put an old show that
+            # is meant to be hands-off in front of the teardown branches. bgm being
+            # unreachable is not evidence about the show — do nothing this round.
+            print(f"  ?  {rname}: bgm 未响应，季度无法判定 -> 跳过（不增不删不删文件）")
+            continue
         if (sea is not None and sea < SKIP_BEFORE_SEASON
                 and bgm_id not in PIN_CURRENT_BGM_IDS
                 and not cour_still_airing(bgm_id, sea, span_cache)):
@@ -1389,6 +1498,13 @@ def reconcile_removed(
         # 收藏类型：overlay（本轮 autocomplete 刚标的看过）优先，其次在看列表命中即 3，
         # 只有真正离开在看的番才付一次逐个查询 —— 严格比原来「每条规则都查」调用更少。
         ctype = ctx.collection_type_of(bgm_id)
+        if ctype is _NO_ANSWER:
+            # The teardown branch below keys off "not collected", and bgm reports that
+            # by 404. Anything else — 5xx, a timeout — is not bgm saying the show left
+            # the collection, and acting on it would unsubscribe and delete files for a
+            # show that is merely unreachable.
+            print(f"  ?  {rname}: bgm 未响应，收藏状态无法确认 -> 跳过（不增不删不删文件）")
+            continue
         if ctype == 3:
             print(f"     {rname}: 在看 -> keep")
         elif ctype in (2, 5):
@@ -1482,6 +1598,8 @@ def resolve_torrent_target(
     if not bgm_id:
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
+    if sea is _NO_ANSWER:
+        return None, None, "bgm 未响应，季度无法判定（本轮跳过，下轮重试）"
     if (sea is not None and sea < SKIP_BEFORE_SEASON
             and bgm_id not in PIN_CURRENT_BGM_IDS
             and not cour_still_airing(bgm_id, sea, span_cache if span_cache is not None else {})):
@@ -2837,7 +2955,6 @@ def prefer_variant_dedup(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         print(f"# prefer-variant: 删除 {len(victims)} 个低优先级重复版本"
               f"{'（dry-run 未实删）' if dry_run else ''}")
     return len(victims)
-    return len(victims)
 
 
 # --------------------------------------------------------------------------- #
@@ -2862,8 +2979,14 @@ def load_span_cache() -> dict[int, dict]:
 
 
 def save_span_cache(cache: dict[int, dict]) -> None:
+    """Persist the span cache, minus the in-memory notes about subjects bgm didn't
+    answer for. Those exist only to stop one run re-asking; on disk they'd be
+    indistinguishable from a real empty schedule and believed for 24h."""
     try:
-        _atomic_write_json(SPAN_CACHE_PATH, cache)
+        _atomic_write_json(
+            SPAN_CACHE_PATH,
+            {k: v for k, v in cache.items() if not v.get(_SPAN_NO_ANSWER)},
+        )
     except Exception:  # noqa: BLE001
         pass
 
@@ -3000,7 +3123,8 @@ class SyncContext:
                 self._ctype_memo[bid] = 3
                 return 3
         ct = bgm_collection_type(self.user, bid)
-        self._ctype_memo[bid] = ct
+        if ct is not _NO_ANSWER:  # never memoise an outage as a collection status
+            self._ctype_memo[bid] = ct
         return ct
 
     def record_write(self, bgm_id: int, ctype: int) -> None:

@@ -108,11 +108,21 @@ auto-refresh — create an app at https://bgm.tv/dev/app, fill
   (an explicit per-show override), and a cross-cour show still broadcasting (a
   半年番/年番 whose final scheduled episode airdate is today or later, per the bgm
   episode schedule). A long show that has finished airing is read-only again.
+- Every one of those judgements is an answer from bgm, so the tool separates "bgm
+  answered, and the answer is no" from "bgm did not answer". A 404 is an answer and is
+  cached; a 5xx, a timeout or a rate limit is not, and is never written to a cache.
+  When a pass cannot get an answer it skips the show and retries next round — an
+  unreachable bgm is not evidence about a show.
 
 ## Safety notes
 
 - `config.local.json` holds all secrets and is gitignored; nothing sensitive
   is hardcoded.
+- No cache entry is allowed to record a failed lookup as a fact. This matters most
+  for `subject_season_cache.json`, which has no expiry (an air cour is immutable): a
+  cour wrongly recorded as unknown reads as "current", which is what makes an old
+  hands-off show eligible for teardown. `python test_bgm_outage.py` covers the
+  behaviour under a simulated outage.
 - The Jellyfin prune step refuses to run if the source library is missing or
   empty (unmounted-drive protection) and aborts on implausibly large deletions.
 - The web UI binds to 127.0.0.1 by default; set `webui_host: "0.0.0.0"` only
