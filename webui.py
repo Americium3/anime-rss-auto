@@ -24,6 +24,7 @@ import re
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -74,10 +75,24 @@ _seed_mikan_bgm()
 AIRING_CACHE_PATH = ROOT / "airing_cache.json"
 _ANILIST_URL = "https://graphql.anilist.co"
 _ANILIST_Q = ("query($s:String){Media(search:$s,type:ANIME){"
-              "title{english romaji} status episodes"
-              "airingSchedule(perPage:8){nodes{episode airingAt}}"
-              "nextAiringEpisode{episode airingAt}"
+              " title{english romaji} status"
+              " airingSchedule(perPage:8){nodes{episode airingAt}}"
+              " nextAiringEpisode{episode airingAt}"
               " startDate{year month day} endDate{year month day}}}")
+# Adjacent string literals concatenate silently, so a seam that loses its space
+# fuses two fields into one that doesn't exist — "episodesairingSchedule" once
+# made AniList 400 every lookup for three weeks without a peep. Continuation
+# lines lead with a space, and this refuses to boot if a seam ever glues two
+# field names together again.
+assert all(re.search("[{ ]" + _f + "[({ ]", _ANILIST_Q) for _f in
+           ("title", "status", "airingSchedule", "nextAiringEpisode",
+            "startDate", "endDate")), f"_ANILIST_Q lost a seam space: {_ANILIST_Q}"
+
+# A lookup that found a broadcast time is cached forever — slots don't move. A
+# lookup AniList answered with "nothing scheduled" is retried this often, since it
+# schedules shows days to weeks ahead of the premiere. (A lookup AniList never
+# answered isn't cached at all; see _NO_ANSWER.)
+_AIR_MISS_TTL = 6 * 3600
 
 
 def _load_airing_cache() -> dict:
@@ -87,47 +102,176 @@ def _load_airing_cache() -> dict:
         return {}
 
 
+_airing_write_lock = threading.Lock()
+
+
 def _save_airing_cache(c: dict) -> None:
-    try:
-        AIRING_CACHE_PATH.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        pass
+    """Merge `c` into what's on disk, newest entry per show wins, then swap the file
+    in atomically. Request threads and the fill thread each work on their own copy,
+    so a plain overwrite would throw away whichever finished first — and the
+    read-merge-write has to be serialised or two writers still lose each other's
+    entries between the read and the write."""
+    with _airing_write_lock:
+        try:
+            merged = _load_airing_cache()
+            for k, v in c.items():
+                old = merged.get(k)
+                if not old or v.get("t", 0) >= old.get("t", 0):
+                    merged[k] = v
+            tmp = AIRING_CACHE_PATH.with_suffix(AIRING_CACHE_PATH.suffix + ".tmp")
+            tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, AIRING_CACHE_PATH)
+        except Exception:  # noqa: BLE001
+            pass
 
 
-def _anilist_media(search: str) -> dict | None:
+# Consecutive AniList faults, surfaced in /api/overview. A broken query or a rate
+# limit degrades every show to "time TBA" identically, so the panel needs a way to
+# say "AniList is refusing me" instead of quietly claiming nothing is scheduled.
+_anilist_faults = 0
+_anilist_fault_kinds: set[str] = set()
+_anilist_fault_lock = threading.Lock()
+
+
+def _anilist_fault(kind: str, detail: str) -> None:
+    """Count a fault and log the first of each kind. Systemic breakage hits every
+    lookup, so one loud line beats a hundred identical ones in webui.log."""
+    global _anilist_faults
+    with _anilist_fault_lock:  # request threads and the fill thread both report here
+        _anilist_faults += 1
+        first = kind not in _anilist_fault_kinds
+        _anilist_fault_kinds.add(kind)
+    if first:
+        print(f"! anilist {kind}: {detail}", flush=True)
+
+
+def _anilist_ok() -> None:
+    """AniList answered — clear the fault state so the panel warning describes now
+    and not a blip an hour ago, and so a recurrence gets logged again."""
+    global _anilist_faults
+    with _anilist_fault_lock:
+        _anilist_faults = 0
+        _anilist_fault_kinds.clear()
+
+
+# AniList answers roughly 30 requests a minute. A cold cache has more shows than
+# that, so every lookup claims a slot from one pacer shared by the request path and
+# the fill thread — otherwise the first poll after a fresh install spends its whole
+# budget and gets everything else 429'd.
+_ANILIST_GAP = 2.2
+_anilist_gate = threading.Lock()
+_anilist_next_at = 0.0
+
+
+def _anilist_slot(block: bool) -> bool:
+    """Claim the next request slot. The fill thread blocks until one is due; the
+    request path doesn't (block=False), so a cold cache leaves the panel prompt and
+    lets the background thread work through the queue instead of stalling a poll.
+    The wait happens outside the lock — sleeping while holding it would make the
+    non-blocking callers queue up behind the fill thread, which is the whole thing
+    this is meant to avoid."""
+    global _anilist_next_at
+    while True:
+        with _anilist_gate:
+            now = time.monotonic()
+            wait = _anilist_next_at - now
+            if wait <= 0:
+                _anilist_next_at = now + _ANILIST_GAP
+                return True
+            if not block:
+                return False
+        time.sleep(min(wait, 1.0))
+
+
+def _anilist_defer(seconds: float) -> None:
+    """Push the next slot out — used to honour Retry-After when we do trip the limit."""
+    global _anilist_next_at
+    with _anilist_gate:
+        _anilist_next_at = max(_anilist_next_at, time.monotonic() + seconds)
+
+
+# Returned when AniList didn't answer at all (fault, or we're pacing ourselves).
+# Distinct from None, which is AniList answering "no such anime": callers may cache
+# a None as a fact, but must never write down a _NO_ANSWER as one.
+_NO_ANSWER = object()
+
+
+def _anilist_media(search: str, block: bool = True):
+    """The AniList entry best matching `search`, None if AniList has no such anime,
+    or _NO_ANSWER if it never told us.
+
+    A 404 is AniList's "no match" and is routine — bgm's Chinese titles almost never
+    resolve. Everything else (rate limit, GraphQL error, network) is a fault: it gets
+    reported and returned as _NO_ANSWER rather than posing as a miss, because a miss
+    is written into airing_cache.json and believed until _AIR_MISS_TTL is up.
+    """
+    if not _anilist_slot(block):
+        return _NO_ANSWER
     body = json.dumps({"query": _ANILIST_Q, "variables": {"s": search}}).encode()
     req = urllib.request.Request(
         _ANILIST_URL, data=body,
         headers={"Content-Type": "application/json", "Accept": "application/json",
                  "User-Agent": core.UA},
     )
-    with urllib.request.urlopen(req, timeout=12) as r:
-        d = json.loads(r.read().decode("utf-8", "replace"))
+    try:
+        with urllib.request.urlopen(req, timeout=12) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as ex:
+        if ex.code == 404:  # AniList's "no such anime" — a healthy answer
+            _anilist_ok()
+            return None
+        if ex.code == 429:
+            retry = 60.0  # Retry-After is normally a plain seconds count; if it
+            with contextlib.suppress(TypeError, ValueError):  # isn't, back off anyway
+                retry = float(ex.headers.get("Retry-After") or 60)
+            _anilist_defer(retry)
+        _anilist_fault(f"HTTP {ex.code}", ex.read().decode("utf-8", "replace")[:300])
+        return _NO_ANSWER
+    except Exception as ex:  # noqa: BLE001 — network, timeout, malformed body
+        _anilist_fault(type(ex).__name__, str(ex)[:300])
+        return _NO_ANSWER
+    if d.get("errors"):
+        _anilist_fault("graphql", json.dumps(d["errors"], ensure_ascii=False)[:300])
+        return _NO_ANSWER
+    _anilist_ok()
     return (d.get("data") or {}).get("Media")
 
 
-def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict) -> dict:
+def _air_needs_lookup(ent: dict | None) -> bool:
+    """Whether show_air_info would actually go to AniList for this cache entry:
+    never looked up, written before the 'en' field existed, or a miss whose retry
+    window has lapsed. Callers use this to decide what to enqueue — a miss must
+    not read as "filled in" just because its keys are present with null values."""
+    if not ent or "en" not in ent:
+        return True
+    return ent.get("at") is None and int(time.time()) - ent.get("t", 0) >= _AIR_MISS_TTL
+
+
+def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True) -> dict:
     """{'at': unix ts of ep1's broadcast or None, 'en': English/romaji title or None}.
 
     Cached per bgm_id in airing_cache.json. A known time is kept indefinitely; a
-    miss (None) is retried after a day in case AniList adds the schedule later.
-    Entries written before the 'en' field existed are refreshed once.
+    miss is retried once _AIR_MISS_TTL has passed, in case AniList adds the
+    schedule later — or in case it was us that was broken. A lookup AniList never
+    answered is not a miss and is not written down at all.
     """
     key = str(bgm_id)
     now = int(time.time())
     ent = cache.get(key)
-    if ent and "en" in ent and (ent.get("at") is not None or now - ent.get("t", 0) < 86400):
+    if ent and not _air_needs_lookup(ent):
         return ent
     at = en = None
+    found = unanswered = False
     for term in (jp, cn):
         if not term:
             continue
-        try:
-            m = _anilist_media(term)
-        except Exception:  # noqa: BLE001
-            m = None
+        m = _anilist_media(term, block)
+        if m is _NO_ANSWER:
+            unanswered = True
+            continue
         if not m:
             continue
+        found = True
         title = m.get("title") or {}
         en = en or title.get("english") or title.get("romaji")
         nodes = (m.get("airingSchedule") or {}).get("nodes") or []
@@ -143,6 +287,12 @@ def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict) -> dict:
                                     tzinfo=datetime.timezone.utc)
                   - datetime.timedelta(hours=9))
             at = int(dt.timestamp()); break
+    if at is None and unanswered and not found:
+        # Nothing was learned, so record nothing — writing a miss here would parrot a
+        # rate limit back as "this show has no broadcast time" for the whole TTL. If
+        # one term did resolve, the answer stands even though the other was throttled:
+        # AniList has the show and simply hasn't scheduled it (and we keep its title).
+        return ent or {"at": None, "en": None, "t": 0}
     ent = {"at": at, "en": en, "t": now}
     cache[key] = ent
     return ent
@@ -166,9 +316,8 @@ def _start_title_fill(items: list[tuple[int, str, str]]) -> None:
         try:
             cache = _load_airing_cache()
             for i, (bid, jp, cn) in enumerate(items):
-                if "en" not in (cache.get(str(bid)) or {}):
-                    show_air_info(bid, jp, cn, cache)
-                    time.sleep(0.8)  # stay far under AniList's rate limit
+                if _air_needs_lookup(cache.get(str(bid))):
+                    show_air_info(bid, jp, cn, cache)  # blocks on the pacer
                 if i % 20 == 19:
                     _save_airing_cache(cache)
             _save_airing_cache(cache)
@@ -215,6 +364,13 @@ def _ani_ymd(d: dict | None) -> str | None:
     return None
 
 
+# AniList's answer for the handful of shows bgm has no schedule for, kept for the
+# process lifetime. Broadcast status barely moves, and without this every poll
+# re-asks the same questions — which the pacer would mostly turn down, flipping the
+# 半年番/年番 badge on and off between refreshes.
+_ani_status: dict[int, dict] = {}
+
+
 def classify_broadcast(bgm_id: int, jp: str, cn: str, fetch: bool = True) -> tuple[str | None, bool]:
     """(cour_kind, still_airing) from the broadcast schedule. bgm episode airdates
     first; AniList (status / start-end dates) fills in only when bgm has nothing
@@ -225,16 +381,15 @@ def classify_broadcast(bgm_id: int, jp: str, cn: str, fetch: bool = True) -> tup
     kind = core.cour_kind(first, last)
     airing = core.still_broadcasting(last) if last else False
     if fetch and not last:  # bgm has no schedule yet -> ask AniList
-        m = None
-        for term in (cn, jp):
-            if not term:
-                continue
-            try:
-                m = _anilist_media(term)
-            except Exception:  # noqa: BLE001
-                m = None
-            if m:
-                break
+        m = _ani_status.get(bgm_id)
+        if not m:
+            for term in (jp, cn):  # JP first: AniList 404s on Chinese titles
+                if not term:
+                    continue
+                got = _anilist_media(term, block=False)  # request path — never stall a poll
+                if got and got is not _NO_ANSWER:
+                    m = _ani_status[bgm_id] = got
+                    break
         if m:
             airing = (m.get("status") == "RELEASING") or bool(m.get("nextAiringEpisode"))
             kind = core.cour_kind(_ani_ymd(m.get("startDate")), _ani_ymd(m.get("endDate")))
@@ -437,7 +592,7 @@ def api_overview():
         # /v0/episodes data) instead of a throwaway dict — otherwise every overview
         # re-fetches all 在看 shows' episode schedules from bgm (~3.3s -> ~0s).
         entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
-        air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+        air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache, block=False)
         entry["airing_at"] = air["at"]
         entry["title_en"] = air["en"]
         out_shows.append(entry)
@@ -447,6 +602,7 @@ def api_overview():
         "season": season_now,
         "grace_hours": core.GRACE_HOURS,
         "qb_ok": qb_ok,
+        "anilist_faults": _anilist_faults,
         "group_priority": [
             {"id": gid, "name": core.GROUP_NAME[gid]} for gid in core.PRIORITY_IDS
         ],
@@ -517,10 +673,11 @@ def api_collections():
                 # Reuse the span cache classify_broadcast just warmed (0 network) rather
                 # than a throwaway dict that re-fetches every inline show's schedule (~7s).
                 e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
-                air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache)
+                air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache, block=False)
                 e["airing_at"] = air["at"]
                 e["title_en"] = air["en"]
-            elif "en" not in cached:
+            if _air_needs_lookup(airing_cache.get(str(s["bgm_id"]))):
+                # Either a big-list show, or an inline one the pacer made us skip.
                 backfill.append((s["bgm_id"], s["name"], s["name_cn"]))
             lst.append(e)
         groups[_COLL_TYPES[t]] = lst
