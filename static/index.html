@@ -711,6 +711,7 @@
       <small>bangumi · mikan · qBittorrent · jellyfin</small>
     </div>
     <span class="chip warn" id="qbwarn" hidden></span>
+    <span class="chip warn" id="anilistwarn" hidden></span>
     <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
     <span class="chip" id="synchip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
     <button class="btn ghost compact" id="themebtn" onclick="cycleTheme()" aria-label="theme">◐</button>
@@ -763,6 +764,7 @@ const I18N = {
     offline: "offline — retrying",
     qbDown: "qBittorrent unreachable",
     qbUnknown: "qBittorrent unreachable — episode status unknown",
+    anilistDown: "AniList not answering — airing times may be missing",
     st_grace: "ANi grace", st_unresolved: "Awaiting mikan", st_manual: "Manual (legacy)",
     via: "via", switch: "Switch", waitingAni: "Waiting for ANi", lockBest: "Lock best now",
     noEpisodes: "Subscribed — no episodes in feed yet",
@@ -810,7 +812,7 @@ const I18N = {
     daysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     weekdayAll: "All days",
     timeTBA: "Time TBA", today: "Today",
-    scheduleEmpty: "No airing-time data yet — it fills in as AniList lookups resolve",
+    scheduleEmpty: "Nothing in your watching or plan-to-watch lists yet",
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
     sched_season_only: "This season only",
     noSeason: "SEASON UNKNOWN",
@@ -829,6 +831,7 @@ const I18N = {
     offline: "离线 — 重试中",
     qbDown: "qBittorrent 无法连接",
     qbUnknown: "qBittorrent 无法连接 — 剧集状态未知",
+    anilistDown: "AniList 无响应 — 开播时间可能缺失",
     st_grace: "ANi 宽限期", st_unresolved: "等待 mikan", st_manual: "手动（旧番）",
     via: "字幕组", switch: "切换", waitingAni: "等待 ANi", lockBest: "锁定当前最优",
     noEpisodes: "已订阅 — feed 中暂无剧集",
@@ -876,7 +879,7 @@ const I18N = {
     daysShort: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
     weekdayAll: "全部",
     timeTBA: "时间待定", today: "今天",
-    scheduleEmpty: "暂无开播时间数据 — AniList 查询完成后会自动补齐",
+    scheduleEmpty: "在看和想看列表都是空的",
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
     sched_season_only: "仅本季",
     noSeason: "季度未知",
@@ -1404,11 +1407,20 @@ function renderSchedule() {
   const shows = schedFilter === "all" ? all : all.filter(s => hasAired(s) === (schedFilter === "aired"));
   const days = [[], [], [], [], [], [], []];  // Mon..Sun
   const tba = [];
+  // Weekday comes from airWeekday, so a show bgm has dated but AniList hasn't
+  // given a time for still lands on its real weekday (showing --:--) instead of
+  // being filed as time-unknown. Only a show nothing can date goes to TBA.
   for (const s of shows) {
-    if (s.airing_at) days[(new Date(s.airing_at * 1000).getDay() + 6) % 7].push(s);
-    else tba.push(s);
+    const wd = airWeekday(s);
+    if (wd === null) tba.push(s); else days[wd].push(s);
   }
-  const minuteOf = s => { const d = new Date(s.airing_at * 1000); return d.getHours() * 60 + d.getMinutes(); };
+  // Minute of the day, for ordering inside a column. A show we only have a date
+  // for has no time of day, so it sinks below the ones that do.
+  const minuteOf = s => {
+    if (!s.airing_at) return Infinity;
+    const d = new Date(s.airing_at * 1000);
+    return d.getHours() * 60 + d.getMinutes();
+  };
   const today = (new Date().getDay() + 6) % 7;
   const names = t("days");
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
@@ -1529,6 +1541,11 @@ function renderHeader() {
   const qb = $("qbwarn");
   qb.hidden = state.qb_ok !== false;
   if (!qb.hidden) qb.textContent = t("qbDown");
+  // Airing times come from AniList; when it stops answering every show silently
+  // falls back to "time TBA", so say so instead of letting the board lie.
+  const al = $("anilistwarn");
+  al.hidden = !state.anilist_faults;
+  if (!al.hidden) al.textContent = t("anilistDown");
   setHTML($("prio"), state.group_priority
     .map((g, i) => `<span class="chip"><b>#${i + 1}</b>${esc(g.name)}</span>`)
     .join("") + `<span class="chip warn">${t("graceH", state.grace_hours)}</span>`);
