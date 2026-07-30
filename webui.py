@@ -31,6 +31,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import anime_rss as core
@@ -952,6 +953,13 @@ def api_rule_switch(body: RuleSwitch):
 @app.get("/")
 def index():
     return FileResponse(ROOT / "static" / "index.html")
+
+
+# Brand assets (the favicon family + the web manifest) live on disk instead of
+# inline, so the browser tab, a pinned taskbar tile and an installed PWA all
+# resolve the one canonical mark. Mounted last — a mount shadows every route
+# that would otherwise match beneath its prefix.
+app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
 if __name__ == "__main__":

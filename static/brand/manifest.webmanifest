@@ -1,0 +1,26 @@
+{
+  "name": "Anime Autopilot",
+  "short_name": "Autopilot",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#4a2795",
+  "theme_color": "#4a2795",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-mask.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
