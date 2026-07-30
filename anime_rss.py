@@ -35,6 +35,7 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import suppress
 from pathlib import Path
 
 try:  # Win11 Chinese locale -> force utf-8 stdout；行缓冲让 watch.log 即时落盘
@@ -72,6 +73,9 @@ SPAN_CACHE_PATH = Path(__file__).with_name("episode_span_cache.json")
 MIKAN_RESOLVE_CACHE_PATH = Path(__file__).with_name("mikan_resolve_cache.json")
 SEASON_CACHE_PATH = Path(__file__).with_name("subject_season_cache.json")
 HEAL_PENDING_PATH = Path(__file__).with_name("heal_pending.json")
+# 自动化事件流水（每集落库、每次新番订阅…）。与 premiere_notify.json 的区别见
+# 「事件日志」一节。外部消费者（Atrium 消息中心）跨进程读它，故写入必须原子。
+EVENTS_PATH = Path(__file__).with_name("events.json")
 BGM_AUTHORIZE = "https://bgm.tv/oauth/authorize"
 BGM_OAUTH_TOKEN = "https://bgm.tv/oauth/access_token"
 ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
@@ -1345,6 +1349,13 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool) -> None
                 {"ruleName": name, "ruleDef": json.dumps(rule_def)},
             )
             print(f"  ok  {name} -> {rule_def['savePath']}")
+            # 规则真正落到 qB 才算订阅成功。build_plan 只把「还没有规则」的番
+            # 交到这里，所以这里天然只对新订阅发事件，不会给已有番重复发。
+            add_event("show.subscribed", {
+                "title": name,
+                "bgm_id": e.get("bgm_id"),
+                "group": e.get("subgroup_name"),
+            })
         except Exception as ex:  # noqa: BLE001
             print(f"  ! setRule {name}: {ex}")
         if cookie:
@@ -1891,6 +1902,56 @@ def _jellyfin_refresh() -> None:
         print(f"# mirror: 触发扫描失败（不影响）：{ex}")
 
 
+def _events_backfill_first_run() -> None:
+    """首次建账时，用镜像里最近 48h 的剧集补一批 episode.landed。
+
+    mirror_sync_pass 幂等（已链接的跳过），所以没有这一步，事件日志上线后要等下
+    一集落库才有内容——用户看到的会是一个空消息中心。
+
+    一次性靠账本里的 backfilled 标记，而不是「文件存在与否」：apply_entries 排在
+    本轮 mirror 之前，它记一条 show.subscribed 就会把 events.json 先建出来，那样
+    按文件存在判断会让首轮回填被静默跳过。
+    """
+    data = load_events()
+    if data.get("backfilled"):
+        return
+    dst_root = Path(JELLYFIN_MIRROR)
+    cutoff = time.time() - EVENTS_BACKFILL_WINDOW_S
+    found: list[tuple[float, dict]] = []
+    if dst_root.exists():
+        for cour_dir in dst_root.iterdir():
+            if not cour_dir.is_dir() or not _COUR_DIR_RE.match(cour_dir.name):
+                continue
+            for f in cour_dir.rglob("*"):
+                if not f.is_file() or f.suffix.lower() not in MIRROR_VIDEO_EXT:
+                    continue
+                try:
+                    mtime = f.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime < cutoff:
+                    continue
+                # 镜像布局固定为 <cour>/<show>/Season NN/<file>
+                rel = f.relative_to(cour_dir).parts
+                found.append((mtime, {
+                    "kind": "episode.landed",
+                    "ts": int(mtime),
+                    "params": {
+                        "show": rel[0] if len(rel) > 1 else cour_dir.name,
+                        "cour": cour_dir.name,
+                        "season": rel[1] if len(rel) > 2 else "Season 01",
+                        "file": f.name,
+                        "ep": parse_episode(f.name),
+                        "backfill": True,
+                    },
+                }))
+    found.sort(key=lambda x: x[0])
+    items = [ev for _, ev in found[-EVENTS_BACKFILL_CAP:]]
+    # 补到 0 条也要落标记，否则每轮都要重扫一遍整个镜像找历史
+    add_events(items, mark_backfilled=True)
+    print(f"# events: 建账，回填最近 48h 的 {len(items)} 集落库记录")
+
+
 def mirror_sync_pass() -> int:
     """把 X:\\Bangumi\\<cour>\\<show>\\… 的新剧集硬链接到 X:\\BangumiJF\\<cour>\\<show>\\Season NN\\。
 
@@ -1898,12 +1959,17 @@ def mirror_sync_pass() -> int:
     处理 >= MIRROR_SKIP_BEFORE_SEASON 的季度文件夹（默认 "" = 含旧番全镜像），
     只跳过 Ancient 等非 YYYY.MM 目录。幂等：已存在的跳过。
     返回本轮新建链接数；>0 时触发一次 Jellyfin 扫描。
+
+    链接成功的那一刻就是「这一集进库了」的权威时点（幂等 => 天然一集一次），
+    故 episode.landed 事件挂在这里，而不是挂在加种或下载完成上。
     """
+    _events_backfill_first_run()
     src_root = Path(BANGUMI_LIBRARY)
     dst_root = Path(JELLYFIN_MIRROR)
     if not src_root.exists():
         return 0
     linked = 0
+    landed: list[dict] = []
     for cour_dir in src_root.iterdir():
         if not cour_dir.is_dir():
             continue
@@ -1924,9 +1990,27 @@ def mirror_sync_pass() -> int:
                 try:
                     link.parent.mkdir(parents=True, exist_ok=True)
                     os.link(str(f), str(link))  # NTFS 硬链接
-                    linked += 1
                 except OSError as ex:
                     print(f"# mirror: 链接失败 {link}：{ex}")
+                    continue
+                # 链接与记账同生共死。若链接留下而账没记上，下一轮会因 link.exists()
+                # 跳过这个文件，这一集就永远不会被播报（漏报比晚报严重得多）。所以
+                # 记账失败就撤掉链接让下一轮重来——删硬链接不碰源文件，也不影响做种。
+                try:
+                    add_event("episode.landed", {
+                        "show": show_dir.name,
+                        "cour": cour,
+                        "season": season,
+                        "file": f.name,
+                        # 合集/BD 批量种解析不出集号是常态，绝不因此丢事件
+                        "ep": parse_episode(f.name),
+                    })
+                except Exception as ex:  # noqa: BLE001
+                    print(f"# mirror: 记账失败，撤回链接 {link}：{ex}")
+                    with suppress(OSError):
+                        link.unlink()
+                    continue
+                linked += 1
     if linked:
         print(f"# mirror: 新建 {linked} 个硬链接 -> Jellyfin")
         _jellyfin_refresh()
@@ -2297,6 +2381,96 @@ def add_notification(item: dict) -> None:
     items = load_notifications()
     items.append(item)
     save_notifications(items)
+
+
+# --- 事件日志 --------------------------------------------------------------- #
+# premiere_notify.json 是「面板横幅」：一番一条、有 read 状态、被消费后就该消失。
+# events.json 是「流水账」：每一集落库、每一次新番订阅各追加一条，只增不改，
+# seq 单调递增。消费者（Atrium 消息中心）用 seq 游标增量拉，故：
+#   * seq 必须单调，且落盘后才算数（进程重启后从文件续号）；
+#   * 写入必须原子——消费者会在本进程重写文件的同一瞬间读同一个路径。
+
+EVENTS_VERSION = 1
+EVENTS_MIN_KEEP = 500            # 至少留最新这么多条
+EVENTS_MAX_AGE_S = 30 * 86400    # 超出 MIN_KEEP 的部分再按 30 天裁
+EVENTS_BACKFILL_WINDOW_S = 48 * 3600
+EVENTS_BACKFILL_CAP = 50
+
+
+def load_events() -> dict:
+    """{"version":1,"seq":int,"events":[...]}；缺失/损坏一律返回空壳。
+
+    seq 取文件里的 seq 与实际最大 seq 的较大者：万一文件被手工改过、或某次写入
+    只落了一半，也绝不把已发过的号再发一次（重号会让消费者丢事件）。
+    """
+    if EVENTS_PATH.exists():
+        try:
+            data = json.loads(EVENTS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("events"), list):
+                events = [e for e in data["events"] if isinstance(e, dict)]
+                top = max((int(e.get("seq") or 0) for e in events), default=0)
+                return {
+                    "version": EVENTS_VERSION,
+                    "seq": max(int(data.get("seq") or 0), top),
+                    "backfilled": data.get("backfilled") is True,
+                    "events": events,
+                }
+        except Exception:  # noqa: BLE001
+            pass
+    return {"version": EVENTS_VERSION, "seq": 0, "backfilled": False, "events": []}
+
+
+def _prune_events(events: list[dict], now: float) -> list[dict]:
+    """保留 max(最新 EVENTS_MIN_KEEP 条, 最近 EVENTS_MAX_AGE_S 内的)。"""
+    if len(events) <= EVENTS_MIN_KEEP:
+        return events
+    cutoff = now - EVENTS_MAX_AGE_S
+    keep_from = len(events) - EVENTS_MIN_KEEP
+    return [e for i, e in enumerate(events)
+            if i >= keep_from or float(e.get("ts") or 0) >= cutoff]
+
+
+def save_events(data: dict) -> None:
+    """原子写：消费者随时可能在读，绝不能让它读到半截 JSON。"""
+    tmp = EVENTS_PATH.with_name(EVENTS_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, EVENTS_PATH)
+
+
+def add_events(items: list[dict], *, mark_backfilled: bool = False) -> int:
+    """批量追加事件，返回新增条数。
+
+    每项 {"kind": str, "params": dict, "ts": int|None}；ts 缺省为当前时刻（回填
+    历史时显式给文件 mtime）。
+
+    mark_backfilled 必须与事件同一次落盘：先写事件、再写标记的话，中间崩一次
+    就会在下一轮把同一批历史重新回填一遍。
+    """
+    if not items and not mark_backfilled:
+        return 0
+    data = load_events()
+    seq = int(data.get("seq") or 0)
+    now = time.time()
+    for it in items:
+        seq += 1
+        ts = it.get("ts")
+        data["events"].append({
+            "seq": seq,
+            "kind": it["kind"],
+            # `or now` would silently rewrite a legitimate ts of 0
+            "ts": int(now if ts is None else ts),
+            "params": it.get("params") or {},
+        })
+    data["seq"] = seq
+    data["events"] = _prune_events(data["events"], now)
+    if mark_backfilled:
+        data["backfilled"] = True
+    save_events(data)
+    return len(items)
+
+
+def add_event(kind: str, params: dict) -> None:
+    add_events([{"kind": kind, "params": params}])
 
 
 def load_premiere_seen() -> set[str]:
