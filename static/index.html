@@ -165,76 +165,53 @@
   .btn.compact { padding: 6px 13px; font-size: 12px; min-width: 46px; }
 
   /* ==========================================================================
-     SHOW CARDS — one card per show, each carrying a bound volume on its own
-     little wall shelf.
+     THE WALL — one small bracketed shelf per show, one bound volume on it.
 
-     The card is the same object it always was: a horizontal panel, art on the
-     left, everything else on the right, in a responsive grid split into cour
-     blocks. Only the art changed — the poster is now the cover face of a
-     three-faced volume standing on a bracketed plank of its own, so a screen
-     of cards reads as a wall of individual shelves rather than one long run.
+     The page shows only shelves and books. Everything a card used to say now
+     lives in the sheet the book opens, centred on the screen.
 
-     Perspective sits on the cover column, so every volume has its own
-     vanishing point and neighbouring cards never splay toward each other.
+     A volume is three faces of one box: the poster is the cover, the spine
+     hinges back from the left edge, the top board down from the top edge.
+     Perspective sits on the unit, not the volume, so every book has its own
+     vanishing point and neighbours never splay toward each other.
+
+     Cloth, foil, band count, label panel and medallion are all chosen from the
+     show's own id (see bookStyle) — a real shelf is never one colour.
      ========================================================================== */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 16px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: var(--radius); overflow: hidden; backdrop-filter: blur(8px);
-    display: flex;
-    transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 4px 0;
+    align-items: end;
   }
-  .card:hover {
-    border-color: color-mix(in srgb, var(--card-glow, var(--text-dim)) 60%, transparent);
-    box-shadow: 0 0 20px color-mix(in srgb, var(--card-glow, var(--text-dim)) 25%, transparent);
-    transform: translateY(-2px);
-  }
-  .card:active, .sched-item:active, .premiere:active { transform: scale(.99); }
-  /* Entry waterfall: cards (and season dividers) rise in one after another.
-     #cards only carries .anim on user-driven re-renders (first paint, tab or
-     filter switches) — silent 30s poll updates swap content with no replay.
-     --i is stamped by applyStagger(); capped so huge grids don't take forever. */
-  @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
-  /* --stagger-base delays the whole waterfall: bootDone() sets it so the
-     opening replay starts only once the overlay is mostly gone; user-driven
-     switches run with the 0s default (renderCards clears it). */
-  #cards.anim > .card, #cards.anim > .season-divider, #cards.anim > .empty {
-    animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 18) * 26ms);
-  }
-  #cards.anim .sched-item {
-    animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 8) * 45ms);
-  }
-  /* Covers fade in with the same user-driven gate, so a background data poll
-     never strobes every poster at once. */
-  @keyframes imgIn { from { opacity: 0; } }
-  #cards.anim .cover img, #cards.anim .scover img { animation: imgIn .5s ease backwards; }
-  /* Hover glow tinted by the show's bgm collection type (cards + timetable). */
-  .t-watching { --card-glow: var(--ok); --spine: #1f6b4d; }
-  .t-want { --card-glow: var(--accent-b); --spine: #1d5a68; }
-  .t-done { --card-glow: var(--text-dim); --spine: #3a4152; }
-  .t-onhold { --card-glow: var(--warn); --spine: #6b5320; }
-  .t-dropped { --card-glow: #f87171; --spine: #6b2b2b; }
-  html[data-theme="light"] .t-dropped { --card-glow: #dc2626; }
-
-  /* ----- the volume and its shelf ----- */
-  .cover {
-    --vw: 78px; --vh: 110px; --vd: 13px;
-    width: 128px; min-width: 128px; position: relative;
+  .unit {
+    /* Depth and angle are chosen together: the spine's projected width is
+       vd * sin(angle), and the furniture stamped on it has to stay legible.
+       30px at 30deg gives 15px of spine against 83px of cover. */
+    --vw: 100px; --vh: 144px; --vd: 30px;
+    position: relative; border: 0; background: none; padding: 20px 0 16px;
     display: flex; flex-direction: column; align-items: center;
-    justify-content: flex-end;
-    padding: 18px 0 14px;
-    perspective: 640px; perspective-origin: 50% 84%;
+    cursor: pointer; font: inherit; color: inherit;
+    perspective: 760px; perspective-origin: 50% 86%;
   }
+  .unit:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -4px; border-radius: 10px; }
+
   .tome {
     position: relative; width: var(--vw); height: var(--vh);
     transform-style: preserve-3d;
-    transform: rotateY(21deg);
+    transform: rotateY(30deg);
     transition: transform .45s cubic-bezier(.22, 1, .36, 1);
   }
-  .card:hover .tome { transform: rotateY(5deg) translateZ(14px) translateY(-3px); }
+  /* .open is the volume whose card is up: it stays pulled out so the wall
+     never loses track of what the sheet is showing. */
+  .unit:hover .tome, .unit:focus-visible .tome, .unit.open .tome {
+    transform: rotateY(4deg) translateZ(30px) translateY(-8px);
+  }
+  .unit.open .tome::after { opacity: .9; transform: translateZ(-1px) scaleX(1.16); }
+  .unit.open .ulabel { opacity: 1; transform: none; }
+  .unit:active .tome { transform: rotateY(10deg) translateZ(16px) translateY(-3px); }
   .tome .f { position: absolute; inset: 0; }
+
   /* Only the cover is two-sided art. The spine and the board are flat tints
      turned a quarter turn, which points their front normals away from the
      viewer — with backface-visibility:hidden they would simply not draw. */
@@ -243,58 +220,153 @@
     backface-visibility: hidden;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .10);
   }
+  .f-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .f-cover .ph {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    color: var(--text-faint); font-size: 22px;
+  }
+  /* The page block, seen along the fore-edge of the cover. */
+  .f-cover .foredge {
+    position: absolute; top: 2px; right: 0; bottom: 2px; width: 3px;
+    background: #efe6d2; opacity: .8; z-index: 1;
+  }
   .f-spine {
     left: 0; right: auto; width: var(--vd);
     transform-origin: left center; transform: rotateY(90deg);
-    background: var(--spine, #2a3040);
+    background: var(--cloth);
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .45);
+    overflow: hidden;
   }
   .f-top {
     top: 0; bottom: auto; height: var(--vd);
     transform-origin: top center; transform: rotateX(90deg);
-    background: color-mix(in srgb, var(--spine, #2a3040) 72%, #000);
+    background: color-mix(in srgb, var(--cloth) 74%, #000);
   }
+  /* Spine furniture: head cap, sewn bands, a stamped label panel with its
+     ruled lines, and on some volumes a blind-tooled medallion. Positioned in
+     percentages so one rule set serves every volume. */
+  .sp { position: absolute; left: 0; right: 0; }
+  .sp-cap  { top: 0; height: 4px; background: var(--foil); opacity: .5; }
+  .sp-band { height: 3px; background: var(--foil); opacity: .42; }
+  .sp-panel { left: 4px; right: 4px; border: 1px solid var(--foil); opacity: .55; }
+  .sp-rule { left: 7px; right: 7px; height: 2px; background: var(--foil); opacity: .72; }
+  .sp-medal {
+    left: 50%; width: 12px; height: 12px; margin-left: -6px;
+    border: 1.5px solid var(--foil); border-radius: 50%; opacity: .7;
+  }
+  .sp-medal::after {
+    content: ""; position: absolute; inset: 2.5px; border-radius: 50%;
+    background: var(--foil);
+  }
+
   /* Contact shadow on the plank. Animating a pseudo-element's opacity keeps
      the lift on the compositor; animating box-shadow would repaint. */
   .tome::after {
-    content: ""; position: absolute; left: -14%; right: -14%;
-    bottom: -9px; height: 14px;
-    background: radial-gradient(ellipse at 50% 0%, rgba(0, 0, 0, .55), transparent 72%);
-    opacity: .55; transform: translateZ(-1px);
+    content: ""; position: absolute; left: -16%; right: -16%;
+    bottom: -10px; height: 16px;
+    background: radial-gradient(ellipse at 50% 0%, rgba(0, 0, 0, .6), transparent 72%);
+    opacity: .6; transform: translateZ(-1px);
     transition: opacity .45s ease, transform .45s ease;
     pointer-events: none;
   }
-  .card:hover .tome::after { opacity: .85; transform: translateZ(-1px) scaleX(1.14); }
+  .unit:hover .tome::after { opacity: .9; transform: translateZ(-1px) scaleX(1.16); }
   /* One specular band sweeps the cover per hover — the only shine. */
   .f-cover::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
     background: linear-gradient(102deg, transparent 38%,
-                rgba(255, 255, 255, .20) 48%, transparent 58%);
-    transform: translateX(-120%);
+                rgba(255, 255, 255, .22) 48%, transparent 58%);
+    transform: translateX(-130%);
     transition: transform 0s;
   }
-  .card:hover .f-cover::after { transform: translateX(120%); transition: transform .62s ease-out; }
-  /* The shelf itself: a plank with a lit lip, on two brackets. */
+  .unit:hover .f-cover::after { transform: translateX(130%); transition: transform .62s ease-out; }
+
+  /* The shelf: a plank with a lit lip, on two brackets. */
   .plank {
-    position: relative; width: 104px; height: 5px; margin-top: 9px;
+    position: relative; width: 128px; height: 5px; margin-top: 3px;
     background: var(--plank-face);
     border-top: 1px solid var(--plank-lip);
   }
   .plank::before, .plank::after {
-    content: ""; position: absolute; top: 5px; width: 3px; height: 7px;
+    content: ""; position: absolute; top: 5px; width: 3px; height: 8px;
     background: var(--plank-face);
   }
-  .plank::before { left: 12px; }
-  .plank::after { right: 12px; }
-  :root { --plank-face: rgba(255, 255, 255, .085); --plank-lip: rgba(255, 255, 255, .28); }
-  html[data-theme="light"] { --plank-face: rgba(13, 23, 40, .11); --plank-lip: rgba(13, 23, 40, .3); }
+  .plank::before { left: 14px; }
+  .plank::after { right: 14px; }
+  :root { --plank-face: rgba(255, 255, 255, .085); --plank-lip: rgba(255, 255, 255, .3); }
+  html[data-theme="light"] { --plank-face: rgba(13, 23, 40, .11); --plank-lip: rgba(13, 23, 40, .32); }
 
+  /* The shelf label: only for the volume under the pointer, so the wall stays
+     a wall. Its box is always reserved, so revealing it never reflows. */
+  .ulabel {
+    margin-top: 7px; width: 132px; height: 27px;
+    font-size: 10.5px; line-height: 1.28; color: var(--text-dim);
+    text-align: center;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+    opacity: 0; transform: translateY(-3px);
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  .unit:hover .ulabel, .unit:focus-visible .ulabel { opacity: 1; transform: none; }
+
+  /* Episodes ready to watch — the one reading worth having without a click. */
+  .upip {
+    position: absolute; top: 14px; right: 14px; z-index: 3;
+    min-width: 18px; padding: 2px 5px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.3;
+    text-align: center; color: var(--btn-text);
+    background: var(--ok); border-radius: 3px;
+  }
+  .upip.wait { background: var(--warn); }
+  .upip.none { background: var(--muted); }
+
+  /* Entry waterfall: volumes rise onto their planks one after another.
+     #cards only carries .anim on user-driven re-renders (first paint, tab or
+     filter switches) — silent 30s poll updates swap content with no replay.
+     --i is stamped by applyStagger(); capped so a 140-volume wall settles. */
+  @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  @keyframes volIn {
+    from { opacity: 0; transform: rotateY(30deg) translateY(24px) translateZ(-30px); }
+  }
+  #cards.anim > .unit .tome {
+    animation: volIn .5s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+  }
+  #cards.anim > .season-divider, #cards.anim > .empty {
+    animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+  }
+  #cards.anim .sched-item {
+    animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 8) * 45ms);
+  }
+  /* Covers fade in with the same user-driven gate, so a background data poll
+     never strobes every poster at once. */
+  @keyframes imgIn { from { opacity: 0; } }
+  #cards.anim .f-cover img, #cards.anim .scover img { animation: imgIn .5s ease backwards; }
+
+  /* ----- the card, opened in the middle of the screen ----- */
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); overflow: hidden;
+    display: flex;
+  }
+  .card:active, .sched-item:active, .premiere:active { transform: scale(.99); }
+  .t-watching { --card-glow: var(--ok); }
+  .t-want { --card-glow: var(--accent-b); }
+  .t-done { --card-glow: var(--text-dim); }
+  .t-onhold { --card-glow: var(--warn); }
+  .t-dropped { --card-glow: #f87171; }
+  html[data-theme="light"] .t-dropped { --card-glow: #dc2626; }
+  .cover {
+    width: 132px; min-width: 132px; background: var(--media-bg);
+    position: relative; overflow: hidden;
+  }
   .cover img, .pcover img, .scover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cover .ph, .pcover .ph, .scover .ph {
     position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint);
   }
-  .cover .ph { font-size: 22px; }
-  .card-body { padding: 14px 16px 14px 4px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .cover .ph { font-size: 24px; }
+  .card-body { padding: 14px 16px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
   .card h3 {
     margin: 0; font-size: 15px; font-weight: 640; line-height: 1.3;
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
@@ -863,6 +935,26 @@
   .drawer-close:hover { color: var(--text); background: var(--panel); }
   .drawer-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 
+  /* The card sheet: the clicked volume, opened in the middle of the screen. */
+  .sheet {
+    position: fixed; z-index: 61; top: 50%; left: 50%;
+    width: min(460px, 92vw); max-height: 86vh; overflow-y: auto;
+    transform: translate(-50%, -46%) scale(.96);
+    opacity: 0; pointer-events: none;
+    transition: transform .3s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
+  }
+  .sheet[data-open="1"] {
+    transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto;
+  }
+  /* The close control rides the card's own top-right corner rather than
+     floating above it. */
+  .sheet-head { position: absolute; top: 8px; right: 8px; z-index: 2; }
+  .sheet-head .drawer-close {
+    background: color-mix(in srgb, var(--bg) 74%, transparent);
+    backdrop-filter: blur(4px);
+  }
+  .sheet .card { box-shadow: 0 28px 70px rgba(0, 0, 0, .5); }
+
   /* Settings groups. */
   .set-group { display: flex; flex-direction: column; gap: 9px; }
   .set-group > h4 {
@@ -1062,6 +1154,17 @@
 
 <div class="scrim" id="scrim" onclick="closeDrawers()"></div>
 
+<!-- The card, opened in the middle of the screen. Body is built by openCard();
+     card()/basicCard() render into it unchanged. -->
+<div class="sheet" id="cardsheet" data-open="0" role="dialog" aria-modal="true"
+     aria-labelledby="cardsheet-h" hidden inert>
+  <div class="sheet-head">
+    <h2 id="cardsheet-h" class="sr-only" data-i18n="showsHeading">Shows</h2>
+    <button class="drawer-close" onclick="closeDrawers()" aria-label="close">✕</button>
+  </div>
+  <div id="cardsheet-body"></div>
+</div>
+
 <aside class="drawer" id="settings" data-open="0" role="dialog" aria-modal="true"
        aria-labelledby="set-h" hidden>
   <div class="drawer-head">
@@ -1072,16 +1175,16 @@
     <div class="set-group">
       <h4 data-i18n="appearance">Appearance</h4>
       <div class="set-row">
-        <span class="lab" data-i18n="theme">Theme</span>
-        <div class="seg" id="themeseg">
+        <span class="lab" id="lab-theme" data-i18n="theme">Theme</span>
+        <div class="seg" id="themeseg" role="group" aria-labelledby="lab-theme">
           <button onclick="setTheme('auto')" data-v="auto" data-i18n="themeAuto">Auto</button>
           <button onclick="setTheme('dark')" data-v="dark" data-i18n="themeDark">Dark</button>
           <button onclick="setTheme('light')" data-v="light" data-i18n="themeLight">Light</button>
         </div>
       </div>
       <div class="set-row">
-        <span class="lab" data-i18n="language">Language</span>
-        <div class="seg" id="langseg">
+        <span class="lab" id="lab-language" data-i18n="language">Language</span>
+        <div class="seg" id="langseg" role="group" aria-labelledby="lab-language">
           <button onclick="setLang('en')" data-v="en">EN</button>
           <button onclick="setLang('zh')" data-v="zh">中文</button>
         </div>
@@ -1115,7 +1218,7 @@
 // ---------------------------------------------------------------------------
 const I18N = {
   en: {
-    settings: "Settings",
+    settings: "Settings", gracePip: "HOLD",
     appearance: "Appearance", theme: "Theme", language: "Language",
     season: "Season", lastSync: "Last sync", syncNow: "Sync now", syncing: "Syncing…",
     subgroupPriority: "Subgroup priority", daemonLog: "Daemon log", show: "Show", hide: "Hide",
@@ -1181,7 +1284,7 @@ const I18N = {
     noSeason: "SEASON UNKNOWN",
   },
   zh: {
-    settings: "设置",
+    settings: "设置", gracePip: "等",
     appearance: "外观", theme: "主题", language: "语言",
     season: "季度", lastSync: "上次同步", syncNow: "立即同步", syncing: "同步中…",
     subgroupPriority: "字幕组优先级", daemonLog: "守护进程日志", show: "展开", hide: "收起",
@@ -1499,23 +1602,117 @@ const scoreTag = s =>
   s.score ? `<span class="score" style="--sh:${scoreHue(+s.score)}" title="${esc(t("scoreHint"))}">★ ${(+s.score).toFixed(1)}</span>` : "";
 
 /* ---------------------------------------------------------------------------
-   SHOW CARDS
+   THE WALL
 
-   Card logic is unchanged: one card per show, carrying everything about it.
-   The art is what changed - coverHtml now builds a three-faced volume (cover,
-   spine, top board) standing on its own bracketed plank, so a grid of cards
-   reads as a wall of little shelves rather than one long run.
+   The page shows shelves and books. A book carries only its cover art and a
+   ready-count pip; clicking one opens the full card in the middle of the
+   screen. card() and basicCard() are untouched — they simply render into the
+   sheet now instead of into the grid.
 --------------------------------------------------------------------------- */
 
-// The poster becomes the cover face of a bound volume on its own shelf. Spine
-// and board take their tint from the card's collection type (--spine).
-const coverHtml = url => `<span class="tome">
-    <span class="f f-top"></span>
-    <span class="f f-spine"></span>
-    <span class="f f-cover">${url
-      ? `<img src="${esc(url)}" loading="lazy" alt="">`
-      : `<span class="ph">◌</span>`}</span>
-  </span><span class="plank"></span>`;
+// Book cloths, in the colours real binderies actually used. The foil is what
+// the spine furniture is stamped in.
+const CLOTHS = [
+  { cloth: "#6b2b2b", foil: "#e8c98a" },   // oxblood / gold
+  { cloth: "#1f4a63", foil: "#cfe4f0" },   // navy / silver
+  { cloth: "#1f5a44", foil: "#e3d8a8" },   // forest / gold
+  { cloth: "#7a4a1c", foil: "#f0dcae" },   // tan calf / gold
+  { cloth: "#4a2b56", foil: "#e6d3ef" },   // aubergine / silver
+  { cloth: "#8a5a1f", foil: "#2a1a06" },   // ochre / blind
+  { cloth: "#2f3b4a", foil: "#c6d2e0" },   // slate / silver
+  { cloth: "#6e2f4a", foil: "#f0cfdd" },   // plum / silver
+  { cloth: "#3d5a2a", foil: "#e0e8c8" },   // olive / gold
+  { cloth: "#5a2018", foil: "#e8b98a" },   // rust / copper
+  { cloth: "#26424a", foil: "#cfe8e4" },   // teal / silver
+  { cloth: "#4a4238", foil: "#ded2bc" },   // stone / blind
+];
+
+// A stable per-show hash: the same show is always bound the same way, and the
+// wall reshuffles only when the shelf itself changes.
+function bookHash(id) {
+  let h = 2166136261;
+  const str = String(id);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h;
+}
+
+// Everything about how one volume is bound, derived from its id.
+function bookStyle(id) {
+  const h = bookHash(id);
+  const c = CLOTHS[h % CLOTHS.length];
+  return {
+    cloth: c.cloth,
+    foil: c.foil,
+    bands: 2 + ((h >>> 4) % 3),          // 2..4 sewn bands
+    panel: ((h >>> 8) % 4) !== 0,        // three volumes in four carry a label
+    medal: ((h >>> 11) % 3) === 0,       // one in three is tooled with a medallion
+    rules: 1 + ((h >>> 14) % 3),         // 1..3 ruled lines inside the panel
+    tall: 0.9 + ((h >>> 17) % 13) / 100, // 0.90..1.02 of the nominal height
+  };
+}
+
+// The spine furniture, laid out down the spine in percentages.
+function spineFurniture(b) {
+  let out = '<span class="sp sp-cap"></span>';
+  // Bands sit evenly between the head cap and the tail, with a wider gap left
+  // for the label panel between the first and second.
+  const top = 13, bottom = 93;
+  for (let i = 0; i < b.bands; i++) {
+    const y = top + (bottom - top) * (i / (b.bands - 1 || 1));
+    out += `<span class="sp sp-band" style="top:${y.toFixed(1)}%"></span>`;
+  }
+  if (b.panel) {
+    out += '<span class="sp sp-panel" style="top:24%;height:26%"></span>';
+    for (let i = 0; i < b.rules; i++) {
+      out += `<span class="sp sp-rule" style="top:${(29 + i * 6).toFixed(0)}%"></span>`;
+    }
+  }
+  if (b.medal) out += '<span class="sp sp-medal" style="top:62%"></span>';
+  return out;
+}
+
+// Episodes sitting in qBittorrent, ready to watch. Drives the corner pip.
+function readyCount(s) {
+  if (!s.torrents || !s.torrents.length) return null;
+  return { done: s.torrents.filter(tr => tr.progress >= 1).length, total: s.torrents.length };
+}
+
+// One shelf, one volume. The button is the whole unit so the plank and the
+// label are part of the hit target.
+function bookUnit(s, type) {
+  const b = bookStyle(s.bgm_id);
+  const r = readyCount(s);
+  let pip = "";
+  if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
+    // A grace window is the one state that expires on its own — it has to be
+    // visible from the wall, not only once the card is open.
+    pip = `<span class="upip wait" title="${esc(t("waitingAni"))}">${esc(t("gracePip"))}</span>`;
+  } else if (r) {
+    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;
+  } else if (s.status === "unresolved") {
+    pip = `<span class="upip none">?</span>`;
+  }
+  const title = displayTitle(s);
+  return `<button class="unit t-${type}" data-bgm="${s.bgm_id}"
+      style="--cloth:${b.cloth};--foil:${b.foil};--vh:${Math.round(144 * b.tall)}px"
+      onclick="openCard(${s.bgm_id})" aria-label="${esc(title)}">
+    ${pip}
+    <span class="tome">
+      <span class="f f-top"></span>
+      <span class="f f-spine">${spineFurniture(b)}</span>
+      <span class="f f-cover">${coverHtml(s.image)}<span class="foredge"></span></span>
+    </span>
+    <span class="plank"></span>
+    <span class="ulabel">${esc(title)}</span>
+  </button>`;
+}
+
+const coverHtml = url => url
+  ? `<img src="${esc(url)}" loading="lazy" alt="">`
+  : `<span class="ph">◌</span>`;
 
 function card(show) {
   const st = show.status;
@@ -1605,44 +1802,105 @@ function basicCard(s) {
 
 
 /* ---------------------------------------------------------------------------
-   Settings drawer. A real dialog: scrim, Escape, focus return.
+   Drawers and sheets. The settings panel slides in from the right; the show
+   card opens in the middle of the screen. Both are real dialogs: scrim,
+   Escape, click-outside, focus return.
 --------------------------------------------------------------------------- */
 let drawerReturn = null;
+let openBgm = null;
 
-function showDrawer(id) {
-  closeDrawers(true);
+// Slide one panel away without touching the shared open-card bookkeeping.
+// showPanel() uses it to retire the other panel — clearing openBgm there would
+// wipe the state the incoming panel has only just set.
+function hidePanel(id) {
+  const d = $(id);
+  if (d.dataset.open !== "1") return;
+  d.dataset.open = "0";
+  // Keep it in the tree until the transition finishes — hiding immediately
+  // would teleport it away mid-slide.
+  setTimeout(() => {
+    if (d.dataset.open === "0") { d.hidden = true; d.inert = true; }
+  }, 400);
+}
+
+function showPanel(id) {
+  for (const other of ["cardsheet", "settings"]) if (other !== id) hidePanel(other);
   drawerReturn = document.activeElement;
   const d = $(id);
-  // `display: flex` on the panel beats [hidden]'s display:none, so `inert` is
+  // `display: flex` on a panel beats [hidden]'s display:none, so `inert` is
   // what actually keeps a closed panel out of the tab order.
   d.hidden = false;
   d.inert = false;
-  // The panel must be laid out before the transform transition can run.
+  // Everything behind the panel goes inert, which is the focus trap: Tab
+  // cannot walk out of the dialog into content the scrim is covering.
+  document.querySelectorAll("main.wrap").forEach(el => el.inert = true);
+  // The panel must be laid out before its transition can run.
   requestAnimationFrame(() => d.dataset.open = "1");
   document.body.classList.add("drawer-open");
   d.querySelector(".drawer-close").focus();
 }
 
 function closeDrawers(silent) {
-  const d = $("settings");
-  if (d.dataset.open === "1") {
-    d.dataset.open = "0";
-    // Keep it in the tree until the slide finishes - hiding immediately would
-    // teleport it off-screen mid-slide.
-    setTimeout(() => {
-      if (d.dataset.open === "0") { d.hidden = true; d.inert = true; }
-    }, 400);
-  }
+  hidePanel("cardsheet");
+  hidePanel("settings");
+  document.querySelectorAll("main.wrap").forEach(el => el.inert = false);
   document.body.classList.remove("drawer-open");
+  document.querySelectorAll(".unit.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
+  openBgm = null;
   if (!silent && drawerReturn && drawerReturn.isConnected) drawerReturn.focus();
   drawerReturn = null;
+}
+
+function findShow(bgmId) {
+  if (state) {
+    const hit = state.shows.find(x => x.bgm_id === bgmId);
+    if (hit) return { show: hit, watching: true };
+  }
+  if (collections) {
+    for (const k of FILTER_ORDER) {
+      const hit = (collections.groups[k] || []).find(x => x.bgm_id === bgmId);
+      if (hit) return { show: hit, watching: false };
+    }
+  }
+  return null;
+}
+
+// Mark the volume whose card is open. Called after every grid rebuild too: a
+// background poll replaces the whole wall, and without this the open volume
+// would silently revert to looking closed while its card is still up.
+function markOpenUnit() {
+  if (openBgm === null) return;
+  const u = document.querySelector(`.unit[data-bgm="${openBgm}"]`);
+  if (u) u.classList.add("open");
+}
+
+function openCard(bgmId) {
+  const found = findShow(bgmId);
+  if (!found) return;
+  openBgm = bgmId;
+  setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
+  markOpenUnit();
+  showPanel("cardsheet");
+}
+
+// A poll landing while the card is open must refresh what it shows — the ready
+// count and the subgroup both go stale otherwise. Never while a <select> inside
+// it has focus: replacing it would close the popup mid-choice.
+function refreshCard() {
+  if (openBgm === null) return;
+  markOpenUnit();
+  const ae = document.activeElement;
+  if (ae && ae.tagName === "SELECT" && $("cardsheet").contains(ae)) return;
+  const found = findShow(openBgm);
+  if (!found) { closeDrawers(); return; }
+  setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
 }
 
 function openSettings() {
   syncSegs();
   $("gearbtn").setAttribute("aria-expanded", "true");
-  showDrawer("settings");
+  showPanel("settings");
 }
 
 function syncSegs() {
@@ -1747,17 +2005,13 @@ function renderCards() {
     applyStagger();
     return;
   }
-  // Leave the grid alone while a subgroup dropdown is open/focused - replacing
-  // it mid-choice closes the popup and reverts the user's selection.
-  const ae = document.activeElement;
-  if (ae && ae.tagName === "SELECT" && $("cards").contains(ae)) return;
   // Every non-timetable tab splits into cour blocks, newest season on top.
   let list = null;
   if (activeType === "watching") {
     if (!state) return;
     let shows = state.shows.slice().filter(searchMatch);
     if (watchWeekday !== "all") shows = shows.filter(sh => airWeekday(sh) === +watchWeekday);
-    list = withSeasonDividers(shows.sort(bySeasonAscThen(byAir)), card);
+    list = withSeasonDividers(shows.sort(bySeasonAscThen(byAir)), sh => bookUnit(sh, "watching"));
   } else if (collections) {
     const shows = (collections.groups[activeType] || []).filter(searchMatch);
     // 想看 reads oldest cour first (a backlog to clear); 看过 orders each cour by
@@ -1765,9 +2019,14 @@ function renderCards() {
     const cmp = activeType === "want" ? bySeasonAscThen(byAir)
       : activeType === "done" ? byDone
       : bySeasonThen(byAir);
-    list = withSeasonDividers(shows.sort(cmp), basicCard);
+    list = withSeasonDividers(shows.sort(cmp), sh => bookUnit(sh, activeType));
   }
-  if (list === null) return;
+  if (list === null) {
+    // The tab was switched before its collection resolved — say so rather
+    // than leaving an empty page that reads as "nothing here".
+    setHTML($("cards"), `<div class="empty"><span class="spin">◌</span> ${t("loading")}</div>`);
+    return;
+  }
   const empty = ($("search").value || "").trim() ? t("noMatch") : "—";
   setHTML($("cards"), list.join("") || `<div class="empty">${empty}</div>`);
   applyStagger();
@@ -1990,6 +2249,7 @@ function render() {
   renderHeader();
   renderFilters();
   renderCards();
+  refreshCard();
 }
 
 function syncBtnUI() {
