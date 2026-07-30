@@ -721,6 +721,29 @@ def api_notifications():
     return {"notifications": items}
 
 
+@app.get("/api/events")
+def api_events(after_seq: int = 0, limit: int = 200):
+    """Automation event log, ascending by seq (see core.add_events).
+
+    Cursor feed for external consumers (the Atrium message centre): pass the
+    highest seq already consumed as after_seq. `seq` is the current maximum, so
+    a consumer can tell it is caught up and can detect a reset (seq < cursor)
+    after events.json is deleted. Unlike /api/notifications this log is
+    append-only and has no read state — it is a ledger, not a banner queue.
+    """
+    limit = max(1, min(int(limit), 1000))
+    data = core.load_events()
+    fresh = sorted(
+        (e for e in data.get("events") or [] if int(e.get("seq") or 0) > after_seq),
+        key=lambda e: int(e.get("seq") or 0),
+    )
+    return {
+        "events": fresh[:limit],
+        "seq": int(data.get("seq") or 0),
+        "hasMore": len(fresh) > limit,
+    }
+
+
 class NotifyRead(BaseModel):
     bgm_id: int | None = None  # None = mark every notification read
 
