@@ -981,6 +981,255 @@
   #gearbtn[aria-expanded="true"] svg { transform: rotate(60deg); }
   #gearbtn svg { transition: transform .5s cubic-bezier(.22,1,.36,1); }
 
+  /* ==========================================================================
+     THE ROOM — past 1800px the wall stops being the whole page and becomes
+     one piece of furniture in a room.
+
+     The archive stands along the left wall (every finished show, edge-on, the
+     way a read book actually sits), the duty desk along the right, and the
+     shelf wall keeps the middle. Narrower than that the room collapses to the
+     single centred column it has always been and the rails are never built —
+     see buildRails(), which returns early rather than rendering into
+     display:none.
+     ========================================================================== */
+  :root {
+    --stamp-ink: rgba(232,182,150,.72);
+    --ledger-rule: rgba(255,255,255,.07);
+    --ledger-margin: rgba(220,110,96,.42);
+    --lamp-glow: rgba(255,214,150,.15);
+    --paper: rgba(255,255,255,.022);
+  }
+  html[data-theme="light"] {
+    --stamp-ink: rgba(150,58,44,.6);
+    --ledger-rule: rgba(13,23,40,.09);
+    --ledger-margin: rgba(190,80,66,.4);
+    --lamp-glow: rgba(255,196,110,.2);
+    --paper: rgba(255,255,255,.5);
+  }
+  .rail { display: none; }
+
+  @media (min-width: 1800px) {
+    /* The centre keeps a 1180px floor so the wall never gets narrower than it
+       used to be, and stops growing at 1700px so a volume stays a volume
+       instead of stretching into a poster. Everything past that is the room's,
+       split evenly between the two rails — at 3440px they are ~870px each,
+       which the spine wall and the desk both absorb by reflowing. */
+    .room {
+      display: grid;
+      /* The centre track is a definite length, not minmax(0, …): wrapped in a
+         minmax it would be sized by max-content instead, and an auto-fill grid
+         has a max-content of one column — the wall would collapse to a third
+         of its track and hand the slack back to the rails. */
+      grid-template-columns:
+        minmax(300px, 1fr)
+        clamp(1180px, 52vw, 1700px)
+        minmax(300px, 1fr);
+      align-items: start;
+    }
+    .wrap { max-width: none; }
+    .rail { display: block; position: relative; min-width: 0; padding: 28px 24px 90px; }
+    /* Parallax moves the furniture, not the room: the uprights and the lamp
+       are mounted on the wall and must not drift, or the structure reads as
+       loose. It rides one custom property, so the scroll handler writes a
+       single value and the transforms stay on the compositor. */
+    .rail > :not(.lamp) { transform: translate3d(0, var(--par, 0px), 0); }
+    /* The uprights. A lit edge against a shadowed one — the same pair the
+       shelf planks are drawn with, so the room is built of one material. */
+    .rail-l { border-right: 1px solid var(--plank-lip); box-shadow: 1px 0 0 rgba(0,0,0,.28); }
+    .rail-r { border-left: 1px solid var(--plank-lip); box-shadow: -1px 0 0 rgba(0,0,0,.28); }
+    /* The baseboard, held at the foot of the window: it is the room's floor,
+       not the page's end, so it must not scroll away with the content. */
+    .room::after {
+      content: ""; position: fixed; z-index: -1; left: 0; right: 0; bottom: 0;
+      height: 44px; pointer-events: none;
+      background: linear-gradient(to bottom, transparent, var(--plank-face));
+      border-top: 1px solid var(--plank-lip);
+    }
+    /* The ambient wash was aimed at the side margins, because that is where it
+       stayed visible. Those margins are the rails now, and the lamps light
+       them — so the two blobs move off the walls and onto the ceiling: a band
+       across the top and a low pool behind the centre column. Left where it
+       was, it would fight the lamp cones and wash out the uprights. */
+    body::before {
+      background:
+        radial-gradient(50vw 44vh at 50% -14%, var(--glow-a), transparent 70%),
+        radial-gradient(30vw 34vh at 72% 104%, var(--glow-c), transparent 72%);
+    }
+    body::after {
+      background: radial-gradient(30vw 34vh at 36% 100%, var(--glow-b), transparent 72%);
+    }
+  }
+
+  /* ----- the rail lamp: a shade, and the cone it throws down the wall ----- */
+  .lamp { position: absolute; top: 0; left: 0; right: 0; height: 230px; pointer-events: none; }
+  .lamp::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(58% 100% at 50% 0%, var(--lamp-glow), transparent 72%);
+  }
+  .lamp svg { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 74px; height: 46px; }
+  .lamp .shade { fill: var(--plank-face); stroke: var(--plank-lip); stroke-width: 1; }
+  .lamp .bulb { fill: var(--warn); opacity: .8; }
+
+  .rail-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin: 96px 0 16px; position: relative;
+  }
+  .rail-head h2 {
+    margin: 0; font-size: 10px; font-weight: 700; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .rail-head .n { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .rail-head .seg { margin-left: auto; }
+  .rail-head .seg button { padding: 4px 9px; font-size: 11px; }
+
+  /* ----- the archive: shelves of spines, read edge-on -----
+     Rows are a fixed height so one repeating gradient can paint a plank under
+     every one of them, however the spines happen to wrap. */
+  .spinewall {
+    --rowh: 186px;
+    display: flex; flex-wrap: wrap; align-items: flex-end; align-content: flex-start;
+    gap: 0 3px;
+    background: repeating-linear-gradient(to bottom,
+      transparent 0 calc(var(--rowh) - 6px),
+      var(--plank-lip) calc(var(--rowh) - 6px) calc(var(--rowh) - 5px),
+      var(--plank-face) calc(var(--rowh) - 5px) var(--rowh));
+  }
+  .spine {
+    height: var(--rowh); padding: 0 0 6px; border: 0; background: none;
+    display: flex; align-items: flex-end; cursor: pointer; font: inherit; color: inherit;
+  }
+  .spine:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
+  .svol {
+    position: relative; width: var(--svw); height: var(--svh);
+    background: var(--cloth); overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset -1px 0 0 rgba(0,0,0,.45), inset 1px 0 0 rgba(255,255,255,.07);
+    transition: transform .3s cubic-bezier(.22,1,.36,1), filter .3s ease;
+  }
+  /* A spine is pulled up off the shelf, not tipped out — tipping needs the
+     other two faces, and the archive deliberately has none. */
+  .spine:hover .svol, .spine:focus-visible .svol, .spine.open .svol {
+    transform: translateY(-11px); filter: brightness(1.22);
+  }
+  .spine.open .svol { box-shadow: inset 0 0 0 1px var(--foil), inset -1px 0 0 rgba(0,0,0,.45); }
+  /* Tail band, tinted by the show's own rating — the payoff for sorting the
+     wall by score, and the only reading a spine carries. */
+  .svol::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    background: hsl(var(--hue, 0) 62% 46%); opacity: var(--hueop, 0);
+  }
+  /* The title is stamped down the spine, which is the one place CJK has the
+     advantage: it sets vertically without rotating a glyph. It rides above the
+     furniture, so it needs its own contrast against the foil beneath it. */
+  .stxt {
+    position: relative; z-index: 1;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 9.5px; line-height: 1; letter-spacing: .04em;
+    color: var(--foil); opacity: .92; max-height: 74%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-shadow: 0 1px 2px rgba(0,0,0,.55);
+  }
+  @keyframes spineIn { from { opacity: 0; transform: translateY(18px); } }
+  .spinewall.anim .spine { animation: spineIn .42s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(min(var(--i, 0), 40) * 14ms); }
+
+  /* ----- ex-libris: one stamp per subgroup the rules actually follow ----- */
+  .exlibris { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 30px; }
+  .stamp {
+    position: relative; width: 88px; height: 88px; border-radius: 50%;
+    border: 2px solid var(--stamp-ink); color: var(--stamp-ink);
+    display: grid; place-items: center; text-align: center;
+    transform: rotate(var(--rot, 0deg)); opacity: .84;
+    transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .3s ease;
+  }
+  .stamp::before {
+    content: ""; position: absolute; inset: 5px;
+    border: 1px solid currentColor; border-radius: 50%; opacity: .55;
+  }
+  .stamp:hover { transform: rotate(0deg) scale(1.06); opacity: 1; }
+  .stamp b { display: block; font-family: var(--mono); font-size: 17px; font-weight: 700; }
+  .stamp span { display: block; font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase;
+    max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ----- the duty desk ----- */
+  /* Columns rather than a grid: the three panels are wildly different heights,
+     and grid would align them into rows and leave a hole beside the shortest.
+     Columns let them flow and pack. */
+  .desk { columns: 300px; column-gap: 14px; margin-top: 96px; }
+  .deskpanel {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); padding: 14px 16px 15px;
+    break-inside: avoid; margin: 0 0 14px;
+  }
+  .deskpanel > h3 {
+    margin: 0 0 11px; font-size: 10px; font-weight: 700; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .deskpanel .none { font-size: 12px; color: var(--text-faint); padding: 4px 0; }
+
+  /* Two faces, because the schedule is kept in Tokyo and watched here. */
+  .clocks { display: flex; gap: 18px; justify-content: center; margin: 2px 0 14px; }
+  .clock { text-align: center; }
+  .clock svg { width: 72px; height: 72px; display: block; }
+  .clock .face { fill: var(--media-bg); stroke: var(--panel-border); stroke-width: 1; }
+  .clock .tick { stroke: var(--text-faint); stroke-width: 1; opacity: .55; }
+  .clock .hh, .clock .mh { stroke: var(--text); stroke-linecap: round; }
+  .clock .hh { stroke-width: 2.6; }
+  .clock .mh { stroke-width: 1.8; }
+  .clock .sh { stroke: var(--accent-b); stroke-width: 1; }
+  .clock .pin { fill: var(--accent-b); }
+  .clock .cl { font-family: var(--mono); font-size: 11px; color: var(--text); margin-top: 5px; }
+  .clock .cz { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint); }
+
+  .up {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 6px 0; border: 0; border-top: 1px solid var(--panel-border);
+    background: none; font: inherit; text-align: left; cursor: pointer;
+  }
+  .up:first-of-type { border-top: 0; }
+  .up:hover .un { color: var(--text); }
+  .up .uw { font-family: var(--mono); font-size: 11px; color: var(--accent-b); flex: none; min-width: 52px; }
+  .up .un { font-size: 12px; color: var(--text-dim); min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .up .ucd { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); flex: none; }
+  .up.soon .ucd { color: var(--warn); }
+
+  /* The ledger is ruled paper with a red margin — the entries are written
+     into it by the daemon, so it reads as a record, not a feed. */
+  .ledger { background: var(--paper); border-radius: 10px; padding: 2px 0 2px 0; position: relative; }
+  .lrow {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 9px;
+    align-items: baseline; font-family: var(--mono); font-size: 11px;
+    padding: 5px 10px 5px 26px; border-bottom: 1px dashed var(--ledger-rule);
+    position: relative;
+  }
+  .lrow::before {
+    content: ""; position: absolute; left: 17px; top: 0; bottom: 0;
+    border-left: 1px solid var(--ledger-margin);
+  }
+  .lrow:last-child { border-bottom: 0; }
+  .lrow .ld { color: var(--text-faint); }
+  .lrow .ln { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .le { color: var(--text); }
+  .lrow .lg { font-size: 9.5px; color: var(--text-faint); }
+  /* Today's entries are stamped, the way a ledger page is closed off. */
+  .lrow.today .le {
+    color: var(--stamp-ink); border: 1px solid var(--stamp-ink);
+    border-radius: 3px; padding: 0 3px; transform: rotate(-2deg); display: inline-block;
+  }
+
+  .mrow { display: flex; align-items: center; gap: 9px; font-size: 12px; padding: 5px 0;
+    color: var(--text-dim); border-top: 1px solid var(--panel-border); }
+  .mrow:first-of-type { border-top: 0; }
+  .mrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .mrow .dot.warn { background: var(--warn); }
+  .mrow .dot.bad { background: var(--muted); }
+  .mrow .mv { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text); }
+  /* A run of episodes in flight, one tick each — the desk's only chart. */
+  .bar { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 9px; }
+  .bar i { width: 7px; height: 12px; border-radius: 1px; background: var(--muted); opacity: .5; }
+  .bar i.done { background: var(--ok); opacity: 1; }
+
   /* ---------- small screens / touch ---------- */
   @media (max-width: 480px) {
     .wrap { padding: 16px 12px 64px; }
@@ -1114,6 +1363,32 @@
     <div class="boot-status" id="bootmsg"></div>
   </div>
 </div>
+<div class="room">
+
+<!-- Left wall: the archive. Every finished show stands here edge-on, which is
+     the only way a wall of 140 volumes stays readable — and the only place
+     they were visible from at all before, short of opening a tab. -->
+<aside class="rail rail-l" id="rail-l" aria-labelledby="archive-h">
+  <div class="lamp" aria-hidden="true">
+    <svg viewBox="0 0 74 46">
+      <rect class="shade" x="35" y="0" width="4" height="8"/>
+      <path class="shade" d="M15 31 L27 7 L47 7 L59 31 Z"/>
+      <ellipse class="bulb" cx="37" cy="32" rx="8" ry="3"/>
+    </svg>
+  </div>
+  <div class="rail-head">
+    <h2 id="archive-h" data-i18n="archive">Archive</h2>
+    <span class="n" id="archive-n"></span>
+    <div class="seg" id="spinesort" role="group" aria-labelledby="archive-h">
+      <button onclick="setSpineSort('season')" data-v="season" data-i18n="sortSeason">Season</button>
+      <button onclick="setSpineSort('score')" data-v="score" data-i18n="sortScore">Score</button>
+      <button onclick="setSpineSort('year')" data-v="year" data-i18n="sortYear">Year</button>
+    </div>
+  </div>
+  <div class="spinewall" id="spinewall"></div>
+  <div class="exlibris" id="exlibris"></div>
+</aside>
+
 <main class="wrap">
   <header>
     <div class="brand">
@@ -1151,6 +1426,36 @@
   <h2 class="sr-only" data-i18n="showsHeading">Shows</h2>
   <div class="grid" id="cards"><div class="empty"><span class="spin">◌</span> <span data-i18n="loading">Loading…</span></div></div>
 </main>
+
+<!-- Right wall: the duty desk. What the automation is about to do, what it
+     has just done, and whether its machinery is answering. -->
+<aside class="rail rail-r" id="rail-r" aria-labelledby="desk-h">
+  <div class="lamp" aria-hidden="true">
+    <svg viewBox="0 0 74 46">
+      <rect class="shade" x="35" y="0" width="4" height="8"/>
+      <path class="shade" d="M15 31 L27 7 L47 7 L59 31 Z"/>
+      <ellipse class="bulb" cx="37" cy="32" rx="8" ry="3"/>
+    </svg>
+  </div>
+  <h2 class="sr-only" id="desk-h" data-i18n="dutyDesk">Duty desk</h2>
+  <div class="desk">
+    <section class="deskpanel">
+      <h3 data-i18n="upNext">Next 48 hours</h3>
+      <div class="clocks" id="clocks"></div>
+      <div id="upcoming"></div>
+    </section>
+    <section class="deskpanel">
+      <h3 data-i18n="ledgerHead">Accession ledger</h3>
+      <div class="ledger" id="ledger"></div>
+    </section>
+    <section class="deskpanel">
+      <h3 data-i18n="machineHead">Machine</h3>
+      <div id="machine"></div>
+    </section>
+  </div>
+</aside>
+
+</div>
 
 <div class="scrim" id="scrim" onclick="closeDrawers()"></div>
 
@@ -1282,6 +1587,18 @@ const I18N = {
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
     sched_season_only: "This season only",
     noSeason: "SEASON UNKNOWN",
+    archive: "Archive", volumes: n => `${n} volume${n === 1 ? "" : "s"}`,
+    sortSeason: "Season", sortScore: "Score", sortYear: "Year",
+    exlibris: "Subgroups",
+    dutyDesk: "Duty desk",
+    upNext: "Next 48 hours", tzLocal: "Local", tzTokyo: "Tokyo",
+    upNone: "Nothing airing in the next 48 hours",
+    ledgerHead: "Accession ledger", ledgerNone: "No episodes recorded yet",
+    machineHead: "Machine",
+    mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
+    mSync: "Last sync", mSyncing: "running",
+    mSubs: "Subscriptions", mReady: "Episodes ready",
+    mGrace: "In grace", mWaiting: "Awaiting mikan",
   },
   zh: {
     settings: "设置", gracePip: "等",
@@ -1348,6 +1665,18 @@ const I18N = {
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
     sched_season_only: "仅本季",
     noSeason: "季度未知",
+    archive: "藏书阁", volumes: n => `${n} 卷`,
+    sortSeason: "季度", sortScore: "评分", sortYear: "年代",
+    exlibris: "字幕组",
+    dutyDesk: "值班台",
+    upNext: "接下来 48 小时", tzLocal: "本地", tzTokyo: "东京",
+    upNone: "48 小时内没有放送",
+    ledgerHead: "入库登记簿", ledgerNone: "还没有入库记录",
+    machineHead: "机器状态",
+    mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
+    mSync: "上次同步", mSyncing: "进行中",
+    mSubs: "订阅", mReady: "已就绪剧集",
+    mGrace: "宽限中", mWaiting: "等待 mikan",
   },
 };
 
@@ -1832,8 +2161,9 @@ function showPanel(id) {
   d.hidden = false;
   d.inert = false;
   // Everything behind the panel goes inert, which is the focus trap: Tab
-  // cannot walk out of the dialog into content the scrim is covering.
-  document.querySelectorAll("main.wrap").forEach(el => el.inert = true);
+  // cannot walk out of the dialog into content the scrim is covering. The
+  // rails are siblings of the wall, not children — they have to be named.
+  document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = true);
   // The panel must be laid out before its transition can run.
   requestAnimationFrame(() => d.dataset.open = "1");
   document.body.classList.add("drawer-open");
@@ -1843,9 +2173,9 @@ function showPanel(id) {
 function closeDrawers(silent) {
   hidePanel("cardsheet");
   hidePanel("settings");
-  document.querySelectorAll("main.wrap").forEach(el => el.inert = false);
+  document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = false);
   document.body.classList.remove("drawer-open");
-  document.querySelectorAll(".unit.open").forEach(u => u.classList.remove("open"));
+  document.querySelectorAll(".unit.open, .spine.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
   openBgm = null;
   if (!silent && drawerReturn && drawerReturn.isConnected) drawerReturn.focus();
@@ -1871,8 +2201,10 @@ function findShow(bgmId) {
 // would silently revert to looking closed while its card is still up.
 function markOpenUnit() {
   if (openBgm === null) return;
-  const u = document.querySelector(`.unit[data-bgm="${openBgm}"]`);
-  if (u) u.classList.add("open");
+  // The same show can be on the wall and on the archive rail at once — mark
+  // whichever copies exist so the room never disagrees with the open card.
+  document.querySelectorAll(`.unit[data-bgm="${openBgm}"], .spine[data-bgm="${openBgm}"]`)
+    .forEach(el => el.classList.add("open"));
 }
 
 function openCard(bgmId) {
@@ -2249,6 +2581,7 @@ function render() {
   renderHeader();
   renderFilters();
   renderCards();
+  renderRoom();
   refreshCard();
 }
 
@@ -2344,6 +2677,7 @@ async function refresh() {
     await refreshUnresolved();
     bootDone();
     refreshCollections().then(refreshPremieres);
+    refreshLedger();   // right rail only; a no-op while the room is collapsed
   } catch (e) {
     if (q !== seqO) return;
     // Toast once per outage, then hold a persistent indicator in the header —
@@ -2364,6 +2698,10 @@ async function refreshCollections() {
     collections = d;
     renderFilters();   // may retarget activeType if its tab vanished
     renderCards();
+    // The archive and the 48h board are both built from collections, so they
+    // fill in with this response rather than waiting for the next poll.
+    renderSpineWall(false);
+    renderUpcoming();
   } catch (e) { /* transient */ }
 }
 
@@ -2673,6 +3011,297 @@ async function pullLogs() {
     if (stick) el.scrollTop = el.scrollHeight;
   } catch (e) { /* transient */ }
 }
+
+/* ---------------------------------------------------------------------------
+   THE ROOM
+
+   Two rails of furniture that exist only past 1800px: the archive along the
+   left wall, the duty desk along the right. Everything on them is built from
+   data the centre column already fetched — the single extra call is the
+   ledger, which reads the append-only log the daemon writes.
+
+   Every builder returns early while the room is collapsed, so a laptop never
+   pays to render markup it cannot see.
+--------------------------------------------------------------------------- */
+const roomMedia = window.matchMedia("(min-width: 1800px)");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const roomOn = () => roomMedia.matches;
+
+// ?sort=score joins ?lang/?theme/?tab as a per-visit override, so a deep link
+// or a screenshot can pin how the archive is shelved without touching storage.
+let spineSort = pick(QS.get("sort") || localStorage.getItem("spineSort") || "season",
+  ["season", "score", "year"], "season");
+let ledger = null;
+let seqL = 0;
+let spineFirst = true;
+
+// ----- the archive -----
+
+// Season keeps the 看过 tab's own order (newest cour, most recently marked
+// first). Score and year ignore the cour entirely and re-shelve the whole
+// wall, which is the point of switching.
+const SPINE_SORTS = {
+  season: byDone,
+  score: (a, b) => (+b.score || -1) - (+a.score || -1),
+  year: (a, b) => (Date.parse(a.date || "") || Infinity) - (Date.parse(b.date || "") || Infinity),
+};
+
+// A volume seen edge-on: same cloth, foil and furniture the wall binds it
+// with, so a show is recognisably the same book on either side of the room.
+// Width and height are hashed too — a shelf of identical spines reads as a
+// texture, not as books.
+function spineHtml(s) {
+  const b = bookStyle(s.bgm_id);
+  const h = bookHash(s.bgm_id);
+  const w = 19 + ((h >>> 23) % 11);
+  const ht = Math.round((104 + ((h >>> 26) % 54)) * b.tall);
+  const title = displayTitle(s);
+  const hue = s.score ? `--hue:${scoreHue(+s.score)};--hueop:.9;` : "";
+  const tip = s.season ? `${title} · ${s.season}` : title;
+  return `<button class="spine" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})"
+      style="--cloth:${b.cloth};--foil:${b.foil};--svw:${w}px;--svh:${ht}px;${hue}"
+      title="${esc(tip)}" aria-label="${esc(title)}">
+    <span class="svol">${spineFurniture(b)}<span class="stxt">${esc(title)}</span></span>
+  </button>`;
+}
+
+function renderSpineWall(animate) {
+  if (!roomOn() || !collections) return;
+  const shows = (collections.groups.done || []).slice();
+  shows.sort(SPINE_SORTS[spineSort] || byDone);
+  const wall = $("spinewall");
+  wall.classList.toggle("anim", !!(animate || spineFirst));
+  spineFirst = false;
+  setHTML(wall, shows.map(spineHtml).join(""));
+  [...wall.children].forEach((el, i) => el.style.setProperty("--i", i));
+  $("archive-n").textContent = t("volumes", shows.length);
+  $("spinesort").querySelectorAll("button").forEach(el =>
+    el.setAttribute("aria-pressed", String(el.dataset.v === spineSort)));
+  markOpenUnit();
+}
+
+function setSpineSort(k) {
+  spineSort = k;
+  localStorage.setItem("spineSort", k);
+  renderSpineWall(true);
+}
+
+// One rubber stamp per subgroup the rules actually follow, carrying how many
+// volumes on the wall came from it. Each is stamped crooked by its own name's
+// hash — a stamp pressed by hand is never square.
+function renderStamps() {
+  if (!roomOn() || !state) return;
+  const counts = new Map();
+  for (const s of state.shows) {
+    const g = s.rule && s.rule.subgroup_name;
+    if (g) counts.set(g, (counts.get(g) || 0) + 1);
+  }
+  const rows = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const stamps = rows.map(([name, n]) => {
+    const rot = (bookHash(name) % 13) - 6;
+    return `<div class="stamp" style="--rot:${rot}deg" title="${esc(name)}">
+      <div><b>${n}</b><span>${esc(name)}</span></div>
+    </div>`;
+  }).join("");
+  setHTML($("exlibris"), rows.length
+    ? `<div class="rail-head" style="flex:1 0 100%;margin:0"><h2>${esc(t("exlibris"))}</h2></div>${stamps}`
+    : "");
+}
+
+// ----- the duty desk -----
+
+// The schedule is kept in Tokyo and watched here, so the desk carries both
+// faces rather than making anyone do the arithmetic.
+const clockFace = (id, zoneKey) => {
+  let ticks = "";
+  for (let i = 0; i < 12; i++) {
+    const a = i * 30 * Math.PI / 180;
+    const r = i % 3 === 0 ? 33 : 38;
+    ticks += `<line class="tick" x1="${(50 + r * Math.sin(a)).toFixed(1)}" y1="${(50 - r * Math.cos(a)).toFixed(1)}"
+      x2="${(50 + 43 * Math.sin(a)).toFixed(1)}" y2="${(50 - 43 * Math.cos(a)).toFixed(1)}"/>`;
+  }
+  return `<div class="clock">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="face" cx="50" cy="50" r="46"/>${ticks}
+      <line class="hh" id="${id}-h" x1="50" y1="50" x2="50" y2="29"/>
+      <line class="mh" id="${id}-m" x1="50" y1="50" x2="50" y2="18"/>
+      <line class="sh" id="${id}-s" x1="50" y1="57" x2="50" y2="15"/>
+      <circle class="pin" cx="50" cy="50" r="2.4"/>
+    </svg>
+    <div class="cl" id="${id}-t">—</div>
+    <div class="cz">${esc(t(zoneKey))}</div>
+  </div>`;
+};
+
+function renderClocks() {
+  if (!roomOn()) return;
+  setHTML($("clocks"), clockFace("cl-local", "tzLocal") + clockFace("cl-jst", "tzTokyo"));
+  tickClocks();
+}
+
+// Tokyo without pulling in a timezone library: ask Intl for the parts and read
+// them back. hourCycle: "h23" rather than hour12: false — it is the explicit
+// spelling, and it rules out the h24 variant that returns hour 24 at midnight.
+function tokyoNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo", hourCycle: "h23",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date());
+  const g = k => +((parts.find(p => p.type === k) || {}).value || 0);
+  return { h: g("hour") % 24, m: g("minute"), s: g("second") };
+}
+
+function setClock(id, h, m, s) {
+  const hand = k => $(`${id}-${k}`);
+  if (!hand("h")) return;
+  hand("h").setAttribute("transform", `rotate(${(h % 12) * 30 + m * 0.5} 50 50)`);
+  hand("m").setAttribute("transform", `rotate(${m * 6 + s * 0.1} 50 50)`);
+  hand("s").setAttribute("transform", `rotate(${s * 6} 50 50)`);
+  hand("t").textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function tickClocks() {
+  if (!roomOn()) return;
+  const now = new Date();
+  setClock("cl-local", now.getHours(), now.getMinutes(), now.getSeconds());
+  const jp = tokyoNow();
+  setClock("cl-jst", jp.h, jp.m, jp.s);
+}
+
+// The next broadcast, as a timestamp. airing_at is episode 1's slot, so for a
+// show already on the air it sits in the past — the slot repeats weekly, so
+// the next one is that timestamp walked forward. Only a show the backend still
+// calls airing may be walked: projecting a finished show's old slot forward
+// would invent a broadcast that is never going to happen.
+const WEEK_MS = 7 * 86400e3;
+function nextSlot(s) {
+  if (!s.airing_at) return null;             // date-only shows can't be promised to the hour
+  let ms = s.airing_at * 1000;
+  if (ms >= Date.now()) return ms;           // premiere still ahead of us
+  if (!s.airing) return null;
+  ms += Math.ceil((Date.now() - ms) / WEEK_MS) * WEEK_MS;
+  return ms;
+}
+
+function renderUpcoming() {
+  if (!roomOn() || !collections) return;
+  const now = Date.now(), end = now + 48 * 3600e3;
+  const pool = [...(collections.groups.watching || []), ...(collections.groups.want || [])];
+  const soon = pool
+    .map(s => [nextSlot(s), s])
+    .filter(([ms]) => ms !== null && ms >= now && ms <= end)
+    .sort((a, b) => a[0] - b[0]).slice(0, 12);
+  const html = soon.map(([slot, s]) => {
+    const left = slot - now;
+    const hrs = Math.floor(left / 3600e3);
+    const mins = Math.floor((left % 3600e3) / 60000);
+    const d = new Date(slot);
+    const when = `${t("daysShort")[(d.getDay() + 6) % 7]} ${
+      String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return `<button class="up${hrs < 6 ? " soon" : ""}" onclick="openCard(${s.bgm_id})">
+      <span class="uw">${esc(when)}</span>
+      <span class="un">${esc(displayTitle(s))}</span>
+      <span class="ucd">${hrs}h${String(mins).padStart(2, "0")}</span>
+    </button>`;
+  }).join("");
+  setHTML($("upcoming"), html || `<div class="none">${esc(t("upNone"))}</div>`);
+}
+
+// The ledger is the daemon's own record — it is read, never written here.
+const GROUP_RE = /^\[([^\]]{1,24})\]/;
+
+async function refreshLedger() {
+  if (!roomOn()) return;
+  const q = ++seqL;
+  try {
+    const d = await (await fetch("/api/events?limit=200")).json();
+    if (q !== seqL) return;
+    ledger = d.events || [];
+    renderLedger();
+  } catch (e) { /* transient */ }
+}
+
+function renderLedger() {
+  if (!roomOn() || !ledger) return;
+  const today = new Date().toDateString();
+  const rows = ledger.filter(e => e.kind === "episode.landed").slice(-16).reverse();
+  const html = rows.map(e => {
+    const d = new Date((e.ts || 0) * 1000);
+    const p = e.params || {};
+    const g = GROUP_RE.exec(p.file || "");
+    const stamped = d.toDateString() === today ? " today" : "";
+    return `<div class="lrow${stamped}">
+      <span class="ld">${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}</span>
+      <span class="ln" title="${esc(p.show || "")}">${esc(p.show || "—")}${
+        g ? `<span class="lg"> ${esc(g[1])}</span>` : ""}</span>
+      <span class="le">${p.ep != null ? "#" + p.ep : "—"}</span>
+    </div>`;
+  }).join("");
+  setHTML($("ledger"), html || `<div class="none">${esc(t("ledgerNone"))}</div>`);
+}
+
+function renderMachine() {
+  if (!roomOn() || !state) return;
+  const shows = state.shows;
+  const flags = [];
+  for (const s of shows) for (const tr of (s.torrents || [])) flags.push(tr.progress >= 1);
+  const ready = flags.filter(Boolean).length;
+  const count = st => shows.filter(s => s.status === st).length;
+  const row = (cls, label, value) =>
+    `<div class="mrow"><span class="dot ${cls}"></span>${esc(label)}<span class="mv">${esc(value)}</span></div>`;
+  let html = row(state.qb_ok === false ? "bad" : "", t("mQb"),
+    t(state.qb_ok === false ? "mQbDown" : "mQbUp"));
+  html += row(state.sync_running ? "warn" : "", t("mSync"),
+    state.sync_running ? t("mSyncing") : fmtStamp(state.last_sync));
+  html += row("", t("mSubs"), String(count("subscribed")));
+  html += row(ready < flags.length ? "warn" : "", t("mReady"), `${ready}/${flags.length}`);
+  if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
+  if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
+  // One tick per episode in qBittorrent, in the order the shows are shelved —
+  // the desk's only chart, and it is a tally rather than a percentage.
+  if (flags.length) {
+    html += `<div class="bar">${flags.slice(0, 72)
+      .map(f => `<i class="${f ? "done" : ""}"></i>`).join("")}</div>`;
+  }
+  setHTML($("machine"), html);
+}
+
+function renderRoom() {
+  if (!roomOn()) return;
+  renderClocks();
+  renderUpcoming();
+  renderSpineWall(false);
+  renderStamps();
+  renderMachine();
+  renderLedger();
+}
+
+// Crossing the breakpoint builds the room for the first time. Collapsing it
+// also drops any parallax offset: the scroll handler stops updating while the
+// rails are gone, and a stale offset would be waiting the next time they open.
+roomMedia.addEventListener("change", () => {
+  if (!roomOn()) { document.documentElement.style.removeProperty("--par"); return; }
+  renderRoom();
+  refreshLedger();
+});
+
+// Depth: the rails drift down at a fraction of the page's scroll, so the room
+// keeps a back wall instead of sliding away as one sheet. One rAF-coalesced
+// write of a custom property — the transform itself never leaves the
+// compositor. Reduced motion opts out entirely; unanchored drift is exactly
+// what it asks to be spared.
+let parQueued = false;
+window.addEventListener("scroll", () => {
+  if (parQueued || !roomOn() || reduceMotion.matches) return;
+  parQueued = true;
+  requestAnimationFrame(() => {
+    parQueued = false;
+    const y = Math.min(window.scrollY * 0.08, 220);
+    document.documentElement.style.setProperty("--par", `${y.toFixed(1)}px`);
+  });
+}, { passive: true });
+
+setInterval(tickClocks, 1000);
 
 // live countdowns
 setInterval(() => {
