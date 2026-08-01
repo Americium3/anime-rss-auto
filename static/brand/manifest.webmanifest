@@ -3,8 +3,8 @@
   "short_name": "Autopilot",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#4a2795",
-  "theme_color": "#4a2795",
+  "background_color": "#1a0e06",
+  "theme_color": "#1a0e06",
   "icons": [
     {
       "src": "icon-192.png",
