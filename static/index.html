@@ -629,8 +629,20 @@
      filter switches) — silent 30s poll updates swap content with no replay.
      --i is stamped by applyStagger(); capped so a 140-volume wall settles. */
   @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  /* The fade and the rise are split across two elements on purpose. An element
+     carrying transform-style:preserve-3d has that style forced back to flat for
+     as long as it also has opacity below 1, and a flat book is only its cover:
+     the spine and the board are quarter-turned, so they collapse to nothing.
+     Fading the tome hid every spine until the last frame of its own entrance,
+     which is the whole shelf arriving as covers first and books afterwards.
+     So the unit fades and the tome only moves — the book is solid throughout. */
+  @keyframes unitIn { from { opacity: 0; } }
   @keyframes volIn {
-    from { opacity: 0; transform: rotateY(30deg) translateY(24px) translateZ(-30px); }
+    from { transform: rotateY(30deg) translateY(24px) translateZ(-30px); }
+  }
+  #cards.anim > .unit {
+    animation: unitIn .5s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim > .unit .tome {
     animation: volIn .5s cubic-bezier(.22,1,.36,1) backwards;
@@ -644,10 +656,13 @@
     animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
     animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 8) * 45ms);
   }
-  /* Covers fade in with the same user-driven gate, so a background data poll
-     never strobes every poster at once. */
+  /* Prints on the timetable fade in with the same user-driven gate, so a
+     background data poll never strobes every poster at once. A volume's cover
+     is not in here: it arrives with the unit that fades around it, and giving
+     it a second, undelayed fade of its own is what let a cover show up before
+     the book it belongs to. */
   @keyframes imgIn { from { opacity: 0; } }
-  #cards.anim .f-cover img, #cards.anim .scover img { animation: imgIn .5s ease backwards; }
+  #cards.anim .scover img { animation: imgIn .5s ease backwards; }
 
   /* ----- the card: an accession slip lifted off the desk -----
      Ivory laid stock with a gilt rule around it and a torn-off top edge, so
