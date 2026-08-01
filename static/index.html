@@ -2774,13 +2774,14 @@ function applyStagger() {
 // bottom edge, not the top — grouping by top would give a volume its own rank
 // per height and put the stagger back to one item at a time. Rounded to 4px to
 // absorb subpixel differences between neighbours on the same plank.
+// All the measuring first, then all the writing. Interleaving them would make
+// each of 141 volumes invalidate style and force the next rect back through
+// layout — the classic thrash, and this runs on every archive render.
 function stampShelves(els) {
+  const lines = [...els].map(el => Math.round(el.getBoundingClientRect().bottom / 4));
   const shelves = new Map();
-  for (const el of els) {
-    const line = Math.round(el.getBoundingClientRect().bottom / 4);
-    if (!shelves.has(line)) shelves.set(line, shelves.size);
-    el.style.setProperty("--i", shelves.get(line));
-  }
+  for (const line of lines) if (!shelves.has(line)) shelves.set(line, shelves.size);
+  [...els].forEach((el, i) => el.style.setProperty("--i", shelves.get(lines[i])));
 }
 
 const bgmLink = (id, text) => `<a href="https://bgm.tv/subject/${id}" target="_blank" rel="noopener">${text}</a>`;
