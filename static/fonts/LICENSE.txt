@@ -1,0 +1,8 @@
+Bundled fonts, both licensed under the SIL Open Font License 1.1:
+
+- EBGaramond-wght.ttf — EB Garamond (variable weight), by Georg Duffner /
+  Octavio Pardo. https://github.com/octaviopardo/EBGaramond12
+- NotoSerifSC-VF.ttf — Noto Serif SC (variable weight), by Google / Adobe.
+  https://github.com/notofonts/noto-cjk
+
+Full OFL 1.1 text: https://openfontlicense.org

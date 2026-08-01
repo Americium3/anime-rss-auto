@@ -9,13 +9,31 @@
 <meta name="theme-color" content="#cfc0a0" media="(prefers-color-scheme: light)">
 <!-- One canonical mark, in every form anything asks for. The browser takes
      the last <link rel=icon> it understands, so the SVG must follow the ICO.
-     Regenerate with .uishots/icons/gen.py - never hand-edit. -->
+     Generated, never hand-edited: all five local services are drawn by one
+     script, kept as icons/gen.py in the Atrium repo. -->
 <link rel="icon" href="/static/brand/favicon.ico" sizes="32x32">
 <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <link rel="manifest" href="/static/brand/manifest.webmanifest">
+<!-- The Latin face is 850KB and every heading on the page waits on it, so it is
+     fetched with the document. The CJK face is 25MB: preloading it would hold
+     the connection open for the whole opening, so it swaps in instead. -->
+<link rel="preload" href="/static/fonts/EBGaramond-wght.ttf" as="font" type="font/ttf" crossorigin>
 <title>Anime Autopilot</title>
 <style>
+  /* Two faces, both bundled, both variable-weight, both SIL OFL — see
+     static/fonts/LICENSE.txt. Bundled rather than named: the CJK serif this
+     page wants is not on a stock Windows install, and the fallback there is
+     SimSun, whose embedded bitmaps are exactly what a printed page must not
+     look like. font-display: swap because a 25MB face must never hold text. */
+  @font-face {
+    font-family: "EB Garamond"; font-style: normal; font-weight: 400 800;
+    font-display: swap; src: url("/static/fonts/EBGaramond-wght.ttf") format("truetype");
+  }
+  @font-face {
+    font-family: "Noto Serif SC"; font-style: normal; font-weight: 200 900;
+    font-display: swap; src: url("/static/fonts/NotoSerifSC-VF.ttf") format("truetype");
+  }
   /* ==========================================================================
      THE DESK — the whole page is one piece of furniture.
 
@@ -44,11 +62,15 @@
     --text: #f0ece3;
     --text-dim: #b3a794;
     --text-faint: #a2937d;
-    --accent-a: #8b5cf6;
-    --accent-b: #22d3ee;
-    --ok: #34d399;
-    --warn: #fbbf24;
-    --muted: #7d7261;
+    /* The two accents are the two inks a desk like this actually holds: the
+       ruling red the margins are drawn in, and the blue-black the entries are
+       written in. They replace a violet and a cyan that belonged to no material
+       on the page and made every pill, badge and marker read as pasted on. */
+    --accent-a: #de8371;                  /* ruling red */
+    --accent-b: #86b7dc;                  /* blue-black ink, thinned for lamplight */
+    --ok: #6fc39a;
+    --warn: #e8b23c;
+    --muted: #b6a993;
     --media-bg: #1c1409;
     --input-bg: #140f08;
     --log-bg: #120d07;
@@ -82,9 +104,12 @@
     --skiver-pebble: rgba(255,255,255,.030);
     --timber-lip: #3a2413;                 /* the rebate the leather sits in */
     --paper: rgba(247,236,208,.055);
-    /* The timetable is a printed form; the cards clipped to it are their own
-       stock. They have to differ or the board reads as one flat sheet. */
-    --paper-form: rgba(120,96,54,.16);
+    /* The timetable is a sheet of buff form stock lying on the leather. It has
+       to be its own opaque material, not a wash over the desk: a translucent
+       tint left the sheet reading as a patch of green leather with rules
+       printed on it, which is not what paper on a desk looks like at any hour.
+       Dim, because at night it is lit by one lamp through a green shade. */
+    --paper-form: #342b1b;
     --paper-rule: rgba(255,238,205,.08);
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
     --grain-blend: soft-light;
@@ -106,14 +131,16 @@
     --ledger-rule: rgba(255,235,200,.09);
     --ledger-margin: rgba(214,102,88,.52);
 
+    /* One face for prose, one for figures. There is no sans anywhere on the
+       page: the room is a desk, so it sets its words in a book face and its
+       numbers on a typewriter, and those are the only two voices it has.
+       --font-display and --font-body name the same stack on purpose — the
+       difference between a heading and a caption here is weight, size and
+       tracking, the way it is on a printed page, not a second typeface. */
     --mono: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
-    /* Latin serifs first, then a song face so a Chinese heading still reads as
-       printed rather than dropping into the UI sans mid-line. */
-    --font-body: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui,
-                 "Microsoft YaHei", "PingFang SC", sans-serif;
-    --font-display: "Sitka Subheading", Cambria, Constantia, Georgia,
-                    "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC",
-                    SimSun, ui-serif, serif;
+    --font-body: "EB Garamond", "Noto Serif SC", Cambria, Georgia,
+                 "Songti SC", SimSun, ui-serif, serif;
+    --font-display: var(--font-body);
   }
   html[data-theme="light"] {
     color-scheme: light;
@@ -126,11 +153,11 @@
        The previous pair measured 4.0:1 and 3.3:1 and failed body text. */
     --text-dim: #4a3826;
     --text-faint: #4e3d29;
-    --accent-a: #6d28d9;
-    --accent-b: #0e7490;
-    --ok: #047857;
-    --warn: #a35309;
-    --muted: #8a7a63;
+    --accent-a: #87301f;                  /* ruling red, full strength on paper */
+    --accent-b: #123f57;                  /* blue-black ink */
+    --ok: #1a5334;
+    --warn: #68410c;
+    --muted: #544a3a;
     --media-bg: #e6ddc9;
     --input-bg: #fdfaf3;
     --log-bg: #f0e9da;
@@ -182,6 +209,12 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  /* Optical compensation, stated once. A Garamond sets a much smaller x-height
+     than the UI sans it replaced — the same nominal size reads a whole step
+     down — so the rem the entire sheet is measured in grows by a tenth. It is a
+     percentage, not a pixel count, so a reader who has raised the browser's own
+     default still gets that larger size multiplied through. */
+  html { font-size: 110%; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -708,26 +741,35 @@
     background: color-mix(in srgb, currentColor 16%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
   }
-  .cour-tag.half { color: #2dd4bf; }
-  .cour-tag.year { color: #fbbf24; }
-  html[data-theme="light"] .cour-tag.half { color: #0d9488; }
-  html[data-theme="light"] .cour-tag.year { color: #d97706; }
-  .season-tag.s0, .season-divider.s0 { color: #f472b6; }  /* even-year winter  */
-  .season-tag.s1, .season-divider.s1 { color: #fb923c; }  /* even-year spring  */
-  .season-tag.s2, .season-divider.s2 { color: #a3e635; }  /* even-year summer  */
-  .season-tag.s3, .season-divider.s3 { color: #22d3ee; }  /* even-year autumn  */
-  .season-tag.s4, .season-divider.s4 { color: #a78bfa; }  /* odd-year winter   */
-  .season-tag.s5, .season-divider.s5 { color: #facc15; }  /* odd-year spring   */
-  .season-tag.s6, .season-divider.s6 { color: #34d399; }  /* odd-year summer   */
-  .season-tag.s7, .season-divider.s7 { color: #60a5fa; }  /* odd-year autumn   */
-  html[data-theme="light"] .season-tag.s0, html[data-theme="light"] .season-divider.s0 { color: #db2777; }
-  html[data-theme="light"] .season-tag.s1, html[data-theme="light"] .season-divider.s1 { color: #ea580c; }
-  html[data-theme="light"] .season-tag.s2, html[data-theme="light"] .season-divider.s2 { color: #65a30d; }
-  html[data-theme="light"] .season-tag.s3, html[data-theme="light"] .season-divider.s3 { color: #0891b2; }
-  html[data-theme="light"] .season-tag.s4, html[data-theme="light"] .season-divider.s4 { color: #7c3aed; }
-  html[data-theme="light"] .season-tag.s5, html[data-theme="light"] .season-divider.s5 { color: #ca8a04; }
-  html[data-theme="light"] .season-tag.s6, html[data-theme="light"] .season-divider.s6 { color: #059669; }
-  html[data-theme="light"] .season-tag.s7, html[data-theme="light"] .season-divider.s7 { color: #2563eb; }
+  .cour-tag.half { color: #63bcae; }
+  .cour-tag.year { color: #e0b34e; }
+  html[data-theme="light"] .cour-tag.half { color: #0f4841; }
+  html[data-theme="light"] .cour-tag.year { color: #5b4407; }
+  /* Eight cours, eight dyed book cloths. The old set was a screen palette —
+     hot pink, lime, cyan — and the season plate it colours is a piece of
+     tooled leather, so a colour off that wheel read as a sticker on furniture.
+     These are the dyes a binder's sample book actually carries.
+     Each pair is the same cloth at two hours: bleached by lamplight at night,
+     full strength on paper by day. Every one of the sixteen was measured on
+     its own 14% tint over the leather, over a card and over a drawer front,
+     and the worst of the forty-eight readings is 4.7:1 — the palette is muted,
+     not faint. */
+  .season-tag.s0, .season-divider.s0 { color: #e79aab; }  /* even-year winter — claret rose */
+  .season-tag.s1, .season-divider.s1 { color: #e8ab6e; }  /* even-year spring — russet      */
+  .season-tag.s2, .season-divider.s2 { color: #c3d47f; }  /* even-year summer — olive       */
+  .season-tag.s3, .season-divider.s3 { color: #83cfc2; }  /* even-year autumn — verdigris   */
+  .season-tag.s4, .season-divider.s4 { color: #c6afdd; }  /* odd-year winter  — heather     */
+  .season-tag.s5, .season-divider.s5 { color: #ecd077; }  /* odd-year spring  — mustard     */
+  .season-tag.s6, .season-divider.s6 { color: #9ad4a4; }  /* odd-year summer  — moss        */
+  .season-tag.s7, .season-divider.s7 { color: #9dbce6; }  /* odd-year autumn  — indigo      */
+  html[data-theme="light"] .season-tag.s0, html[data-theme="light"] .season-divider.s0 { color: #7d2338; }
+  html[data-theme="light"] .season-tag.s1, html[data-theme="light"] .season-divider.s1 { color: #65380c; }
+  html[data-theme="light"] .season-tag.s2, html[data-theme="light"] .season-divider.s2 { color: #3b4a13; }
+  html[data-theme="light"] .season-tag.s3, html[data-theme="light"] .season-divider.s3 { color: #12524a; }
+  html[data-theme="light"] .season-tag.s4, html[data-theme="light"] .season-divider.s4 { color: #52356f; }
+  html[data-theme="light"] .season-tag.s5, html[data-theme="light"] .season-divider.s5 { color: #5a4208; }
+  html[data-theme="light"] .season-tag.s6, html[data-theme="light"] .season-divider.s6 { color: #194d2b; }
+  html[data-theme="light"] .season-tag.s7, html[data-theme="light"] .season-divider.s7 { color: #1f4372; }
   /* The cour break is the shelf-edge label strip: a tooled leather plate
      slipped into a brass holder, with the shelf's own front rail running out
      from it to the end of the run. The plate is tinted by the cour palette, so
@@ -814,7 +856,7 @@
     color: var(--text-dim); font-family: var(--font-display);
     font-size: calc(.98rem * var(--ui)); font-weight: 600; letter-spacing: .05em;
   }
-  .section-h::after, .sched-day::after { content: ""; flex: 1; height: 1px; background: var(--gilt-soft); }
+  .section-h::after { content: ""; flex: 1; height: 1px; background: var(--gilt-soft); }
 
   .prio { display: flex; gap: 8px; flex-wrap: wrap; }
   .prio .chip b { margin-right: 6px; color: var(--brass-hi); font-family: var(--mono); }
@@ -972,15 +1014,23 @@
   .airline { font-size: calc(.86rem * var(--ui)); color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
   .airline .ai { opacity: .7; }
 
-  /* ---------- weekly timetable: one vertical column per weekday ---------- */
+  /* ---------- the weekly timetable: a printed broadcast sheet ----------
+     It used to be a board of dark cards floating over a faint rule pattern —
+     a widget resting on the desk rather than a thing the desk owns. It is now
+     a form off the study's own stationery shelf: buff stock inside a printed
+     double border, a masthead with a double rule under it, one ruled margin
+     down each day column with the times set into it, and every show pasted in
+     as a small photographic print, each at its own angle. Today is stamped in
+     the red the ledger is ruled in, because a study has a stamp and a red pad
+     and does not have a cyan indicator lamp. */
   #cards.schedule { display: block; }
-  .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
   .sched-filters[hidden] { display: none; }   /* class display:flex would beat [hidden] */
   /* Watching-grid weekday sub-filter: sits above the grid, its own row. */
   .subfilters { margin-top: -2px; }
   /* Sub-filter chips are visually subordinate to the drawer fronts above: a
      pencilled guide card, not a brass-labelled drawer. */
-  .sched-filters .fchip { padding: 5px 12px; font-size: calc(.84rem * var(--ui)); transform: none; }
+  .sched-filters .fchip { padding: 5px 12px; font-size: calc(.86rem * var(--ui)); transform: none; }
   .sched-filters .fchip::before { display: none; }
   .sched-filters .fchip.active {
     color: var(--accent-b); transform: none; text-shadow: none;
@@ -991,46 +1041,79 @@
   .sched-filters .fchip.active b { color: var(--accent-b); }
   .sched-filters .fchip.active { animation: none; }
   /* Season-only toggle: an independent filter dimension, so it reads as a
-     switch rather than another premiere-status chip. Sits at the row's end. */
+     switch rather than another premiere-status chip. A brass slide in a dark
+     channel — the same metal as every other control in the room. */
   .sched-toggle {
-    display: inline-flex; align-items: center; gap: 8px; margin-left: auto;
-    font-size: calc(.86rem * var(--ui)); color: var(--text-faint); cursor: pointer; user-select: none;
+    display: inline-flex; align-items: center; gap: 9px; margin-left: auto;
+    font-size: calc(.88rem * var(--ui)); color: var(--text-faint); cursor: pointer; user-select: none;
   }
   .sched-toggle.on { color: var(--text); }
   .sched-toggle .track {
-    position: relative; width: 34px; height: 18px; border-radius: 999px;
-    background: var(--input-bg); border: 1px solid var(--panel-border);
-    transition: background .15s ease, border-color .15s ease;
+    position: relative; width: 36px; height: 17px; border-radius: 9px;
+    background: var(--input-bg);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.6), inset 0 0 0 1px var(--gilt-soft);
+    transition: box-shadow .15s ease;
   }
   .sched-toggle.on .track {
-    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-    border-color: transparent;
+    background: linear-gradient(180deg, var(--brass-lo), color-mix(in srgb, var(--brass) 70%, #000));
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.5), inset 0 0 0 1px var(--gilt);
   }
   /* The knob rides a transform, not `left`: animating an offset property runs
      layout on every interpolated frame. */
   .sched-toggle .knob {
-    position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
-    border-radius: 50%; background: var(--text-faint);
-    transition: transform .15s ease, background .15s ease;
+    position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
+    border-radius: 50%; background: var(--muted);
+    box-shadow: 0 1px 2px rgba(0,0,0,.5);
+    transition: transform .16s ease, background .16s ease;
   }
-  .sched-toggle.on .knob { transform: translateX(16px); background: var(--btn-text); }
-  /* The timetable is a printed broadcast schedule laid on the desk: ruled
-     stock, faint vertical rules between the day columns, a gilt edge. */
-  .sched-board {
-    display: flex; align-items: stretch; gap: 0;
+  .sched-toggle.on .knob {
+    transform: translateX(19px);
+    background: radial-gradient(circle at 34% 28%, var(--brass-hi), var(--brass) 55%, var(--brass-lo));
+  }
+
+  /* The sheet itself. The printed double border is two inset rings rather than
+     a border plus an outline, so it survives the sheet scrolling under it. */
+  .sched-sheet {
+    position: relative; border-radius: 2px;
     background:
       var(--grain),
-      repeating-linear-gradient(0deg, transparent 0 27px, var(--paper-rule) 27px 28px),
+      linear-gradient(180deg, rgba(255,246,225,.06), transparent 150px),
       var(--paper-form);
     background-size: 140px 140px, auto, auto;
     background-blend-mode: var(--grain-blend), normal, normal;
-    border: 1px solid var(--gilt); border-radius: 3px;
-    overflow-x: auto; padding: 6px 6px 14px;
+    box-shadow: inset 0 0 0 1px var(--gilt), inset 0 0 0 4px transparent,
+                inset 0 0 0 5px var(--gilt-soft),
+                0 12px 26px -14px rgba(0,0,0,.75);
+  }
+  .sched-masthead {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 15px 20px 10px; position: relative;
+  }
+  .sched-masthead h4 {
+    margin: 0; font-family: var(--font-display); font-weight: 640;
+    font-size: calc(1.06rem * var(--ui)); letter-spacing: .18em;
+    color: color-mix(in srgb, var(--brass-hi) 38%, var(--text));
+  }
+  html[data-theme="light"] .sched-masthead h4 { color: color-mix(in srgb, var(--brass) 46%, var(--text)); }
+  .sched-masthead .mh-meta {
+    margin-left: auto; font-family: var(--mono); font-size: calc(.82rem * var(--ui));
+    letter-spacing: .05em; color: var(--text-faint);
+  }
+  /* One heavy rule and one hair below it — the compositor's standard head. */
+  .sched-masthead::after {
+    content: ""; position: absolute; left: 16px; right: 16px; bottom: 2px; height: 4px;
+    background: linear-gradient(180deg,
+      var(--gilt) 0 1.5px, transparent 1.5px 3px, var(--gilt-soft) 3px 4px);
+  }
+  .sched-board {
+    display: flex; align-items: stretch; gap: 0;
+    background: repeating-linear-gradient(0deg, transparent 0 29px, var(--paper-rule) 29px 30px);
+    overflow-x: auto; padding: 4px 8px 12px;
     scroll-snap-type: x proximity;
     scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
     cursor: grab;
-    /* Cards are click-to-open, not selectable text — killing selection stops a
-       grab-drag from turning into a text highlight that eats the pan. */
+    /* Entries are click-to-open, not selectable text — killing selection stops
+       a grab-drag from turning into a text highlight that eats the pan. */
     -webkit-user-select: none; user-select: none;
   }
   /* While drag-panning: swap the cursor and disable snap so the board tracks
@@ -1040,85 +1123,137 @@
   .sched-board::-webkit-scrollbar { height: 8px; }
   .sched-board::-webkit-scrollbar-track { background: transparent; }
   .sched-board::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
-  /* Every column carries the today-column box metrics so headers and card
-     widths stay aligned; .today only recolors. */
+  /* The printed foot: every form carries its number and its issuing desk. */
+  .sched-foot {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 2px 20px 13px; font-family: var(--mono);
+    font-size: calc(.78rem * var(--ui)); letter-spacing: .07em; color: var(--text-faint);
+  }
+  .sched-foot .fn { margin-left: auto; }
+
+  /* Every column carries the same box metrics so heads and entries stay
+     aligned across the sheet; .today only recolours. */
   .sched-col {
-    flex: 0 0 238px; min-width: 238px; max-width: 238px;
-    display: flex; flex-direction: column; gap: 8px;
-    padding: 10px 12px; border-right: 1px dashed var(--gilt-soft); border-radius: 2px;
+    flex: 0 0 302px; min-width: 302px; max-width: 302px;
+    display: flex; flex-direction: column; gap: 0;
+    padding: 10px 14px 14px; position: relative;
     scroll-snap-align: start;
   }
-  .sched-col:last-child { border-right: 0; }
+  /* A printed hairline between day columns — set in brass rule, not dashed.
+     It fades out top and bottom so it reads as ruled, not as a table cell. */
+  .sched-col::before {
+    content: ""; position: absolute; top: 10px; bottom: 10px; right: 0; width: 1px;
+    background: linear-gradient(180deg, transparent, var(--gilt-soft) 7%,
+                var(--gilt-soft) 93%, transparent);
+    pointer-events: none;
+  }
+  .sched-col:last-child::before { display: none; }
+  /* The red margin rule the times are written against. Starts under the day
+     head and runs to the foot of the column — the same red the accession
+     ledger is ruled in, because it is the same desk's stationery. */
+  .sched-col::after {
+    content: ""; position: absolute; top: 46px; bottom: 12px; left: 66px; width: 1px;
+    background: color-mix(in srgb, var(--ledger-margin) 50%, transparent);
+    pointer-events: none;
+  }
+  .sched-col.empty-day::after { display: none; }
   .sched-day {
-    display: flex; align-items: center; gap: 8px; margin: 2px 0 6px;
-    color: var(--text-dim); font-family: var(--font-display);
-    font-size: calc(.92rem * var(--ui)); font-weight: 600; letter-spacing: .05em;
+    display: flex; align-items: baseline; gap: 9px; margin: 0 0 9px;
+    padding-bottom: 7px; position: relative;
+    font-family: var(--font-display); color: var(--text-dim);
   }
-  /* Today's column breathes on a pseudo-element's opacity rather than on its
-     own box-shadow: a box-shadow keyframe repaints the column and everything
-     in it, four times a second, for as long as the timetable is open. */
-  .sched-col { position: relative; }
-  .sched-col.today {
-    background: color-mix(in srgb, var(--accent-b) 7%, transparent);
-    border-right-color: color-mix(in srgb, var(--accent-b) 28%, transparent);
+  .sched-day .d-name {
+    font-size: calc(1.04rem * var(--ui)); font-weight: 640; letter-spacing: .1em;
+    color: var(--text);
   }
-  .sched-col.today::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 2px;
-    box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent-b) 20%, transparent);
-    opacity: .5; animation: todayGlow 4.5s ease-in-out infinite;
+  .sched-day .d-date { font-family: var(--mono); font-size: calc(.8rem * var(--ui)); color: var(--text-faint); }
+  .sched-day::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(180deg, var(--gilt-soft) 0 1px, transparent 1px 2px);
   }
-  @keyframes todayGlow { 50% { opacity: 1; } }
-  /* "Now" marker inside the today column: sits between the last aired and the
-     next upcoming slot. The line is information (kept under reduced motion);
-     only the dot's pulse is decoration. */
+  .sched-col.today { background: color-mix(in srgb, var(--brass) 7%, transparent); }
+  .sched-col.today .sched-day::after {
+    height: 4px;
+    background: linear-gradient(180deg, var(--brass) 0 2px, transparent 2px 3px, var(--gilt-soft) 3px 4px);
+  }
+  /* Struck once with a rubber stamp: never square, never solid, and in the red
+     off the pad rather than in a UI accent. */
+  .sched-day .today-badge {
+    background: transparent; box-shadow: none;
+    color: var(--accent-a); border: 1.5px solid color-mix(in srgb, var(--accent-a) 58%, transparent);
+    border-radius: 2px; padding: 0 7px 1px; letter-spacing: .16em;
+    font-family: var(--font-display); font-weight: 700; text-transform: none;
+    transform: rotate(-3.4deg); opacity: .94;
+  }
+  /* "Now": a proofreader's caret in the margin and a rule struck out from it,
+     sitting between the last aired and the next upcoming slot. The rule is
+     information and stays under reduced motion; only the caret's beat is
+     decoration. */
   .now-line {
-    display: flex; align-items: center; gap: 6px; margin: 2px 0;
-    height: 8px; pointer-events: none;
+    display: flex; align-items: center; height: 13px; margin: 3px 0; pointer-events: none;
   }
   .now-line::before {
-    content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
-    background: var(--accent-b);
-    box-shadow: 0 0 8px var(--accent-b);
-    animation: nowPulse 2.2s ease-in-out infinite;
+    content: ""; flex: none; width: 0; height: 0; margin-left: 47px;
+    border: 5px solid transparent; border-left-color: var(--accent-a);
+    animation: nowBeat 2.6s ease-in-out infinite;
   }
   .now-line::after {
-    content: ""; flex: 1; height: 2px; border-radius: 1px;
-    background: linear-gradient(90deg, var(--accent-b), color-mix(in srgb, var(--accent-b) 15%, transparent));
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--accent-a),
+      color-mix(in srgb, var(--accent-a) 8%, transparent));
   }
-  @keyframes nowPulse {
-    50% { box-shadow: 0 0 2px var(--accent-b); opacity: .55; }
-  }
-  .sched-col.today .sched-day { color: var(--accent-b); }
-  .sched-col.today .sched-day::after { background: color-mix(in srgb, var(--accent-b) 35%, transparent); }
-  .sched-day .today-badge { color: var(--accent-b); text-transform: none; }
-  /* Each slot is a filing card clipped to the sheet. */
+  @keyframes nowBeat { 50% { opacity: .4; } }
+  /* One entry, typed onto the form: time in the ruled margin, the show's print
+     pasted beside it, the reading set to the right of both. */
   .sched-item {
-    display: flex; align-items: flex-start; gap: 10px;
-    background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: 2px; padding: 11px; backdrop-filter: blur(8px);
-    box-shadow: 1px 2px 5px -1px rgba(0,0,0,.35);
-    cursor: grab;
-    transition: border-color .2s ease;
+    display: grid; grid-template-columns: 46px 46px 1fr; gap: 0 11px;
+    align-items: start; padding: 9px 2px 9px 0; position: relative;
+    cursor: grab; border-radius: 2px;
+    transition: background .18s ease;
   }
+  .sched-item + .sched-item { box-shadow: inset 0 1px 0 var(--paper-rule); }
+  .sched-item:hover { background: color-mix(in srgb, var(--brass) 11%, transparent); }
+  /* Hovering an entry pencils a tick into the sheet's outer margin, in the
+     colour of the list the show came from. */
+  .sched-item::before {
+    content: ""; position: absolute; left: -8px; top: 11px; bottom: 11px; width: 3px;
+    border-radius: 1px; background: var(--card-glow, transparent);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .sched-item:hover::before { opacity: .9; }
   .sbody .show-links { margin-top: 6px; }
-  .sched-item:hover {
-    border-color: color-mix(in srgb, var(--card-glow, var(--text-dim)) 60%, transparent);
-    box-shadow: 0 0 14px color-mix(in srgb, var(--card-glow, var(--text-dim)) 22%, transparent);
+  .srow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+  .s-time {
+    grid-column: 1; text-align: right; padding-top: 2px;
+    font-family: var(--mono); font-size: calc(.9rem * var(--ui)); letter-spacing: .01em;
   }
-  .srow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
-  .stime { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); }
-  .stime.aired { color: var(--ok); }
-  .stime.upcoming { color: var(--text-dim); }
-  .scover { width: 38px; min-width: 38px; height: 52px; border-radius: 2px; overflow: hidden; background: var(--media-bg); position: relative;
-    box-shadow: 0 0 0 1px var(--gilt-soft); }
+  .s-time.aired { color: var(--ok); }
+  .s-time.upcoming { color: var(--text-dim); }
+  /* A photographic print, pasted on: white border, its own shadow, and its own
+     angle off the show's id so no two are laid down the same way. Hovering
+     squares it up, the way you would straighten one with a finger. */
+  .scover {
+    grid-column: 2; width: 44px; min-width: 44px; height: 60px; position: relative;
+    background: var(--media-bg); overflow: hidden;
+    border: 2px solid rgba(255,250,238,.80);
+    box-shadow: 1px 2px 5px rgba(0,0,0,.5);
+    transform: rotate(var(--tilt, 0deg));
+    transition: transform .22s cubic-bezier(.22,1,.36,1);
+  }
+  html[data-theme="light"] .scover { border-color: #fffdf7; box-shadow: 1px 2px 5px rgba(92,60,24,.32); }
+  .sched-item:hover .scover { transform: rotate(0deg) scale(1.05); }
   .scover .ph { font-size: 15px; }
-  .sbody { flex: 1; min-width: 0; }
+  .sbody { grid-column: 3; min-width: 0; }
   .stitle {
     font-family: var(--font-display); font-weight: 640;
-    font-size: calc(.95rem * var(--ui)); line-height: 1.32; overflow: hidden;
+    font-size: calc(1rem * var(--ui)); line-height: 1.3; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
   .sbody .jp { margin-top: 2px; }
+  .sched-col > .empty {
+    padding: 14px 0 4px; margin-left: 56px;
+    font-family: var(--mono); color: var(--text-faint); font-size: calc(.9rem * var(--ui));
+  }
 
   /* ---------- toast: a slip pushed across the desk ---------- */
   #toast {
@@ -1651,7 +1786,7 @@
      books above cast onto the next shelf down. */
   .spinewall {
     /* The row has to grow with the type, because the spines it carries do. */
-    --rowh: calc(210px * var(--ui));
+    --rowh: calc(244px * var(--ui));
     display: flex; flex-wrap: wrap; align-items: flex-end; align-content: flex-start;
     gap: 0 3px;
     background: repeating-linear-gradient(to bottom,
@@ -1686,20 +1821,29 @@
     background: hsl(var(--hue, 0) 62% 46%); opacity: var(--hueop, 0);
   }
   /* The title is stamped down the spine, which is the one place CJK has the
-     advantage: it sets vertically without rotating a glyph. At 9.5px a Chinese
-     glyph is a smudge where Latin would merely be small, so 13px is the floor
-     here and the spines were widened to carry it. */
+     advantage: it sets vertically without rotating a glyph. This is the
+     smallest type in the room and the hardest to read — vertical, on cloth, in
+     foil — so it is set larger than anything else its size class, in the book
+     face, and the boards were widened again to carry it. */
   .stxt {
     position: relative; z-index: 1;
     writing-mode: vertical-rl; text-orientation: mixed;
-    font-size: calc(.82rem * var(--ui)); line-height: 1.05; letter-spacing: .02em;
-    color: var(--foil); opacity: .95; max-height: 76%;
+    font-family: var(--font-display); font-weight: 560;
+    font-size: calc(.97rem * var(--ui)); line-height: 1.06; letter-spacing: .04em;
+    color: var(--foil); opacity: .96; max-height: 80%;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     text-shadow: 0 1px 2px rgba(0,0,0,.65);
   }
   @keyframes spineIn { from { opacity: 0; transform: translateY(18px); } }
   .spinewall.anim .spine { animation: spineIn .42s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(min(var(--i, 0), 40) * 14ms); }
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 40) * 14ms); }
+  /* Picking a year off the census lights that year's volumes for a moment, so
+     a figure in one rail can be found in the other. */
+  .spine.lit .svol {
+    transform: translateY(-11px);
+    box-shadow: inset 0 0 0 1px var(--foil), 0 0 14px 2px var(--lamp-glow);
+    filter: brightness(1.3);
+  }
 
   /* ----- the duty desk -----
      Three instruments standing on the desk. Columns rather than a grid: the
@@ -1730,11 +1874,12 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 0 rgba(92,60,24,.16),
                 3px 6px 14px -4px rgba(92,60,24,.26);
   }
-  /* Three instruments, three different metals in their edging, so the desk is
+  /* Four instruments, four different metals in their edging, so the desk is
      not one repeated widget. */
   .deskpanel:nth-of-type(1) { border-color: var(--gilt); }
   .deskpanel:nth-of-type(2) { border-color: color-mix(in srgb, var(--ledger-margin) 60%, transparent); }
   .deskpanel:nth-of-type(3) { border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
+  .deskpanel:nth-of-type(4) { border-color: color-mix(in srgb, var(--accent-b) 38%, transparent); }
   /* A brass drop pull, hung from the top edge of each drawer front. */
   .deskpanel > h3 {
     margin: 0 0 13px; position: relative; padding-left: 20px;
@@ -1837,25 +1982,69 @@
   .mrow .dot.warn { --dot-c: var(--warn); }
   .mrow .dot.bad { --dot-c: var(--muted); box-shadow: 0 0 0 1px var(--brass-lo); }
   .mrow .mv { margin-left: auto; font-family: var(--mono); font-size: calc(.86rem * var(--ui)); color: var(--text); }
-  /* The queue rack: one card slot per episode qBittorrent is holding, filled
-     when that episode has finished downloading. It says what it is now —
-     unlabelled, it was just a row of green squares. Slots are grouped in tens
-     so a count can be read off the rack without counting one by one. */
-  .barhead {
-    display: flex; align-items: baseline; gap: 8px; margin: 14px 0 7px;
-    font-size: calc(.84rem * var(--ui)); color: var(--text-faint);
+  /* ----- the census: the archive plotted by year -----
+     Three figures struck in the display face, then a run of columns — one per
+     year across the whole span, gaps drawn as gaps. Each column is a brass
+     shim standing on a ruled baseline; the tallest years are capped bright so
+     the shape of the collection reads before any number does. */
+  .cfigs {
+    display: flex; align-items: stretch; margin: 2px 0 16px;
   }
-  .barhead .bn { margin-left: auto; font-family: var(--mono); color: var(--text-dim); }
-  .bar { display: flex; gap: 3px; flex-wrap: wrap; }
-  .bar i {
-    width: 9px; height: 16px; border-radius: 1px; background: var(--muted); opacity: .38;
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.35);
+  .cfig {
+    flex: 1; min-width: 0; text-align: center; position: relative; padding: 0 4px;
   }
-  .bar i.done {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 70%, #fff), var(--ok));
-    opacity: 1; box-shadow: inset 0 -1px 0 rgba(0,0,0,.3);
+  .cfig + .cfig::before {
+    content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 1px;
+    background: var(--gilt-soft);
   }
-  .bar i.g { margin-right: 7px; }   /* every tenth slot, so the rack can be counted */
+  .cfig b {
+    display: block; font-family: var(--font-display); font-weight: 640;
+    font-size: calc(1.24rem * var(--ui)); line-height: 1.15; letter-spacing: .01em;
+    color: color-mix(in srgb, var(--brass-hi) 34%, var(--text));
+  }
+  html[data-theme="light"] .cfig b { color: color-mix(in srgb, var(--brass) 40%, var(--text)); }
+  .cfig span {
+    display: block; margin-top: 2px;
+    font-size: calc(.8rem * var(--ui)); color: var(--text-faint); letter-spacing: .04em;
+  }
+  .cchart {
+    display: flex; align-items: flex-end; gap: 2px; height: 108px;
+    margin-top: 16px; padding-bottom: 2px; border-bottom: 2px solid var(--gilt-soft);
+  }
+  .cbar {
+    position: relative;
+    flex: 1; min-width: 0; height: var(--h, 0%); padding: 0; border: 0; cursor: pointer;
+    border-radius: 1px 1px 0 0;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--brass) 62%, transparent),
+      color-mix(in srgb, var(--brass-lo) 70%, transparent));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brass-hi) 55%, transparent);
+    transition: filter .16s ease, transform .16s ease;
+    transform-origin: 50% 100%;
+  }
+  .cbar.top { background: linear-gradient(180deg, var(--brass-hi), var(--brass) 55%, var(--brass-lo)); }
+  /* The tallest year is the only column the chart can be read against, so it
+     carries its own figure. Everything else is a proportion of it, and says so
+     on hover. */
+  .cbar.top::after {
+    content: attr(data-n); position: absolute; left: 50%; bottom: 100%;
+    transform: translateX(-50%); padding-bottom: 3px;
+    font-family: var(--mono); font-size: calc(.76rem * var(--ui));
+    color: var(--brass-hi); pointer-events: none;
+  }
+  html[data-theme="light"] .cbar.top::after { color: var(--brass); }
+  /* A year with nothing on the shelf still holds its place in the run: a
+     hairline on the baseline, so the gap is visibly a gap and not a missing
+     column. */
+  .cbar.nil {
+    height: 2px; background: color-mix(in srgb, var(--text-faint) 40%, transparent);
+    box-shadow: none; cursor: default;
+  }
+  .cbar:hover, .cbar:focus-visible { filter: brightness(1.35); transform: scaleY(1.06); }
+  .caxis {
+    display: flex; justify-content: space-between; margin-top: 5px;
+    font-family: var(--mono); font-size: calc(.78rem * var(--ui)); color: var(--text-faint);
+  }
 
   /* ---------- small screens / touch ---------- */
   @media (max-width: 899px) {
@@ -1902,6 +2091,12 @@
     .wrap { max-width: none !important; margin: 0 !important; padding: 0 !important; }
     .wrap::before, .wrap::after { display: none !important; }
     * { box-shadow: none !important; text-shadow: none !important; }
+    /* The sheet's printed border is drawn in box-shadow, which the rule above
+       has just removed, and its days are behind a horizontal scroller that a
+       sheet of paper does not have. Give it a real border and let the whole
+       week onto the page. */
+    .sched-sheet { border: 1px solid #999; }
+    .sched-board { overflow: visible !important; }
   }
 </style>
 </head>
@@ -2235,6 +2430,10 @@
       <h3 data-i18n="machineHead">Machine</h3>
       <div id="machine"></div>
     </section>
+    <section class="deskpanel">
+      <h3 data-i18n="censusHead">The census</h3>
+      <div id="census"></div>
+    </section>
   </div>
 </aside>
 
@@ -2392,8 +2591,13 @@ const I18N = {
     mSync: "Last sync", mSyncing: "running",
     mSubs: "Subscriptions", mReady: "Episodes ready",
     mGrace: "In grace", mWaiting: "Awaiting mikan",
-    queueRack: "Download queue — one slot per episode",
-    queueSlot: o => `${o.show} — ${o.done ? "downloaded" : "still downloading"}`,
+    censusHead: "The census", censusNone: "Nothing shelved yet",
+    censusVols: "volumes", censusSpan: "years", censusMean: "mean bgm rating",
+    censusBar: o => `${o.y} — ${o.n === 1 ? "1 volume" : o.n + " volumes"}`,
+    schedSheet: "Weekly broadcast sheet",
+    schedFootLeft: "Set in local time",
+    schedFootRight: n => `${n} slots this week`,
+    dayEmpty: "nothing scheduled",
   },
   zh: {
     settings: "设置", gracePip: "等",
@@ -2472,8 +2676,13 @@ const I18N = {
     mSync: "上次同步", mSyncing: "进行中",
     mSubs: "订阅", mReady: "已就绪剧集",
     mGrace: "宽限中", mWaiting: "等待 mikan",
-    queueRack: "下载队列 — 每集一格",
-    queueSlot: o => `${o.show} — ${o.done ? "已下完" : "下载中"}`,
+    censusHead: "藏书年谱", censusNone: "书架上还没有藏书",
+    censusVols: "卷", censusSpan: "年份", censusMean: "bgm 均分",
+    censusBar: o => `${o.y} 年 — ${o.n} 卷`,
+    schedSheet: "放送周表",
+    schedFootLeft: "按本地时区排印",
+    schedFootRight: n => `本周共 ${n} 场`,
+    dayEmpty: "本日无放送",
   },
 };
 
@@ -2659,8 +2868,13 @@ function setTheme(v) {
   themeMode = v;
   localStorage.setItem("theme", themeMode);
   const apply = () => { applyTheme(); applyStatic(); };
-  // Cross-fade the palette swap where View Transitions exist; plain swap elsewhere.
-  if (document.startViewTransition) document.startViewTransition(apply);
+  // Cross-fade the palette swap where View Transitions exist; plain swap
+  // elsewhere. A transition that is superseded — or that times out because
+  // something else rewrote the page mid-capture — rejects .ready, and an
+  // unhandled rejection is an error in the console for a cross-fade nobody
+  // was going to see. The swap itself still happens; only the animation is
+  // dropped, so there is nothing to report.
+  if (document.startViewTransition) document.startViewTransition(apply).ready.catch(() => {});
   else apply();
   syncSegs();
 }
@@ -3288,33 +3502,60 @@ function renderSchedule() {
   const today = (new Date().getDay() + 6) % 7;
   const names = t("days");
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  const col = (name, isToday, list) => {
+  const col = (name, isToday, list, dated) => {
     const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
     const items = list.map(schedItem);
-    // "Now" marker: slot the pulse line where the current time falls in
-    // today's column (between the last aired and the next upcoming show).
+    // "Now" marker: slot the caret where the current time falls in today's
+    // column (between the last aired and the next upcoming show).
     if (isToday && items.length) {
       let at = list.findIndex(s => minuteOf(s) > nowMin);
       if (at === -1) at = items.length;
       items.splice(at, 0, `<div class="now-line" aria-hidden="true"></div>`);
     }
-    const body = items.length ? items.join("") : `<div class="empty">—</div>`;
-    return `<div class="sched-col ${isToday ? "today" : ""}">
-      <div class="sched-day">${name}${badge}</div>${body}
+    const body = items.length ? items.join("") : `<div class="empty">${t("dayEmpty")}</div>`;
+    // The margin rule is drawn by the column, so a column with nothing typed
+    // into it must not draw one: a ruled margin beside blank stock reads as a
+    // printing fault rather than as a quiet day.
+    return `<div class="sched-col ${isToday ? "today" : ""}${list.length ? "" : " empty-day"}">
+      <div class="sched-day"><span class="d-name">${name}</span>${
+        dated ? `<span class="d-date">${dated}</span>` : ""}${badge}</div>${body}
     </div>`;
   };
+  // The head of each column carries its date as well as its weekday: the sheet
+  // starts at today and runs a week forward, so "周一" alone is ambiguous about
+  // which Monday is meant.
+  const dayStamp = off => {
+    const d = new Date();
+    d.setDate(d.getDate() + off);
+    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   let board = "";
+  let slots = 0;
   for (let off = 0; off < 7; off++) {
     const i = (today + off) % 7;
     days[i].sort((a, b) => minuteOf(a) - minuteOf(b) || byAir(a, b));
-    board += col(names[i], off === 0, days[i]);
+    slots += days[i].length;
+    board += col(names[i], off === 0, days[i], dayStamp(off));
   }
-  if (tba.length) board += col(t("timeTBA"), false, tba.slice().sort(byAir));
+  if (tba.length) {
+    board += col(t("timeTBA"), false, tba.slice().sort(byAir), "");
+    slots += tba.length;
+  }
   // Keep the horizontal scroll position across re-renders.
   const prev = $("cards").querySelector(".sched-board");
   const sl = prev ? prev.scrollLeft : 0;
+  const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").replace(/_/g, " ");
   setHTML($("cards"), `<div class="sched-filters">${chips}${seasonToggle}</div>
-    <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>`);
+    <div class="sched-sheet">
+      <div class="sched-masthead">
+        <h4>${esc(t("schedSheet"))}</h4>
+        <span class="mh-meta">${esc(state && state.season ? state.season : "")}${
+          tz ? " · " + esc(tz) : ""}</span>
+      </div>
+      <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>
+      <div class="sched-foot"><span>${esc(t("schedFootLeft"))}</span>
+        <span class="fn">${esc(t("schedFootRight", slots))}</span></div>
+    </div>`);
   const board2 = $("cards").querySelector(".sched-board");
   if (board2 && sl) board2.scrollLeft = sl;
   if (board2) attachSchedDrag(board2);
@@ -3369,17 +3610,22 @@ function schedItem(s) {
   const d = s.airing_at ? new Date(s.airing_at * 1000) : null;
   const hm = d ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "--:--";
   // Air status lives in the time's color (green = aired, dim = upcoming) so
-  // each card carries a single pill — the collection type.
+  // each entry carries a single pill — the collection type.
   const aired = hasAired(s);
   const title = displayTitle(s);
   const when = fmtLocal(s.airing_at, s.premiere_date);
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(aired ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
-  return `<div class="sched-item t-${s.type}">
+  // Each print is pasted down at its own angle, taken from the show's own id,
+  // so a column of them reads as pasted by hand rather than as a list of
+  // thumbnails. Same hash the archive binds its volumes from.
+  const tilt = (((bookHash(s.bgm_id) >>> 9) % 81) / 10 - 4).toFixed(1);
+  return `<div class="sched-item t-${s.type}" style="--tilt:${tilt}deg">
+    <span class="s-time ${aired ? "aired" : "upcoming"}">${hm}</span>
     <div class="scover">${coverHtml(s.image)}</div>
     <div class="sbody">
-      <div class="srow"><span class="stime ${aired ? "aired" : "upcoming"}">${hm}</span><span class="pill ${s.type}">${t("t_" + s.type)}</span>${courTag(s)}</div>
-      <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>${showLinks(s)}
+      <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>
+      <div class="srow"><span class="pill ${s.type}">${t("t_" + s.type)}</span>${courTag(s)}${showLinks(s)}</div>
       ${jpLine(s)}
       ${airRow}
     </div>
@@ -3487,37 +3733,63 @@ function bootDone() {
   setTimeout(() => {
     el.classList.add("done");
     document.body.classList.add("booted");
-    // The curtain wipes for .56s and the shelves start their stagger while it
-    // is still moving — the motion is handed over, not restarted.
+    // The curtain wipes for .56s and the room starts its stagger while it is
+    // still moving — the motion is handed over, not restarted. Grid and
+    // archive are started here, off the same offset, so the covers and the
+    // spines rise together instead of the wall waiting its turn.
     const c = $("cards");
     c.style.setProperty("--stagger-base", ".3s");
     c.classList.add("anim");
     applyStagger();
+    const wall = $("spinewall");
+    if (wall) {
+      wall.style.setProperty("--stagger-base", ".3s");
+      wall.classList.add("anim");
+    }
     setTimeout(() => el.remove(), 700);
   }, wait);
 }
 
+// Everything the opening needs, asked for at once.
+//
+// This used to run in series — overview, then notifications, then unresolved,
+// and only after the curtain had already lifted did anyone ask for
+// /api/collections. The archive is built from that last response, so the room
+// assembled itself in two visible waves: the covers dealt themselves out, the
+// page settled, and *then* the shelves started filling in one spine at a time,
+// as if the wall were still loading after the desk had finished. Four requests
+// in flight together, and the curtain held until the two that furnish the room
+// have both landed, so the whole study is standing there when it lifts.
+//
+// The awaits below do not serialise anything: every fetch is started before
+// the first one is awaited.
 async function refresh() {
   const q = ++seqO;
   bootStage(45, "bootConnect");
   try {
-    const d = await (await fetch("/api/overview")).json();
+    const overview = fetch("/api/overview").then(r => r.json());
+    const shelves = refreshCollections();
+    const notes = refreshPremieres();
+    const stuck = refreshUnresolved();
+    const d = await overview;
     if (q !== seqO) return;   // an out-of-order older response must not win
     state = d;
     offline = false;
     render();
-    // The default 在看 tab is fully rendered from /api/overview above, so the boot
-    // screen lifts as soon as it (+ the cheap notification/unresolved calls) land.
-    // /api/collections powers only the other tabs (想看/看过/…/timetable); it's the
-    // slow one (5 bgm lists incl. the big 看过 history), so it loads in the
-    // background — renderCards() shows a brief "Loading…" if one of those tabs is
-    // the pinned start tab, then fills in. refreshPremieres re-runs once collections
-    // arrive so banner titles can follow the UI language.
     bootStage(90, "bootNotif");
+    // The shelves are worth waiting for, but not indefinitely: /api/collections
+    // fans out to five bgm list calls and answers in ~50ms off its two-minute
+    // cache and in seconds when that cache is cold. Four seconds is the most
+    // the opening will hold for it; past that the curtain goes up without the
+    // archive, and the wall animates itself in when it does arrive — which is
+    // the old behaviour, kept for the one case that actually needs it.
+    const held = Promise.race([shelves, new Promise(r => setTimeout(r, 4000))]);
+    await Promise.all([held, notes, stuck]);
+    if (q !== seqO) return;
+    // Banner titles follow the UI language, which needs the collections entry;
+    // it is here now, so restate them before anything is shown.
     await refreshPremieres();
-    await refreshUnresolved();
     bootDone();
-    refreshCollections().then(refreshPremieres);
     refreshLedger();   // right rail only; a no-op while the room is collapsed
   } catch (e) {
     if (q !== seqO) return;
@@ -3537,12 +3809,19 @@ async function refreshCollections() {
     const d = await (await fetch("/api/collections")).json();
     if (q !== seqC) return;
     collections = d;
+    // The two requests are in flight together, so this one can win the race.
+    // The grid is drawn from both, and render() paints all of it the moment
+    // the overview lands — painting half a grid here would only mean drawing
+    // it twice.
+    if (!state) return;
     renderFilters();   // may retarget activeType if its tab vanished
     renderCards();
-    // The archive and the 48h board are both built from collections, so they
-    // fill in with this response rather than waiting for the next poll.
+    // The archive, the census and the 48h board are all built from
+    // collections, so they fill in with this response rather than waiting for
+    // the next poll.
     renderSpineWall(false);
     renderUpcoming();
+    renderCensus();
   } catch (e) { /* transient */ }
 }
 
@@ -3897,12 +4176,14 @@ const SPINE_SORTS = {
 function spineHtml(s) {
   const b = bookStyle(s.bgm_id);
   const h = bookHash(s.bgm_id);
-  // Widths grow with --ui because the title is set down the spine: a 13px CJK
+  // Widths grow with --ui because the title is set down the spine: a 17px CJK
   // glyph needs a board wide enough to carry it, or the wall goes back to being
-  // a texture with unreadable smudges on it.
+  // a texture with unreadable smudges on it. Every board is wide enough for the
+  // glyph plus the foil rules either side of it, and no board is the same width
+  // as its neighbour — a shelf of identical boards reads as a fence.
   const ui = UI_SCALES[uiScale] || 1;
-  const w = Math.round((25 + ((h >>> 23) % 13)) * ui);
-  const ht = Math.round((120 + ((h >>> 26) % 60)) * b.tall * ui);
+  const w = Math.round((34 + ((h >>> 23) % 15)) * ui);
+  const ht = Math.round((142 + ((h >>> 26) % 66)) * b.tall * ui);
   const title = displayTitle(s);
   const hue = s.score ? `--hue:${scoreHue(+s.score)};--hueop:.9;` : "";
   const tip = s.season ? `${title} · ${s.season}` : title;
@@ -3918,7 +4199,11 @@ function renderSpineWall(animate) {
   const shows = (collections.groups.done || []).slice();
   shows.sort(SPINE_SORTS[spineSort] || byDone);
   const wall = $("spinewall");
-  wall.classList.toggle("anim", !!(animate || spineFirst));
+  // The opening replay belongs to bootDone(), which starts the grid and the
+  // archive off one shared offset. Claiming it here would run the wall's
+  // stagger under the curtain and finish it before anyone saw it.
+  wall.classList.toggle("anim",
+    !!(animate || (spineFirst && document.body.classList.contains("booted"))));
   spineFirst = false;
   setHTML(wall, shows.map(spineHtml).join(""));
   [...wall.children].forEach((el, i) => el.style.setProperty("--i", i));
@@ -4077,17 +4362,15 @@ function renderLedger() {
 function renderMachine() {
   if (!roomOn() || !state) return;
   const shows = state.shows;
-  // One entry per episode qBittorrent is holding. /api/overview sends each
-  // torrent as {progress} and nothing else, so a slot can say which show it
-  // belongs to and whether it has finished — and nothing more. Numbering the
-  // slots by their position in the array would label episode 9 as "ep 2".
-  const slots = [];
+  // /api/overview sends each torrent as {progress} and nothing else, so all
+  // that can be said about the queue is how much of it has finished. That is
+  // one number, and it is stated as one number in the rows below. It used to
+  // also be drawn as a rack of one anonymous square per episode, which said
+  // nothing the number did not and could not be read at all.
+  let held = 0, ready = 0;
   for (const s of shows) {
-    for (const tr of (s.torrents || [])) {
-      slots.push({ done: tr.progress >= 1, show: displayTitle(s) });
-    }
+    for (const tr of (s.torrents || [])) { held++; if (tr.progress >= 1) ready++; }
   }
-  const ready = slots.filter(x => x.done).length;
   const count = st => shows.filter(s => s.status === st).length;
   const row = (cls, label, value) =>
     `<div class="mrow"><span class="dot ${cls}"></span>${esc(label)}<span class="mv">${esc(value)}</span></div>`;
@@ -4096,23 +4379,81 @@ function renderMachine() {
   html += row(state.sync_running ? "warn" : "", t("mSync"),
     state.sync_running ? t("mSyncing") : fmtStamp(state.last_sync));
   html += row("", t("mSubs"), String(count("subscribed")));
-  html += row(ready < slots.length ? "warn" : "", t("mReady"), `${ready}/${slots.length}`);
+  html += row(ready < held ? "warn" : "", t("mReady"), `${ready}/${held}`);
   if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
   if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
-  // The queue rack. Unlabelled this was a block of green squares nobody could
-  // read, so it now says what a slot is, how many there are, and — on hover —
-  // which show each one belongs to. Every tenth slot is spaced off so the rack
-  // can be counted at a glance instead of one square at a time. Every slot is
-  // drawn: a cap would let the count in the caption disagree with the rack
-  // under it, which is exactly the kind of quiet lie this panel was fixing.
-  if (slots.length) {
-    html += `<div class="barhead"><span>${esc(t("queueRack"))}</span>` +
-      `<span class="bn">${ready}/${slots.length}</span></div>`;
-    html += `<div class="bar">${slots.map((x, i) =>
-      `<i class="${x.done ? "done" : ""}${(i + 1) % 10 === 0 ? " g" : ""}" title="${
-        esc(t("queueSlot", x))}"></i>`).join("")}</div>`;
-  }
   setHTML($("machine"), html);
+}
+
+// ----- the census: the shape of the archive, by year -----
+//
+// The one thing the desk never said out loud. Everything else here answers
+// "what is about to happen" or "did it work"; nothing answered "what is on
+// these shelves". Both rails now describe the same collection — the left one
+// stands it up volume by volume, this one plots it as a run of years, so a
+// long gap or a heavy season is visible without counting spines.
+//
+// Premiere year, not the year it was marked watched: the archive is shelved by
+// when a show was made, and so is this.
+function censusYear(s) {
+  const m = /^(\d{4})/.exec(s.premiere_date || s.date || "");
+  return m ? +m[1] : null;
+}
+
+function renderCensus() {
+  if (!roomOn() || !collections) return;
+  const shows = (collections.groups.done || []);
+  const years = new Map();
+  let scored = 0, total = 0;
+  for (const s of shows) {
+    const y = censusYear(s);
+    if (y) years.set(y, (years.get(y) || 0) + 1);
+    if (s.score) { scored++; total += +s.score; }
+  }
+  const el = $("census");
+  if (!years.size) {
+    setHTML(el, `<div class="none">${esc(t("censusNone"))}</div>`);
+    return;
+  }
+  const lo = Math.min(...years.keys()), hi = Math.max(...years.keys());
+  const peak = Math.max(...years.values());
+  const fig = (v, label) => `<div class="cfig"><b>${esc(v)}</b><span>${esc(label)}</span></div>`;
+  let html = `<div class="cfigs">${
+    fig(String(shows.length), t("censusVols"))}${
+    fig(`${lo}–${hi}`, t("censusSpan"))}${
+    fig(scored ? (total / scored).toFixed(1) : "—", t("censusMean"))}</div>`;
+  // One column per year across the whole span, gaps included — a year nothing
+  // was finished in is part of the shape, and skipping it would draw a denser
+  // shelf than the one that exists.
+  let bars = "";
+  for (let y = lo; y <= hi; y++) {
+    const n = years.get(y) || 0;
+    // Columns are keyed to the tallest year, with a floor so a single volume
+    // still shows as a mark rather than as nothing.
+    const pct = n ? Math.max(9, Math.round((n / peak) * 100)) : 0;
+    bars += `<button class="cbar${n === peak ? " top" : ""}${n ? "" : " nil"}"
+      style="--h:${pct}%" data-y="${y}" data-n="${n}" onclick="censusPick(${y})"
+      title="${esc(t("censusBar", { y, n }))}" aria-label="${esc(t("censusBar", { y, n }))}"></button>`;
+  }
+  html += `<div class="cchart">${bars}</div>`;
+  html += `<div class="caxis"><span>${lo}</span><span>${hi}</span></div>`;
+  setHTML(el, html);
+}
+
+// Clicking a year re-shelves the archive by date and lights that year's
+// volumes for a moment, so the two rails answer each other.
+let censusFlash = null;
+function censusPick(y) {
+  if (spineSort !== "year") setSpineSort("year");
+  clearTimeout(censusFlash);
+  const wall = $("spinewall");
+  if (!wall) return;
+  const ids = new Set((collections.groups.done || [])
+    .filter(s => censusYear(s) === y).map(s => String(s.bgm_id)));
+  wall.querySelectorAll(".spine").forEach(el =>
+    el.classList.toggle("lit", ids.has(el.dataset.bgm)));
+  censusFlash = setTimeout(() =>
+    wall.querySelectorAll(".spine.lit").forEach(el => el.classList.remove("lit")), 2400);
 }
 
 function renderRoom() {
@@ -4121,6 +4462,7 @@ function renderRoom() {
   renderUpcoming();
   renderSpineWall(false);
   renderMachine();
+  renderCensus();
   renderLedger();
 }
 
