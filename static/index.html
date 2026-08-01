@@ -634,11 +634,11 @@
   }
   #cards.anim > .unit .tome {
     animation: volIn .5s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim > .season-divider, #cards.anim > .empty {
     animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim .sched-item {
     animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
@@ -1834,9 +1834,16 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     text-shadow: 0 1px 2px rgba(0,0,0,.65);
   }
-  @keyframes spineIn { from { opacity: 0; transform: translateY(18px); } }
-  .spinewall.anim .spine { animation: spineIn .42s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 40) * 14ms); }
+  /* The archive comes up shelf by shelf, not volume by volume.
+     --i is the row a spine landed on, stamped after layout, so a whole shelf
+     rises as one. Dealing 141 spines out individually took the better part of a
+     second and read as loading rather than as an entrance — which is exactly
+     what it was mistaken for: a second wave arriving after the covers, when in
+     fact both had been standing there since before the curtain moved. Six rows
+     of stagger is the whole budget now. */
+  @keyframes spineIn { from { opacity: 0; transform: translateY(20px); } }
+  .spinewall.anim .spine { animation: spineIn .46s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms); }
   /* Picking a year off the census lights that year's volumes for a moment, so
      a figure in one rail can be found in the other. */
   .spine.lit .svol {
@@ -2747,15 +2754,32 @@ function setHTML(el, html) {
 // triggers the opening replay itself, timed to the overlay lift.
 let animateCards = false;
 
-// Stamp each animatable child with its index for the CSS stagger delay.
-// Timetable mode staggers per column (a wave), grids stagger across the run.
+// Stamp each animatable child with its stagger rank.
+// The timetable staggers per column, which is a wave running down each day.
+// The grid staggers by shelf: everything standing on one plank rises together,
+// the same rank the archive rail uses, so the whole room comes up in a few
+// broad moves instead of dealing itself out item by item.
 function applyStagger() {
   const c = $("cards");
   if (activeType === "schedule") {
     c.querySelectorAll(".sched-col").forEach(col =>
       col.querySelectorAll(".sched-item").forEach((el, i) => el.style.setProperty("--i", i)));
-  } else {
-    [...c.children].forEach((el, i) => el.style.setProperty("--i", i));
+    return;
+  }
+  stampShelves(c.children);
+}
+
+// Rank each element by the plank it stands on. Grid and archive alike are
+// bottom-aligned rows of objects of different heights, so the shelf line is the
+// bottom edge, not the top — grouping by top would give a volume its own rank
+// per height and put the stagger back to one item at a time. Rounded to 4px to
+// absorb subpixel differences between neighbours on the same plank.
+function stampShelves(els) {
+  const shelves = new Map();
+  for (const el of els) {
+    const line = Math.round(el.getBoundingClientRect().bottom / 4);
+    if (!shelves.has(line)) shelves.set(line, shelves.size);
+    el.style.setProperty("--i", shelves.get(line));
   }
 }
 
@@ -4208,7 +4232,9 @@ function renderSpineWall(animate) {
     !!(animate || (spineFirst && document.body.classList.contains("booted"))));
   spineFirst = false;
   setHTML(wall, shows.map(spineHtml).join(""));
-  [...wall.children].forEach((el, i) => el.style.setProperty("--i", i));
+  // Stagger rank is the shelf a volume ended up on, not its position in the
+  // run. Volumes on one shelf all carry the same rank and rise together.
+  stampShelves(wall.children);
   $("archive-n").textContent = t("volumes", shows.length);
   $("spinesort").querySelectorAll("button").forEach(el =>
     el.setAttribute("aria-pressed", String(el.dataset.v === spineSort)));
