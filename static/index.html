@@ -3,100 +3,259 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#eef1f7" media="(prefers-color-scheme: light)">
+<!-- The browser chrome takes the colour of the room it is framing: mahogany at
+     night, oak by day. Keep these in step with --bg. -->
+<meta name="theme-color" content="#1a0e06" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#cfc0a0" media="(prefers-color-scheme: light)">
 <!-- One canonical mark, in every form anything asks for. The browser takes
      the last <link rel=icon> it understands, so the SVG must follow the ICO.
-     Regenerate with .uishots/icons/gen.py - never hand-edit. -->
+     Generated, never hand-edited: all five local services are drawn by one
+     script, kept as icons/gen.py in the Atrium repo. -->
 <link rel="icon" href="/static/brand/favicon.ico" sizes="32x32">
 <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <link rel="manifest" href="/static/brand/manifest.webmanifest">
+<!-- The Latin face is 850KB and every heading on the page waits on it, so it is
+     fetched with the document. The CJK face is 25MB: preloading it would hold
+     the connection open for the whole opening, so it swaps in instead. -->
+<link rel="preload" href="/static/fonts/EBGaramond-wght.ttf" as="font" type="font/ttf" crossorigin>
 <title>Anime Autopilot</title>
 <style>
+  /* Two faces, both bundled, both variable-weight, both SIL OFL — see
+     static/fonts/LICENSE.txt. Bundled rather than named: the CJK serif this
+     page wants is not on a stock Windows install, and the fallback there is
+     SimSun, whose embedded bitmaps are exactly what a printed page must not
+     look like. font-display: swap because a 25MB face must never hold text. */
+  @font-face {
+    font-family: "EB Garamond"; font-style: normal; font-weight: 400 800;
+    font-display: swap; src: url("/static/fonts/EBGaramond-wght.ttf") format("truetype");
+  }
+  @font-face {
+    font-family: "Noto Serif SC"; font-style: normal; font-weight: 200 900;
+    font-display: swap; src: url("/static/fonts/NotoSerifSC-VF.ttf") format("truetype");
+  }
+  /* ==========================================================================
+     THE DESK — the whole page is one piece of furniture.
+
+     Two lighting states of the same room, not two colour schemes: dark is the
+     study at night under its lamps, light is the same study with the shutters
+     open and the lamps off. So the palette is warm in both — mahogany carcass
+     and green skiver at night, pale oak and parchment by day — and the lamp's
+     interior glow is switched off by a token rather than recoloured.
+
+     Every material below is drawn with gradients. Nothing is an image file.
+     ========================================================================== */
   :root {
     color-scheme: dark;
-    --bg: #0a0c11;
-    --panel: rgba(255,255,255,.035);
-    --panel-border: rgba(255,255,255,.08);
-    --text: #e7eaf0;
-    --text-dim: #8b93a3;
-    --text-faint: #7d8698;
-    --accent-a: #8b5cf6;
-    --accent-b: #22d3ee;
-    --ok: #34d399;
-    --warn: #fbbf24;
-    --muted: #64748b;
-    --media-bg: #141821;
-    --input-bg: #12151d;
-    --log-bg: #0d1017;
-    --log-text: #9aa5b8;
-    --toast-bg: #161a24;
-    --btn-text: #0b0d12;
-    --hover-border: rgba(255,255,255,.16);
-    --scroll-thumb: rgba(255,255,255,.16);
-    --glow-a: rgba(139,92,246,.46);
-    --glow-b: rgba(34,211,238,.34);
-    --glow-c: rgba(139,92,246,.26);
-    --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-    --radius: 18px;
+    /* Type: one base, one user multiplier. Every size downstream is
+       calc(Nrem * var(--ui)), so the settings drawer rescales the whole sheet
+       at once. --base is 1rem rather than 16px on purpose: rem resolves against
+       the browser's own default size, so someone who has raised that gets a
+       bigger UI here too instead of the body alone staying at 16px while every
+       rem-based size around it grows. */
+    --base: 1rem;
+    --ui: 1;
+
+    --bg: #1a0e06;                        /* mahogany, seen past the furniture */
+    --panel: rgba(255,248,235,.042);
+    --panel-border: rgba(255,235,200,.11);
+    --text: #f0ece3;
+    --text-dim: #b3a794;
+    --text-faint: #a2937d;
+    /* The two accents are the two inks a desk like this actually holds: the
+       ruling red the margins are drawn in, and the blue-black the entries are
+       written in. They replace a violet and a cyan that belonged to no material
+       on the page and made every pill, badge and marker read as pasted on. */
+    --accent-a: #de8371;                  /* ruling red */
+    --accent-b: #86b7dc;                  /* blue-black ink, thinned for lamplight */
+    --ok: #6fc39a;
+    --warn: #e8b23c;
+    --muted: #b6a993;
+    --media-bg: #1c1409;
+    --input-bg: #140f08;
+    --log-bg: #120d07;
+    --log-text: #b0a591;
+    --toast-bg: #241708;
+    --btn-text: #1a0e06;
+    --hover-border: rgba(255,225,170,.26);
+    --scroll-thumb: rgba(255,225,170,.20);
+    --drawer-bg: #251508;                 /* bare timber, inside the drawer */
+
+    /* Materials */
+    --wood-a: #33190b;                    /* rail carcass, lit end */
+    --wood-b: #1d0f05;                    /* rail carcass, shadowed end */
+    --wood-grain-hi: rgba(255,214,150,.035);
+    --wood-grain-lo: rgba(0,0,0,.13);
+    --brass: #c8960a;
+    --brass-hi: #f0d074;
+    --brass-lo: #6b4a12;
+    /* A cast key's face is a separate token from the brass its edges are
+       drawn in. The furniture brass runs dark at the bottom of its roll, and
+       text sitting on that stop measured 2.4:1 — the face keeps only the two
+       lit stops, and the dark underside becomes an inset edge that no glyph
+       ever lands on. */
+    --key-a: #f0d074;
+    --key-b: #c8960a;
+    --key-text: #1a0e06;
+    --gilt: rgba(226,178,72,.42);          /* tooled rules, panel edges */
+    --gilt-soft: rgba(226,178,72,.20);
+    --skiver: #142a1c;                     /* bottle-green desk leather */
+    --skiver-lit: rgba(78,134,90,.15);     /* where the lamp reaches it */
+    --skiver-pebble: rgba(255,255,255,.030);
+    --timber-lip: #3a2413;                 /* the rebate the leather sits in */
+    --paper: rgba(247,236,208,.055);
+    /* The timetable is a sheet of buff form stock lying on the leather. It has
+       to be its own opaque material, not a wash over the desk: a translucent
+       tint left the sheet reading as a patch of green leather with rules
+       printed on it, which is not what paper on a desk looks like at any hour.
+       Dim, because at night it is lit by one lamp through a green shade. */
+    --paper-form: #342b1b;
+    --paper-rule: rgba(255,238,205,.08);
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+    --grain-blend: soft-light;
+
+    /* Lamp */
+    --lamp-brass: #a07c47;
+    --lamp-brass-hi: #e2c489;
+    --lamp-brass-lo: #4d3a1f;
+    --lamp-shade-a: #2b6f47;
+    --lamp-shade-b: #163f28;
+    --lamp-shade-hi: #3f8f5d;
+    --lamp-opal: #fff6c4;
+    --lamp-opal-a: 1;
+    --lamp-cone-a: .8;
+    --lamp-pool-a: .85;
+    --lamp-glow: rgba(255,206,132,.20);
+
+    --stamp-ink: rgba(228,146,110,.80);
+    --ledger-rule: rgba(255,235,200,.09);
+    --ledger-margin: rgba(214,102,88,.52);
+
+    /* One face for prose, one for figures. There is no sans anywhere on the
+       page: the room is a desk, so it sets its words in a book face and its
+       numbers on a typewriter, and those are the only two voices it has.
+       --font-display and --font-body name the same stack on purpose — the
+       difference between a heading and a caption here is weight, size and
+       tracking, the way it is on a printed page, not a second typeface. */
+    --mono: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+    --font-body: "EB Garamond", "Noto Serif SC", Cambria, Georgia,
+                 "Songti SC", SimSun, ui-serif, serif;
+    --font-display: var(--font-body);
   }
   html[data-theme="light"] {
     color-scheme: light;
-    --bg: #eef1f7;
-    --panel: rgba(255,255,255,.65);
-    --panel-border: rgba(13,23,40,.10);
-    --text: #16202e;
-    --text-dim: #526074;
-    --text-faint: #5d6b80;
-    --accent-a: #7c3aed;
-    --accent-b: #0891b2;
-    --ok: #059669;
-    --warn: #b45309;
-    --media-bg: #dfe5ee;
-    --input-bg: #ffffff;
-    --log-bg: #e9edf4;
-    --log-text: #45536a;
-    --toast-bg: #ffffff;
-    --btn-text: #ffffff;
-    --hover-border: rgba(13,23,40,.25);
-    --scroll-thumb: rgba(13,23,40,.22);
-    --glow-a: rgba(124,58,237,.42);
-    --glow-b: rgba(8,145,178,.36);
-    --glow-c: rgba(124,58,237,.24);
+    --bg: #cfc0a0;
+    --panel: rgba(255,252,244,.80);
+    --panel-border: rgba(92,60,24,.18);
+    --text: #241a10;
+    /* Both measured against the sage skiver, which is the lightest surface
+       either colour ever sits on: #4a3826 gives 5.2:1 and #4e3d29 gives 4.9:1.
+       The previous pair measured 4.0:1 and 3.3:1 and failed body text. */
+    --text-dim: #4a3826;
+    --text-faint: #4e3d29;
+    --accent-a: #87301f;                  /* ruling red, full strength on paper */
+    --accent-b: #123f57;                  /* blue-black ink */
+    --ok: #1a5334;
+    --warn: #68410c;
+    --muted: #544a3a;
+    --media-bg: #e6ddc9;
+    --input-bg: #fdfaf3;
+    --log-bg: #f0e9da;
+    --log-text: #4a3d2b;
+    --toast-bg: #fdfaf3;
+    --btn-text: #fffdf7;
+    --hover-border: rgba(92,60,24,.38);
+    --scroll-thumb: rgba(92,60,24,.24);
+    --drawer-bg: #e3d6b8;
+
+    --wood-a: #ddcda6;
+    --wood-b: #c3b088;
+    --wood-grain-hi: rgba(255,255,255,.17);
+    --wood-grain-lo: rgba(92,58,20,.07);
+    --brass: #9a7318;
+    --brass-hi: #d0aa4a;
+    --brass-lo: #5f4610;
+    /* Daylight brass is brighter than the furniture brass, so the dark text on
+       it clears 4.5:1 across the whole face. */
+    --key-a: #f2d98f;
+    --key-b: #d5ae4c;
+    --key-text: #241a10;
+    --gilt: rgba(133,98,20,.48);
+    --gilt-soft: rgba(133,98,20,.22);
+    --skiver: #a8b898;
+    --skiver-lit: rgba(255,255,255,.34);
+    --skiver-pebble: rgba(60,80,50,.055);
+    --timber-lip: #a3835a;
+    --paper: rgba(255,253,246,.80);
+    --paper-form: rgba(226,212,178,.86);
+    --paper-rule: rgba(92,60,24,.10);
+    --grain-blend: multiply;
+
+    --lamp-brass: #8a6a2c;
+    --lamp-brass-hi: #c2a054;
+    --lamp-brass-lo: #5a4318;
+    --lamp-shade-a: #3f8258;
+    --lamp-shade-b: #2a6440;
+    --lamp-shade-hi: #55a271;
+    --lamp-opal: #fff6c4;
+    --lamp-opal-a: 0;                     /* daylight: the lamp is simply off */
+    --lamp-cone-a: 0;
+    --lamp-pool-a: .12;
+    --lamp-glow: rgba(255,214,150,.10);
+
+    --stamp-ink: rgba(150,58,44,.70);
+    --ledger-rule: rgba(92,60,24,.14);
+    --ledger-margin: rgba(178,72,58,.52);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  /* Optical compensation, stated once. A Garamond sets a much smaller x-height
+     than the UI sans it replaced — the same nominal size reads a whole step
+     down — so the rem the entire sheet is measured in grows by a tenth. It is a
+     percentage, not a pixel count, so a reader who has raised the browser's own
+     default still gets that larger size multiplied through. */
+  html { font-size: 110%; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
+    font-family: var(--font-body);
+    font-size: calc(var(--base) * var(--ui));
+    line-height: 1.55;
     min-height: 100vh;
   }
-  /* Ambient glow: two fixed pseudo-elements (one per blob) drifting and
-     breathing on the compositor. Different periods keep them permanently out
-     of phase, so the combined motion reads organic; the opacity swing is what
-     makes the breathing visible — pure translation at this scale isn't.
-     Keyframes only declare `to`: the rest state is the old static gradient,
-     which is exactly what reduced-motion freezes back into. */
+  /* The one grain: a 140px tile of baked noise, laid into each material's own
+     background stack rather than over the page. Fixing a blend layer across the
+     viewport would force the whole backdrop to re-composite on every scroll
+     frame; carried by the surface it belongs to, the grain scrolls with the
+     wood and costs one extra paint layer on an element that was painting
+     anyway. */
+  /* The room's light: two fixed washes that breathe out of phase, so the
+     lighting reads as a lamp rather than a gradient. Dark is 2700K lamplight
+     pooling in the upper corners and on the floor; light is cool sky through a
+     window on the left with a warm bounce off the timber on the right. Both
+     are the same two elements — only the colour changes, because it is the
+     same room at a different hour. Keyframes declare only `to`, so the rest
+     state is the static wash reduced-motion freezes back into. */
   body::before, body::after {
     content: ""; position: fixed; inset: -14%; z-index: -1; pointer-events: none;
   }
-  /* vw/vh blob geometry, spread down the whole page: cards hide most of the
-     background, so the wash concentrates where it stays visible — the top
-     band (purple), the side margins mid-page (teal, left), and below the grid
-     (faint purple, bottom-right). Works at any window width. */
   body::before {
     background:
-      radial-gradient(95vw 72vh at 85% -10%, var(--glow-a), transparent 66%),
-      radial-gradient(70vw 55vh at 108% 92%, var(--glow-c), transparent 68%);
+      radial-gradient(78vw 58vh at 76% -12%, rgba(255,178,84,.20), transparent 68%),
+      radial-gradient(56vw 48vh at 104% 96%, rgba(150,70,16,.16), transparent 70%);
     animation: drift 9s ease-in-out infinite alternate;
   }
   body::after {
-    background: radial-gradient(80vw 62vh at -6% 42%, var(--glow-b), transparent 66%);
+    background: radial-gradient(64vw 56vh at -6% 40%, rgba(255,152,60,.13), transparent 68%);
     animation: drift2 13s ease-in-out infinite alternate;
+  }
+  html[data-theme="light"] body::before {
+    background:
+      radial-gradient(80vw 62vh at 12% -10%, rgba(206,226,246,.60), transparent 66%),
+      radial-gradient(52vw 46vh at 104% 92%, rgba(214,178,110,.30), transparent 70%);
+  }
+  html[data-theme="light"] body::after {
+    background: radial-gradient(60vw 54vh at 96% 34%, rgba(255,236,196,.42), transparent 68%);
   }
   /* Visible breathing: a ~1.8:1 bright/dim swing at a pace the eye actually
      registers (~5%/s). The higher base alphas buy back the dim floor — at .55
@@ -107,18 +266,138 @@
   @keyframes drift2 {
     to { transform: translate3d(4.5%, -3%, 0) scale(1.2); opacity: .52; }
   }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
+
+  /* ----- the writing surface -----
+     The centre column is the leather-topped writing area of the desk, at every
+     width — this is the only part of the furniture a phone ever sees, so it
+     carries the metaphor on its own: green skiver, a gilt tooled rule pressed
+     around the edge, the binding fold of the register lying open on it, and
+     the ghost of the last cover pulled. */
+  .wrap {
+    position: relative; isolation: isolate;
+    /* How much timber shows around the leather. A phone has no room for a
+       surround, so the skiver runs to the edge there. */
+    --surface-inset: 0px;
+    max-width: 1180px; margin: 0 auto; padding: 34px 30px 96px;
+  }
+  @media (min-width: 900px) { .wrap { --surface-inset: 16px; padding: 44px 44px 104px; } }
+  @media (min-width: 1800px) { .wrap { --surface-inset: 24px; } }
+  /* The skiver is INSET rather than butted against the pedestal: a strip of the
+     desk's own timber shows all round it, which is what makes the leather read
+     as let into a desk top instead of as a green column. It sits down in its
+     rebate (inner shadow), and the binder's double gilt rule is run around it
+     with the timber lip caught between the two lines. */
+  .wrap::before {
+    content: ""; position: absolute; inset: var(--surface-inset, 0px); z-index: -1;
+    pointer-events: none; border-radius: 2px;
+    background:
+      var(--grain),
+      radial-gradient(circle at 3px 3px, var(--skiver-pebble) 0 1px, transparent 1.6px),
+      radial-gradient(ellipse 88% 72% at 50% 28%, var(--skiver-lit), transparent 84%),
+      var(--skiver);
+    background-size: 140px 140px, 7px 7px, auto, auto;
+    background-blend-mode: var(--grain-blend), normal, normal, normal;
+    box-shadow:
+      inset 0 3px 7px rgba(0,0,0,.45),
+      0 0 0 1px var(--gilt),
+      0 0 0 5px var(--timber-lip),
+      0 0 0 6px var(--gilt-soft);
+  }
+  /* Corner tooling: two short rules meeting at a mitre in each corner and
+     nothing along the runs between them — the mark a binder actually leaves,
+     and it keeps the frame from reading as a plain box. */
+  .wrap::after {
+    content: ""; position: absolute; pointer-events: none; z-index: -1;
+    inset: calc(var(--surface-inset, 0px) + 13px);
+    border: 1px solid var(--gilt-soft);
+    -webkit-mask-image:
+      linear-gradient(90deg, #000 0 54px, transparent 54px calc(100% - 54px), #000 calc(100% - 54px)),
+      linear-gradient(180deg, #000 0 54px, transparent 54px calc(100% - 54px), #000 calc(100% - 54px));
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(90deg, #000 0 54px, transparent 54px calc(100% - 54px), #000 calc(100% - 54px)),
+      linear-gradient(180deg, #000 0 54px, transparent 54px calc(100% - 54px), #000 calc(100% - 54px));
+    mask-composite: intersect;
+  }
+  /* The binding fold of the register lying open on the desk. Only wide enough
+     windows get one — below 900px there is no spread to fold. */
+  .gutter {
+    position: absolute; left: 50%; width: 46px; z-index: -1;
+    top: var(--surface-inset, 0px); bottom: var(--surface-inset, 0px);
+    transform: translateX(-50%); pointer-events: none;
+    background: linear-gradient(90deg,
+      transparent, rgba(0,0,0,.26) 34%, rgba(0,0,0,.30) 50%, rgba(0,0,0,.26) 66%, transparent);
+  }
+  html[data-theme="light"] .gutter {
+    background: linear-gradient(90deg,
+      transparent, rgba(92,60,24,.14) 34%, rgba(92,60,24,.17) 50%, rgba(92,60,24,.14) 66%, transparent);
+  }
+  @media (max-width: 899px) { .gutter { display: none; } }
+  /* A tipped-in plate: the cover of whatever card was opened last, printed
+     faintly into the leather. Set by openCard(), cleared when the sheet shuts. */
+  .cover-ghost {
+    position: absolute; inset: var(--surface-inset, 0px); z-index: -1;
+    pointer-events: none; overflow: hidden;
+    background-image: var(--cover-ghost, none);
+    background-repeat: no-repeat;
+    background-position: right 54px top 70px;
+    background-size: auto 340px;
+    filter: grayscale(1) sepia(.55) contrast(.9);
+    opacity: var(--cover-ghost-a, 0);
+    transition: opacity .5s ease;
+  }
+  html[data-theme="light"] .cover-ghost { filter: grayscale(.85) sepia(.3); }
+  /* Blotter corners: four leather triangles holding the sheet down, the way a
+     desk pad does. They are the .wrap's own corners, drawn with two gradients
+     per side so the fold catches the light on one edge. */
+  .blotter { position: absolute; inset: var(--surface-inset, 0px); z-index: -1; pointer-events: none; }
+  .blotter i {
+    position: absolute; width: 62px; height: 62px;
+    background: linear-gradient(135deg, rgba(58,34,16,.85), rgba(30,17,8,.85));
+    box-shadow: inset 1px 1px 0 rgba(255,214,150,.14);
+  }
+  html[data-theme="light"] .blotter i {
+    background: linear-gradient(135deg, rgba(154,122,74,.85), rgba(120,92,52,.85));
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.45);
+  }
+  .blotter i:nth-child(1) { top: 0; left: 0; clip-path: polygon(0 0, 100% 0, 0 100%); }
+  .blotter i:nth-child(2) { top: 0; right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%); }
+  .blotter i:nth-child(3) { bottom: 0; left: 0; clip-path: polygon(0 0, 0 100%, 100% 100%); }
+  .blotter i:nth-child(4) { bottom: 0; right: 0; clip-path: polygon(100% 0, 100% 100%, 0 100%); }
   :focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; }
+  /* Cyan on gold measures 1.5:1, so the ring would vanish the moment focus
+     landed on a brass key. Those get a dark inner ring with the cyan outside
+     it, which is guaranteed to read against both the key and whatever the key
+     is sitting on. */
+  .btn:focus-visible, .fchip.active:focus-visible,
+  .seg button[aria-pressed="true"]:focus-visible {
+    outline-color: var(--key-text);
+    box-shadow: 0 0 0 4px var(--accent-b);
+  }
+  /* On the pale skiver the cyan itself is only 2.5:1 — darken it for daylight. */
+  html[data-theme="light"] :focus-visible { outline-color: #065063; }
   .sr-only {
     position: absolute; width: 1px; height: 1px; margin: -1px;
     clip-path: inset(50%); overflow: hidden; white-space: nowrap;
   }
 
-  /* ---------- header ---------- */
-  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
-  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+  /* ---------- the desk's front rail: brand plate, readings, controls ---------- */
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    position: relative; padding-bottom: 20px; margin-bottom: 24px;
+  }
+  /* The brass edge moulding along the front of the writing surface: a lit
+     centre band between two darker rolls, which is what a rounded brass strip
+     actually does under a single lamp. */
+  header::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--brass-lo), var(--brass) 38%, var(--brass-hi) 52%, var(--brass) 66%, var(--brass-lo));
+    opacity: .68;
+  }
+  .brand { display: flex; align-items: baseline; gap: 11px; margin-right: auto; }
   .brand .logo {
-    width: 26px; height: 26px; flex: none; align-self: center;
+    width: 30px; height: 30px; flex: none; align-self: center;
     filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-a) 55%, transparent));
     transition: transform .5s cubic-bezier(.34,1.56,.64,1), filter .3s ease;
   }
@@ -126,25 +405,43 @@
     transform: rotate(-10deg) scale(1.1);
     filter: drop-shadow(0 0 16px color-mix(in srgb, var(--accent-a) 85%, transparent));
   }
-  .brand h1 { font-size: 19px; font-weight: 650; letter-spacing: .12em; margin: 0; }
-  .brand small { color: var(--text-faint); letter-spacing: .05em; font-size: 11.5px; }
+  /* The wordmark is engraved rather than printed: a dark line above and a lit
+     one below make it sit in the brass instead of on it. */
+  .brand h1 {
+    margin: 0; font-family: var(--font-display); font-weight: 650;
+    font-size: calc(1.45rem * var(--ui)); letter-spacing: .11em;
+    color: color-mix(in srgb, var(--brass-hi) 72%, var(--text));
+    text-shadow: 0 1px 0 rgba(0,0,0,.55), 0 -1px 0 rgba(255,232,180,.18);
+  }
+  html[data-theme="light"] .brand h1 {
+    color: color-mix(in srgb, var(--brass) 62%, var(--text));
+    text-shadow: 0 1px 0 rgba(255,255,255,.6), 0 -1px 0 rgba(92,60,24,.22);
+  }
+  .brand small { color: var(--text-faint); letter-spacing: .05em; font-size: calc(.85rem * var(--ui)); }
+  /* Readings are ivory tickets slipped under the brass rail, not pills. */
   .chip {
-    padding: 5px 12px; border-radius: 999px; font-size: 12px;
+    padding: 6px 13px; border-radius: 3px; font-size: calc(.85rem * var(--ui));
     border: 1px solid var(--panel-border); background: var(--panel); color: var(--text-dim);
     white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,240,215,.09), 0 1px 2px rgba(0,0,0,.30);
   }
   .chip b { color: var(--text); font-weight: 600; }
   .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+  /* Buttons are cast-brass keys: a rolled top edge, a lit face, a dark
+     underside, and a real shadow on the leather. */
   .btn {
-    appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600;
-    color: var(--btn-text); padding: 8px 18px; border-radius: 999px;
-    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-    transition: transform .15s ease, box-shadow .15s ease, opacity .15s;
-    box-shadow: 0 4px 18px color-mix(in srgb, var(--accent-a) 35%, transparent);
+    appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 650;
+    font-size: calc(.95rem * var(--ui)); letter-spacing: .02em;
+    color: var(--key-text); padding: 9px 20px; border-radius: 4px;
+    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    transition: transform .15s ease, box-shadow .15s ease, filter .15s ease, opacity .15s;
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.55), inset 0 -3px 3px -2px rgba(0,0,0,.45),
+                0 2px 6px rgba(0,0,0,.42);
+    text-shadow: 0 1px 0 rgba(255,246,214,.35);
     position: relative; overflow: hidden;
   }
-  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 22px color-mix(in srgb, var(--accent-a) 50%, transparent); }
-  .btn:active:not(:disabled) { transform: translateY(0) scale(.97); }
+  .btn:hover { transform: translateY(-1px); filter: brightness(1.09); box-shadow: inset 0 1px 0 rgba(255,248,220,.6), 0 4px 10px rgba(0,0,0,.5); }
+  .btn:active:not(:disabled) { transform: translateY(1px) scale(.99); filter: brightness(.94); }
   .btn:disabled { opacity: .55; cursor: default; transform: none; }
   /* Busy sheen: a light band sweeps a disabled (= in-progress) button. The
      element's own transform parks it off-canvas, so with animations disabled
@@ -156,13 +453,15 @@
     animation: sheen 1.4s ease-in-out .2s infinite;
   }
   @keyframes sheen { to { transform: translateX(120%); } }
+  /* Ghost buttons are bone, not brass — a plain bevelled key for secondary work. */
   .btn.ghost {
-    background: var(--panel); color: var(--text-dim);
-    border: 1px solid var(--panel-border); box-shadow: none; font-weight: 500;
+    background: var(--panel); color: var(--text-dim); text-shadow: none;
+    border: 1px solid var(--panel-border); font-weight: 550;
+    box-shadow: inset 0 1px 0 rgba(255,240,215,.10), 0 1px 2px rgba(0,0,0,.28);
   }
-  .btn.ghost:hover { color: var(--text); }
-  .btn.small { padding: 5px 12px; font-size: 12px; }
-  .btn.compact { padding: 6px 13px; font-size: 12px; min-width: 46px; }
+  .btn.ghost:hover { color: var(--text); filter: none; border-color: var(--hover-border); }
+  .btn.small { padding: 6px 13px; font-size: calc(.85rem * var(--ui)); }
+  .btn.compact { padding: 7px 14px; font-size: calc(.85rem * var(--ui)); min-width: 48px; }
 
   /* ==========================================================================
      THE WALL — one small bracketed shelf per show, one bound volume on it.
@@ -280,26 +579,30 @@
   }
   .unit:hover .f-cover::after { transform: translateX(130%); transition: transform .62s ease-out; }
 
-  /* The shelf: a plank with a lit lip, on two brackets. */
+  /* The shelf: a timber plank with a lit front lip, carried on two brass
+     brackets. The plank end grain shows at the lip; the brackets are cast
+     brass, so they take the same three-stop roll the buttons do. */
   .plank {
-    position: relative; width: 128px; height: 5px; margin-top: 3px;
-    background: var(--plank-face);
+    position: relative; width: 136px; height: 7px; margin-top: 3px;
+    background: linear-gradient(180deg, var(--plank-face), rgba(0,0,0,.30));
     border-top: 1px solid var(--plank-lip);
+    box-shadow: 0 1px 0 rgba(0,0,0,.45);
   }
   .plank::before, .plank::after {
-    content: ""; position: absolute; top: 5px; width: 3px; height: 8px;
-    background: var(--plank-face);
+    content: ""; position: absolute; top: 7px; width: 5px; height: 11px;
+    background: linear-gradient(90deg, var(--brass-lo), var(--brass) 45%, var(--brass-hi) 60%, var(--brass-lo));
+    opacity: .62; border-radius: 0 0 2px 2px;
   }
-  .plank::before { left: 14px; }
-  .plank::after { right: 14px; }
-  :root { --plank-face: rgba(255, 255, 255, .085); --plank-lip: rgba(255, 255, 255, .3); }
-  html[data-theme="light"] { --plank-face: rgba(13, 23, 40, .11); --plank-lip: rgba(13, 23, 40, .32); }
+  .plank::before { left: 15px; }
+  .plank::after { right: 15px; }
+  :root { --plank-face: rgba(214,168,96,.20); --plank-lip: rgba(240,208,140,.46); }
+  html[data-theme="light"] { --plank-face: rgba(150,104,42,.26); --plank-lip: rgba(255,246,226,.75); }
 
   /* The shelf label: only for the volume under the pointer, so the wall stays
      a wall. Its box is always reserved, so revealing it never reflows. */
   .ulabel {
-    margin-top: 7px; width: 132px; height: 27px;
-    font-size: 10.5px; line-height: 1.28; color: var(--text-dim);
+    margin-top: 8px; width: 142px; height: calc(2.13rem * var(--ui));
+    font-size: calc(.82rem * var(--ui)); line-height: 1.3; color: var(--text-dim);
     text-align: center;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
@@ -308,13 +611,15 @@
   }
   .unit:hover .ulabel, .unit:focus-visible .ulabel { opacity: 1; transform: none; }
 
-  /* Episodes ready to watch — the one reading worth having without a click. */
+  /* Episodes ready to watch — the one reading worth having without a click.
+     A small enamelled tag tied to the volume, not a web badge. */
   .upip {
-    position: absolute; top: 14px; right: 14px; z-index: 3;
-    min-width: 18px; padding: 2px 5px;
-    font-family: var(--mono); font-size: 10px; line-height: 1.3;
+    position: absolute; top: 14px; right: 12px; z-index: 3;
+    min-width: 22px; padding: 3px 6px;
+    font-family: var(--mono); font-size: calc(.82rem * var(--ui)); line-height: 1.25;
     text-align: center; color: var(--btn-text);
-    background: var(--ok); border-radius: 3px;
+    background: var(--ok); border-radius: 2px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 1px 3px rgba(0,0,0,.5);
   }
   .upip.wait { background: var(--warn); }
   .upip.none { background: var(--muted); }
@@ -324,31 +629,53 @@
      filter switches) — silent 30s poll updates swap content with no replay.
      --i is stamped by applyStagger(); capped so a 140-volume wall settles. */
   @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  /* The fade and the rise are split across two elements on purpose. An element
+     carrying transform-style:preserve-3d has that style forced back to flat for
+     as long as it also has opacity below 1, and a flat book is only its cover:
+     the spine and the board are quarter-turned, so they collapse to nothing.
+     Fading the tome hid every spine until the last frame of its own entrance,
+     which is the whole shelf arriving as covers first and books afterwards.
+     So the unit fades and the tome only moves — the book is solid throughout. */
+  @keyframes unitIn { from { opacity: 0; } }
   @keyframes volIn {
-    from { opacity: 0; transform: rotateY(30deg) translateY(24px) translateZ(-30px); }
+    from { transform: rotateY(30deg) translateY(24px) translateZ(-30px); }
+  }
+  #cards.anim > .unit {
+    animation: unitIn .5s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim > .unit .tome {
     animation: volIn .5s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim > .season-divider, #cards.anim > .empty {
     animation: cardIn .45s cubic-bezier(.22,1,.36,1) backwards;
-    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 22) * 30ms);
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms);
   }
   #cards.anim .sched-item {
     animation: cardIn .4s cubic-bezier(.22,1,.36,1) backwards;
     animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 8) * 45ms);
   }
-  /* Covers fade in with the same user-driven gate, so a background data poll
-     never strobes every poster at once. */
+  /* Prints on the timetable fade in with the same user-driven gate, so a
+     background data poll never strobes every poster at once. A volume's cover
+     is not in here: it arrives with the unit that fades around it, and giving
+     it a second, undelayed fade of its own is what let a cover show up before
+     the book it belongs to. */
   @keyframes imgIn { from { opacity: 0; } }
-  #cards.anim .f-cover img, #cards.anim .scover img { animation: imgIn .5s ease backwards; }
+  #cards.anim .scover img { animation: imgIn .5s ease backwards; }
 
-  /* ----- the card, opened in the middle of the screen ----- */
+  /* ----- the card: an accession slip lifted off the desk -----
+     Ivory laid stock with a gilt rule around it and a torn-off top edge, so
+     the sheet reads as paper rather than as a modal. */
   .card {
-    background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: var(--radius); overflow: hidden;
+    background:
+      var(--grain),
+      linear-gradient(180deg, color-mix(in srgb, var(--paper) 100%, transparent), var(--panel));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
+    border: 1px solid var(--gilt); border-radius: 3px; overflow: hidden;
     display: flex;
+    box-shadow: inset 0 0 0 3px transparent, inset 0 0 0 4px var(--gilt-soft);
   }
   .card:active, .sched-item:active, .premiere:active { transform: scale(.99); }
   .t-watching { --card-glow: var(--ok); }
@@ -366,23 +693,26 @@
     position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint);
   }
   .cover .ph { font-size: 24px; }
-  .card-body { padding: 14px 16px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .card-body { padding: 16px 18px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
   .card h3 {
-    margin: 0; font-size: 15px; font-weight: 640; line-height: 1.3;
+    margin: 0; font-family: var(--font-display);
+    font-size: calc(1.16rem * var(--ui)); font-weight: 640; line-height: 1.3;
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
   }
   .card h3 a, .stitle a, .ptitle a { color: inherit; text-decoration: none; }
-  .show-title-link { color: inherit; min-width: 0; }
   /* bgm / mikan jump buttons next to a title. The only per-card navigation now
      that cards no longer open on a bare click. */
   .show-links { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+  /* Small + uppercase + tracked is three legibility penalties at once. The size
+     goes up and the other two come off, which is what actually makes 12px
+     readable rather than merely bigger. */
   .ext-link {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 10px; line-height: 1; letter-spacing: .04em; text-transform: uppercase;
-    padding: 3px 7px; border-radius: 6px; text-decoration: none; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: calc(.78rem * var(--ui)); line-height: 1.2; letter-spacing: .01em;
+    padding: 4px 8px; border-radius: 3px; text-decoration: none; white-space: nowrap;
     border: 1px solid; transition: color .15s ease, border-color .15s ease, background .15s ease;
   }
-  .ext-ico { width: 13px; height: 13px; border-radius: 3px; object-fit: contain; }
+  .ext-ico { width: 14px; height: 14px; border-radius: 2px; object-fit: contain; }
   /* Brand-tinted: bangumi pink, mikan orange. Faint fill at rest, solid on hover. */
   .ext-link.bgm {
     color: #d6636b; border-color: color-mix(in srgb, #f09199 55%, transparent);
@@ -394,12 +724,13 @@
     background: color-mix(in srgb, #f98c00 12%, transparent);
   }
   .ext-link.mikan:hover { color: #fff; background: #f98c00; border-color: transparent; }
-  .jp { color: var(--text-faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jp { color: var(--text-faint); font-size: calc(.85rem * var(--ui)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .pill {
-    font-size: 11px; font-weight: 600; letter-spacing: .04em;
-    padding: 3px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px;
-    background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
+    padding: 3px 10px; border-radius: 2px; display: inline-flex; align-items: center; gap: 6px;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent);
   }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .pill.grace { color: var(--warn); }
@@ -412,66 +743,104 @@
   /* Season badge: 8 colors = 4 cours × 2 years, same cour same color,
      palette repeats every two years. */
   .season-tag {
-    font-size: 11px; font-weight: 600; letter-spacing: .04em;
-    padding: 2px 9px; border-radius: 999px; color: var(--text-faint);
-    background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: calc(.78rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
+    padding: 2px 9px; border-radius: 2px; color: var(--text-faint);
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent);
   }
   /* Cross-cour badge: a 半年番/年番 marker, same pill family as the season tag.
      Half-year is calm, year-long is warmer/stronger to read as "longer". */
   .cour-tag {
-    font-size: 11px; font-weight: 600; letter-spacing: .04em;
-    padding: 2px 9px; border-radius: 999px;
-    background: color-mix(in srgb, currentColor 14%, transparent);
+    font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
+    padding: 2px 9px; border-radius: 2px;
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
   }
-  .cour-tag.half { color: #2dd4bf; }
-  .cour-tag.year { color: #fbbf24; }
-  html[data-theme="light"] .cour-tag.half { color: #0d9488; }
-  html[data-theme="light"] .cour-tag.year { color: #d97706; }
-  .season-tag.s0, .season-divider.s0 { color: #f472b6; }  /* even-year winter  */
-  .season-tag.s1, .season-divider.s1 { color: #fb923c; }  /* even-year spring  */
-  .season-tag.s2, .season-divider.s2 { color: #a3e635; }  /* even-year summer  */
-  .season-tag.s3, .season-divider.s3 { color: #22d3ee; }  /* even-year autumn  */
-  .season-tag.s4, .season-divider.s4 { color: #a78bfa; }  /* odd-year winter   */
-  .season-tag.s5, .season-divider.s5 { color: #facc15; }  /* odd-year spring   */
-  .season-tag.s6, .season-divider.s6 { color: #34d399; }  /* odd-year summer   */
-  .season-tag.s7, .season-divider.s7 { color: #60a5fa; }  /* odd-year autumn   */
-  html[data-theme="light"] .season-tag.s0, html[data-theme="light"] .season-divider.s0 { color: #db2777; }
-  html[data-theme="light"] .season-tag.s1, html[data-theme="light"] .season-divider.s1 { color: #ea580c; }
-  html[data-theme="light"] .season-tag.s2, html[data-theme="light"] .season-divider.s2 { color: #65a30d; }
-  html[data-theme="light"] .season-tag.s3, html[data-theme="light"] .season-divider.s3 { color: #0891b2; }
-  html[data-theme="light"] .season-tag.s4, html[data-theme="light"] .season-divider.s4 { color: #7c3aed; }
-  html[data-theme="light"] .season-tag.s5, html[data-theme="light"] .season-divider.s5 { color: #ca8a04; }
-  html[data-theme="light"] .season-tag.s6, html[data-theme="light"] .season-divider.s6 { color: #059669; }
-  html[data-theme="light"] .season-tag.s7, html[data-theme="light"] .season-divider.s7 { color: #2563eb; }
-  /* Completed grid: full-width season rule between groups of neighbouring
-     cards, tinted by the same cour palette as the badges. */
+  .cour-tag.half { color: #63bcae; }
+  .cour-tag.year { color: #e0b34e; }
+  html[data-theme="light"] .cour-tag.half { color: #0f4841; }
+  html[data-theme="light"] .cour-tag.year { color: #5b4407; }
+  /* Eight cours, eight dyed book cloths. The old set was a screen palette —
+     hot pink, lime, cyan — and the season plate it colours is a piece of
+     tooled leather, so a colour off that wheel read as a sticker on furniture.
+     These are the dyes a binder's sample book actually carries.
+     Each pair is the same cloth at two hours: bleached by lamplight at night,
+     full strength on paper by day. Every one of the sixteen was measured on
+     its own 14% tint over the leather, over a card and over a drawer front,
+     and the worst of the forty-eight readings is 4.7:1 — the palette is muted,
+     not faint. */
+  .season-tag.s0, .season-divider.s0 { color: #e79aab; }  /* even-year winter — claret rose */
+  .season-tag.s1, .season-divider.s1 { color: #e8ab6e; }  /* even-year spring — russet      */
+  .season-tag.s2, .season-divider.s2 { color: #c3d47f; }  /* even-year summer — olive       */
+  .season-tag.s3, .season-divider.s3 { color: #83cfc2; }  /* even-year autumn — verdigris   */
+  .season-tag.s4, .season-divider.s4 { color: #c6afdd; }  /* odd-year winter  — heather     */
+  .season-tag.s5, .season-divider.s5 { color: #ecd077; }  /* odd-year spring  — mustard     */
+  .season-tag.s6, .season-divider.s6 { color: #9ad4a4; }  /* odd-year summer  — moss        */
+  .season-tag.s7, .season-divider.s7 { color: #9dbce6; }  /* odd-year autumn  — indigo      */
+  html[data-theme="light"] .season-tag.s0, html[data-theme="light"] .season-divider.s0 { color: #7d2338; }
+  html[data-theme="light"] .season-tag.s1, html[data-theme="light"] .season-divider.s1 { color: #65380c; }
+  html[data-theme="light"] .season-tag.s2, html[data-theme="light"] .season-divider.s2 { color: #3b4a13; }
+  html[data-theme="light"] .season-tag.s3, html[data-theme="light"] .season-divider.s3 { color: #12524a; }
+  html[data-theme="light"] .season-tag.s4, html[data-theme="light"] .season-divider.s4 { color: #52356f; }
+  html[data-theme="light"] .season-tag.s5, html[data-theme="light"] .season-divider.s5 { color: #5a4208; }
+  html[data-theme="light"] .season-tag.s6, html[data-theme="light"] .season-divider.s6 { color: #194d2b; }
+  html[data-theme="light"] .season-tag.s7, html[data-theme="light"] .season-divider.s7 { color: #1f4372; }
+  /* The cour break is the shelf-edge label strip: a tooled leather plate
+     slipped into a brass holder, with the shelf's own front rail running out
+     from it to the end of the run. The plate is tinted by the cour palette, so
+     a season is identifiable from across the room. */
   .season-divider {
     grid-column: 1 / -1;
-    display: flex; align-items: center; gap: 10px;
-    margin: 10px 0 -4px;
-    font-family: var(--mono); font-size: 13px; font-weight: 700;
-    letter-spacing: .1em; color: var(--text-faint);
+    display: flex; align-items: center; gap: 0;
+    margin: 26px 0 4px;
+    font-family: var(--mono); font-size: calc(.86rem * var(--ui)); font-weight: 700;
+    letter-spacing: .12em; color: var(--text-faint);
   }
-  .season-divider:first-child { margin-top: 0; }
+  .season-divider:first-child { margin-top: 4px; }
+  /* The leather label itself, tinted by the cour palette. */
+  .season-divider > .plate {
+    padding: 5px 14px; border-radius: 2px; flex: none;
+    color: color-mix(in srgb, currentColor 84%, var(--text));
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 42%, transparent),
+                inset 0 1px 0 rgba(255,240,215,.14), 0 1px 3px rgba(0,0,0,.4);
+  }
+  /* In daylight both the ink and the tint derive from the same hue against a
+     mid-toned surface, which left every one of the eight cour colours between
+     1.7:1 and 2.8:1. Pushing the ink toward black and the ground toward white
+     opens all eight past 4.5:1 while keeping the hue that identifies the cour. */
+  html[data-theme="light"] .season-divider > .plate {
+    color: color-mix(in srgb, currentColor 52%, #000);
+    background: color-mix(in srgb, currentColor 22%, #fff);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 55%, transparent),
+                inset 0 1px 0 rgba(255,255,255,.7), 0 1px 3px rgba(92,60,24,.28);
+  }
+  /* The brass holder's two ears, then the shelf rail running away to the right.
+     Both are 3px, so nothing on this row reads as a mistake — the difference is
+     the ear's length, which is what a real label holder looks like. */
   .season-divider::before {
-    content: ""; width: 26px; height: 2px; border-radius: 1px;
-    background: currentColor; opacity: .8;
+    content: ""; width: 10px; height: 3px; flex: none; border-radius: 2px 0 0 2px;
+    background: linear-gradient(90deg, var(--brass-lo), var(--brass-hi));
+    opacity: .85;
   }
   .season-divider::after {
-    content: ""; flex: 1; height: 1px;
-    background: linear-gradient(90deg, currentColor, transparent); opacity: .35;
+    content: ""; flex: 1; height: 3px; border-radius: 0 2px 2px 0;
+    background: linear-gradient(90deg,
+      var(--brass-hi), var(--brass) 8%, color-mix(in srgb, var(--brass) 40%, transparent) 55%, transparent);
+    opacity: .85;
   }
   /* bangumi community rating — same badge family as the season tag. The hue
      (--sh, stamped by scoreTag) runs red → green with the score; saturation
      and lightness stay the theme's job so both palettes keep contrast. */
   .score {
-    font-size: 11px; font-weight: 600; font-family: var(--mono);
-    padding: 2px 9px; border-radius: 999px; color: hsl(var(--sh, 45) 72% 62%);
-    background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: calc(.78rem * var(--ui)); font-weight: 600; font-family: var(--mono);
+    padding: 2px 9px; border-radius: 2px; color: hsl(var(--sh, 45) 72% 62%);
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
   }
-  html[data-theme="light"] .score { color: hsl(var(--sh, 45) 82% 34%); }
+  html[data-theme="light"] .score { color: hsl(var(--sh, 45) 82% 30%); }
 
-  .grouprow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+  .grouprow { display: flex; align-items: center; gap: 8px; font-size: calc(.88rem * var(--ui)); color: var(--text-dim); }
   .grouprow b { color: var(--text); }
   .grouprow select {
     appearance: none;
@@ -479,34 +848,43 @@
       url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%238b93a3" stroke-width="1.5" stroke-linecap="round"/></svg>')
       no-repeat right 10px center;
     color: var(--text); border: 1px solid var(--panel-border);
-    border-radius: 999px; padding: 4px 26px 4px 10px; font: inherit; font-size: 12px;
-    flex: 1; min-width: 0; max-width: 170px;
+    border-radius: 3px; padding: 5px 26px 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
+    flex: 1; min-width: 0; max-width: 190px;
   }
   html[data-theme="light"] .grouprow select {
-    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%23526074" stroke-width="1.5" stroke-linecap="round"/></svg>');
+    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%235d4a33" stroke-width="1.5" stroke-linecap="round"/></svg>');
   }
-  .gracebar { font-size: 12px; color: var(--warn); display: flex; align-items: center; gap: 10px; }
-  .gracebar .cd { font-family: var(--mono); font-size: 12.5px; }
+  .gracebar { font-size: calc(.86rem * var(--ui)); color: var(--warn); display: flex; align-items: center; gap: 10px; }
+  .gracebar .cd { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); }
 
-  .readyline { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .readyline { font-size: calc(.86rem * var(--ui)); color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
   .readyline.ok { color: var(--ok); }
-  .empty { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 4px 2px; }
+  .empty { color: var(--text-faint); font-size: calc(.88rem * var(--ui)); font-style: italic; padding: 4px 2px; }
   .empty.warn { color: var(--warn); font-style: normal; }
 
   /* ---------- sections ---------- */
+  /* Set as a printed running head, not a tracked-out uppercase micro-label:
+     the display serif at mixed case carries the same authority at a size that
+     can actually be read. */
   .section-h {
     display: flex; align-items: center; gap: 12px; margin: 34px 0 14px;
-    color: var(--text-dim); font-size: 12px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--text-dim); font-family: var(--font-display);
+    font-size: calc(.98rem * var(--ui)); font-weight: 600; letter-spacing: .05em;
   }
-  .section-h::after, .sched-day::after { content: ""; flex: 1; height: 1px; background: var(--panel-border); }
+  .section-h::after { content: ""; flex: 1; height: 1px; background: var(--gilt-soft); }
 
   .prio { display: flex; gap: 8px; flex-wrap: wrap; }
-  .prio .chip b { margin-right: 6px; color: var(--accent-b); font-family: var(--mono); }
+  .prio .chip b { margin-right: 6px; color: var(--brass-hi); font-family: var(--mono); }
+  html[data-theme="light"] .prio .chip b { color: var(--brass); }
 
+  /* The daemon log is the pressed carbon copy: a flimsy with faint ruling. */
   .logs {
-    background: var(--log-bg); border: 1px solid var(--panel-border); border-radius: var(--radius);
-    font-family: var(--mono); font-size: 11.5px; color: var(--log-text);
-    padding: 14px 16px; max-height: 320px; overflow-y: auto; white-space: pre-wrap;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 calc(1.6em - 1px), var(--paper-rule) calc(1.6em - 1px) 1.6em),
+      var(--log-bg);
+    border: 1px solid var(--panel-border); border-radius: 3px;
+    font-family: var(--mono); font-size: calc(.85rem * var(--ui)); line-height: 1.6; color: var(--log-text);
+    padding: 14px 16px; max-height: 340px; overflow-y: auto; white-space: pre-wrap;
     scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
     display: none;
   }
@@ -519,14 +897,23 @@
   .premieres { display: flex; flex-direction: column; gap: 12px; }
   .premieres:not(:empty) { margin-bottom: 26px; }
   .premiere-actions { display: flex; justify-content: flex-end; }
+  /* A banner is a card of correspondence slotted into the letter rack: paper
+     stock, a coloured edge along its left showing which pigeonhole it came
+     from, and a real shadow where it rests on the leather. */
   .premiere {
     display: flex; align-items: center; gap: 14px;
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--accent-a) 16%, transparent),
-      color-mix(in srgb, var(--accent-b) 10%, transparent));
+    background:
+      var(--grain),
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-a) 16%, transparent),
+        color-mix(in srgb, var(--accent-b) 10%, transparent));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
     border: 1px solid color-mix(in srgb, var(--accent-a) 35%, transparent);
-    border-radius: var(--radius);
-    padding: 12px 16px; backdrop-filter: blur(8px);
+    border-left: 5px solid var(--accent-a);
+    border-radius: 3px;
+    box-shadow: 2px 4px 10px -2px rgba(0,0,0,.5);
+    padding: 13px 17px; backdrop-filter: blur(8px);
     /* Multiple banners cascade in; --i is stamped after each render. */
     animation: slidein .4s cubic-bezier(.22,1,.36,1) backwards;
     animation-delay: calc(var(--i, 0) * 90ms);
@@ -535,110 +922,213 @@
   /* The banner's leading emoji waves twice on arrival, then rests. */
   .bemo { display: inline-block; animation: wave .8s ease .5s 2; }
   @keyframes wave { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
-  .premiere .pcover { width: 44px; min-width: 44px; height: 60px; border-radius: 8px; overflow: hidden; background: var(--media-bg); position: relative; }
+  .premiere .pcover { width: 48px; min-width: 48px; height: 66px; border-radius: 2px; overflow: hidden; background: var(--media-bg); position: relative;
+    box-shadow: 0 0 0 1px var(--gilt-soft), 1px 2px 5px rgba(0,0,0,.45); }
   .premiere .pcover .ph { font-size: 18px; }
   .premiere .pbody { flex: 1; min-width: 0; }
-  .premiere .ptitle { font-weight: 640; font-size: 14.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .premiere .ptitle { font-weight: 640; font-size: calc(1.04rem * var(--ui)); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .premiere .ptag { color: var(--accent-b); font-weight: 700; letter-spacing: .04em; }
-  .premiere .psub { color: var(--text-dim); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .premiere .psub { color: var(--text-dim); font-size: calc(.88rem * var(--ui)); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .premiere > .btn { flex-shrink: 0; margin-left: 4px; }
   .pbadge, .today-badge {
-    font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
-    padding: 2px 9px; border-radius: 999px;
-    background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
+    padding: 2px 9px; border-radius: 2px;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
   }
   .pbadge { color: var(--ok); }
   /* Unresolved (aired but no mikan match) — same banner component, warning skin. */
   .premiere.unresolved {
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--warn) 18%, transparent),
-      color-mix(in srgb, var(--warn) 8%, transparent));
+    background:
+      var(--grain),
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--warn) 18%, transparent),
+        color-mix(in srgb, var(--warn) 8%, transparent));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
     border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+    border-left-color: var(--warn);
   }
   .premiere.unresolved .ptag { color: var(--warn); }
   /* Completed (本篇全看完 -> auto 看过) — same banner component, success skin. */
   .premiere.completed {
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--ok) 18%, transparent),
-      color-mix(in srgb, var(--ok) 8%, transparent));
+    background:
+      var(--grain),
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--ok) 18%, transparent),
+        color-mix(in srgb, var(--ok) 8%, transparent));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
     border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+    border-left-color: var(--ok);
   }
   .premiere.completed .ptag { color: var(--ok); }
-  /* Rate/review call-to-action — a real link styled as a filled success button. */
+  /* Rate/review call-to-action — a real link styled as a filled key in green
+     enamel rather than brass, so it reads as the one action worth taking. */
   .premiere.completed .btn.rate {
     display: inline-flex; align-items: center; text-decoration: none;
-    background: linear-gradient(135deg, var(--ok), color-mix(in srgb, var(--ok) 60%, var(--accent-b)));
-    box-shadow: 0 4px 18px color-mix(in srgb, var(--ok) 35%, transparent);
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--ok) 70%, #fff), var(--ok) 46%,
+      color-mix(in srgb, var(--ok) 60%, #000));
+    color: #08210f; text-shadow: 0 1px 0 rgba(255,255,255,.3);
   }
-  .premiere.completed .btn.rate:hover { box-shadow: 0 6px 22px color-mix(in srgb, var(--ok) 50%, transparent); }
+  html[data-theme="light"] .premiere.completed .btn.rate { color: #fffdf7; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
 
-  /* ---------- filter/search toolbar + type pills ---------- */
-  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 18px; }
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* ---------- the drawer fronts: one label holder per collection ----------
+     Each tab is a card-catalogue label slipped behind a brass holder — a bright
+     top edge, a dark bottom, and the card itself set back inside it. The open
+     drawer is pulled forward: it is lit, it sits a pixel proud, and its
+     retaining rod line runs underneath. */
+  .toolbar { display: flex; align-items: flex-end; gap: 9px; flex-wrap: wrap; margin: 4px 0 20px; }
+  .filters { display: flex; gap: 9px; flex-wrap: wrap; }
   .fchip {
-    appearance: none; cursor: pointer; font: inherit; font-size: 12.5px;
-    padding: 6px 14px;
-    transition: color .15s ease, border-color .15s ease, background .15s ease;
+    appearance: none; cursor: pointer; font: inherit; font-size: calc(.9rem * var(--ui));
+    padding: 8px 16px; border-radius: 3px 3px 0 0;
+    position: relative; overflow: visible;
+    box-shadow: inset 0 1px 0 rgba(255,240,215,.09), 0 1px 2px rgba(0,0,0,.28);
+    transition: color .15s ease, border-color .15s ease, background .15s ease, transform .15s ease;
+  }
+  .fchip::before {
+    content: ""; position: absolute; left: 6px; right: 6px; top: -2px; height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: linear-gradient(90deg, var(--brass-lo), var(--brass-hi), var(--brass-lo));
+    opacity: .30; transition: opacity .15s ease;
   }
   .fchip:hover { color: var(--text); border-color: var(--hover-border); }
-  .fchip b { color: var(--text); font-family: var(--mono); margin-left: 6px; font-weight: 600; }
-  .fchip.active { color: var(--btn-text); background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
-  .fchip.active b { color: var(--btn-text); }
+  .fchip:hover::before { opacity: .6; }
+  .fchip b { color: var(--text); font-family: var(--mono); margin-left: 7px; font-weight: 600; }
+  .fchip.active {
+    color: var(--key-text); border-color: transparent; transform: translateY(-2px);
+    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    text-shadow: 0 1px 0 rgba(255,246,214,.35);
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.55), 0 3px 8px rgba(0,0,0,.45);
+  }
+  .fchip.active::before { opacity: 1; background: var(--brass-hi); }
+  .fchip.active b { color: var(--key-text); }
+  html[data-theme="light"] .fchip:not(.active) {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 1px 2px rgba(92,60,24,.14);
+  }
   /* Chip rows rebuild on every filter change, so the fresh .active pops once. */
   .fchip.active { animation: chipPop .35s cubic-bezier(.34,1.56,.64,1); }
-  @keyframes chipPop { 0% { transform: scale(.9); } 60% { transform: scale(1.05); } }
-  .search {
-    appearance: none; font: inherit; font-size: 12.5px; color: var(--text);
-    background: var(--input-bg); border: 1px solid var(--panel-border);
-    border-radius: 999px; padding: 6px 14px; margin-left: auto; width: min(220px, 100%);
+  @keyframes chipPop { 0% { transform: translateY(-2px) scale(.9); } 60% { transform: translateY(-2px) scale(1.05); } }
+  /* The retaining rod the whole bank of drawers hangs from. */
+  .filters::after { content: none; }
+  .toolbar::after {
+    content: ""; order: 99; flex: 1 0 100%; height: 2px; margin-top: -1px; border-radius: 1px;
+    background: linear-gradient(90deg, var(--brass-lo), color-mix(in srgb, var(--brass) 55%, transparent) 40%, transparent);
+    opacity: .55;
   }
+  .search {
+    appearance: none; font: inherit; font-size: calc(.9rem * var(--ui)); color: var(--text);
+    background: var(--input-bg); border: 1px solid var(--panel-border);
+    border-radius: 3px; padding: 8px 14px; margin-left: auto; width: min(260px, 100%);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
+  }
+  html[data-theme="light"] .search { box-shadow: inset 0 2px 4px rgba(92,60,24,.16); }
   .search::placeholder { color: var(--text-faint); }
-  .airline { font-size: 12px; color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .airline { font-size: calc(.86rem * var(--ui)); color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
   .airline .ai { opacity: .7; }
 
-  /* ---------- weekly timetable: one vertical column per weekday ---------- */
+  /* ---------- the weekly timetable: a printed broadcast sheet ----------
+     It used to be a board of dark cards floating over a faint rule pattern —
+     a widget resting on the desk rather than a thing the desk owns. It is now
+     a form off the study's own stationery shelf: buff stock inside a printed
+     double border, a masthead with a double rule under it, one ruled margin
+     down each day column with the times set into it, and every show pasted in
+     as a small photographic print, each at its own angle. Today is stamped in
+     the red the ledger is ruled in, because a study has a stamp and a red pad
+     and does not have a cyan indicator lamp. */
   #cards.schedule { display: block; }
-  .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sched-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
   .sched-filters[hidden] { display: none; }   /* class display:flex would beat [hidden] */
   /* Watching-grid weekday sub-filter: sits above the grid, its own row. */
   .subfilters { margin-top: -2px; }
-  /* Sub-filter chips are visually subordinate to the main tab row above. */
-  .sched-filters .fchip { padding: 4px 11px; font-size: 12px; }
+  /* Sub-filter chips are visually subordinate to the drawer fronts above: a
+     pencilled guide card, not a brass-labelled drawer. */
+  .sched-filters .fchip { padding: 5px 12px; font-size: calc(.86rem * var(--ui)); transform: none; }
+  .sched-filters .fchip::before { display: none; }
   .sched-filters .fchip.active {
-    color: var(--accent-b);
+    color: var(--accent-b); transform: none; text-shadow: none;
     background: color-mix(in srgb, var(--accent-b) 14%, transparent);
     border-color: color-mix(in srgb, var(--accent-b) 40%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-b) 22%, transparent);
   }
   .sched-filters .fchip.active b { color: var(--accent-b); }
+  .sched-filters .fchip.active { animation: none; }
   /* Season-only toggle: an independent filter dimension, so it reads as a
-     switch rather than another premiere-status chip. Sits at the row's end. */
+     switch rather than another premiere-status chip. A brass slide in a dark
+     channel — the same metal as every other control in the room. */
   .sched-toggle {
-    display: inline-flex; align-items: center; gap: 8px; margin-left: auto;
-    font-size: 12px; color: var(--text-faint); cursor: pointer; user-select: none;
+    display: inline-flex; align-items: center; gap: 9px; margin-left: auto;
+    font-size: calc(.88rem * var(--ui)); color: var(--text-faint); cursor: pointer; user-select: none;
   }
   .sched-toggle.on { color: var(--text); }
   .sched-toggle .track {
-    position: relative; width: 34px; height: 18px; border-radius: 999px;
-    background: var(--input-bg); border: 1px solid var(--panel-border);
-    transition: background .15s ease, border-color .15s ease;
+    position: relative; width: 36px; height: 17px; border-radius: 9px;
+    background: var(--input-bg);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.6), inset 0 0 0 1px var(--gilt-soft);
+    transition: box-shadow .15s ease;
   }
   .sched-toggle.on .track {
-    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
-    border-color: transparent;
+    background: linear-gradient(180deg, var(--brass-lo), color-mix(in srgb, var(--brass) 70%, #000));
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.5), inset 0 0 0 1px var(--gilt);
   }
+  /* The knob rides a transform, not `left`: animating an offset property runs
+     layout on every interpolated frame. */
   .sched-toggle .knob {
-    position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
-    border-radius: 50%; background: var(--text-faint); transition: left .15s ease, background .15s ease;
+    position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
+    border-radius: 50%; background: var(--muted);
+    box-shadow: 0 1px 2px rgba(0,0,0,.5);
+    transition: transform .16s ease, background .16s ease;
   }
-  .sched-toggle.on .knob { left: 18px; background: var(--btn-text); }
+  .sched-toggle.on .knob {
+    transform: translateX(19px);
+    background: radial-gradient(circle at 34% 28%, var(--brass-hi), var(--brass) 55%, var(--brass-lo));
+  }
+
+  /* The sheet itself. The printed double border is two inset rings rather than
+     a border plus an outline, so it survives the sheet scrolling under it. */
+  .sched-sheet {
+    position: relative; border-radius: 2px;
+    background:
+      var(--grain),
+      linear-gradient(180deg, rgba(255,246,225,.06), transparent 150px),
+      var(--paper-form);
+    background-size: 140px 140px, auto, auto;
+    background-blend-mode: var(--grain-blend), normal, normal;
+    box-shadow: inset 0 0 0 1px var(--gilt), inset 0 0 0 4px transparent,
+                inset 0 0 0 5px var(--gilt-soft),
+                0 12px 26px -14px rgba(0,0,0,.75);
+  }
+  .sched-masthead {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 15px 20px 10px; position: relative;
+  }
+  .sched-masthead h4 {
+    margin: 0; font-family: var(--font-display); font-weight: 640;
+    font-size: calc(1.06rem * var(--ui)); letter-spacing: .18em;
+    color: color-mix(in srgb, var(--brass-hi) 38%, var(--text));
+  }
+  html[data-theme="light"] .sched-masthead h4 { color: color-mix(in srgb, var(--brass) 46%, var(--text)); }
+  .sched-masthead .mh-meta {
+    margin-left: auto; font-family: var(--mono); font-size: calc(.82rem * var(--ui));
+    letter-spacing: .05em; color: var(--text-faint);
+  }
+  /* One heavy rule and one hair below it — the compositor's standard head. */
+  .sched-masthead::after {
+    content: ""; position: absolute; left: 16px; right: 16px; bottom: 2px; height: 4px;
+    background: linear-gradient(180deg,
+      var(--gilt) 0 1.5px, transparent 1.5px 3px, var(--gilt-soft) 3px 4px);
+  }
   .sched-board {
-    display: flex; align-items: flex-start; gap: 12px;
-    overflow-x: auto; padding-bottom: 14px;
+    display: flex; align-items: stretch; gap: 0;
+    background: repeating-linear-gradient(0deg, transparent 0 29px, var(--paper-rule) 29px 30px);
+    overflow-x: auto; padding: 4px 8px 12px;
     scroll-snap-type: x proximity;
     scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
     cursor: grab;
-    /* Cards are click-to-open, not selectable text — killing selection stops a
-       grab-drag from turning into a text highlight that eats the pan. */
+    /* Entries are click-to-open, not selectable text — killing selection stops
+       a grab-drag from turning into a text highlight that eats the pan. */
     -webkit-user-select: none; user-select: none;
   }
   /* While drag-panning: swap the cursor and disable snap so the board tracks
@@ -648,87 +1138,150 @@
   .sched-board::-webkit-scrollbar { height: 8px; }
   .sched-board::-webkit-scrollbar-track { background: transparent; }
   .sched-board::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
-  /* Every column carries the today-column box metrics so headers and card
-     widths stay aligned; .today only recolors. */
+  /* The printed foot: every form carries its number and its issuing desk. */
+  .sched-foot {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 2px 20px 13px; font-family: var(--mono);
+    font-size: calc(.78rem * var(--ui)); letter-spacing: .07em; color: var(--text-faint);
+  }
+  .sched-foot .fn { margin-left: auto; }
+
+  /* Every column carries the same box metrics so heads and entries stay
+     aligned across the sheet; .today only recolours. */
   .sched-col {
-    flex: 0 0 226px; min-width: 226px; max-width: 226px;
-    display: flex; flex-direction: column; gap: 8px;
-    padding: 10px; border: 1px solid transparent; border-radius: var(--radius);
+    flex: 0 0 302px; min-width: 302px; max-width: 302px;
+    display: flex; flex-direction: column; gap: 0;
+    padding: 10px 14px 14px; position: relative;
     scroll-snap-align: start;
   }
+  /* A printed hairline between day columns — set in brass rule, not dashed.
+     It fades out top and bottom so it reads as ruled, not as a table cell. */
+  .sched-col::before {
+    content: ""; position: absolute; top: 10px; bottom: 10px; right: 0; width: 1px;
+    background: linear-gradient(180deg, transparent, var(--gilt-soft) 7%,
+                var(--gilt-soft) 93%, transparent);
+    pointer-events: none;
+  }
+  .sched-col:last-child::before { display: none; }
+  /* The red margin rule the times are written against. Starts under the day
+     head and runs to the foot of the column — the same red the accession
+     ledger is ruled in, because it is the same desk's stationery. */
+  .sched-col::after {
+    content: ""; position: absolute; top: 46px; bottom: 12px; left: 66px; width: 1px;
+    background: color-mix(in srgb, var(--ledger-margin) 50%, transparent);
+    pointer-events: none;
+  }
+  .sched-col.empty-day::after { display: none; }
   .sched-day {
-    display: flex; align-items: center; gap: 8px; margin: 2px 0 4px;
-    color: var(--text-dim); font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    display: flex; align-items: baseline; gap: 9px; margin: 0 0 9px;
+    padding-bottom: 7px; position: relative;
+    font-family: var(--font-display); color: var(--text-dim);
   }
-  .sched-col.today {
-    background: color-mix(in srgb, var(--accent-b) 6%, transparent);
-    border-color: color-mix(in srgb, var(--accent-b) 28%, transparent);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--accent-b) 10%, transparent);
-    animation: todayGlow 4.5s ease-in-out infinite;
+  .sched-day .d-name {
+    font-size: calc(1.04rem * var(--ui)); font-weight: 640; letter-spacing: .1em;
+    color: var(--text);
   }
-  @keyframes todayGlow {
-    50% { box-shadow: 0 0 26px color-mix(in srgb, var(--accent-b) 18%, transparent); }
+  .sched-day .d-date { font-family: var(--mono); font-size: calc(.8rem * var(--ui)); color: var(--text-faint); }
+  .sched-day::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(180deg, var(--gilt-soft) 0 1px, transparent 1px 2px);
   }
-  /* "Now" marker inside the today column: sits between the last aired and the
-     next upcoming slot. The line is information (kept under reduced motion);
-     only the dot's pulse is decoration. */
+  .sched-col.today { background: color-mix(in srgb, var(--brass) 7%, transparent); }
+  .sched-col.today .sched-day::after {
+    height: 4px;
+    background: linear-gradient(180deg, var(--brass) 0 2px, transparent 2px 3px, var(--gilt-soft) 3px 4px);
+  }
+  /* Struck once with a rubber stamp: never square, never solid, and in the red
+     off the pad rather than in a UI accent. */
+  .sched-day .today-badge {
+    background: transparent; box-shadow: none;
+    color: var(--accent-a); border: 1.5px solid color-mix(in srgb, var(--accent-a) 58%, transparent);
+    border-radius: 2px; padding: 0 7px 1px; letter-spacing: .16em;
+    font-family: var(--font-display); font-weight: 700; text-transform: none;
+    transform: rotate(-3.4deg); opacity: .94;
+  }
+  /* "Now": a proofreader's caret in the margin and a rule struck out from it,
+     sitting between the last aired and the next upcoming slot. The rule is
+     information and stays under reduced motion; only the caret's beat is
+     decoration. */
   .now-line {
-    display: flex; align-items: center; gap: 6px; margin: 2px 0;
-    height: 8px; pointer-events: none;
+    display: flex; align-items: center; height: 13px; margin: 3px 0; pointer-events: none;
   }
   .now-line::before {
-    content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
-    background: var(--accent-b);
-    box-shadow: 0 0 8px var(--accent-b);
-    animation: nowPulse 2.2s ease-in-out infinite;
+    content: ""; flex: none; width: 0; height: 0; margin-left: 47px;
+    border: 5px solid transparent; border-left-color: var(--accent-a);
+    animation: nowBeat 2.6s ease-in-out infinite;
   }
   .now-line::after {
-    content: ""; flex: 1; height: 2px; border-radius: 1px;
-    background: linear-gradient(90deg, var(--accent-b), color-mix(in srgb, var(--accent-b) 15%, transparent));
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--accent-a),
+      color-mix(in srgb, var(--accent-a) 8%, transparent));
   }
-  @keyframes nowPulse {
-    50% { box-shadow: 0 0 2px var(--accent-b); opacity: .55; }
-  }
-  .sched-col.today .sched-day { color: var(--accent-b); }
-  .sched-col.today .sched-day::after { background: color-mix(in srgb, var(--accent-b) 35%, transparent); }
-  .sched-day .today-badge { color: var(--accent-b); text-transform: none; }
+  @keyframes nowBeat { 50% { opacity: .4; } }
+  /* One entry, typed onto the form: time in the ruled margin, the show's print
+     pasted beside it, the reading set to the right of both. */
   .sched-item {
-    display: flex; align-items: flex-start; gap: 10px;
-    background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: 14px; padding: 10px; backdrop-filter: blur(8px);
-    cursor: grab;
-    transition: border-color .2s ease, box-shadow .2s ease;
+    display: grid; grid-template-columns: 46px 46px 1fr; gap: 0 11px;
+    align-items: start; padding: 9px 2px 9px 0; position: relative;
+    cursor: grab; border-radius: 2px;
+    transition: background .18s ease;
   }
+  .sched-item + .sched-item { box-shadow: inset 0 1px 0 var(--paper-rule); }
+  .sched-item:hover { background: color-mix(in srgb, var(--brass) 11%, transparent); }
+  /* Hovering an entry pencils a tick into the sheet's outer margin, in the
+     colour of the list the show came from. */
+  .sched-item::before {
+    content: ""; position: absolute; left: -8px; top: 11px; bottom: 11px; width: 3px;
+    border-radius: 1px; background: var(--card-glow, transparent);
+    opacity: 0; transition: opacity .18s ease;
+  }
+  .sched-item:hover::before { opacity: .9; }
   .sbody .show-links { margin-top: 6px; }
-  .sched-item:hover {
-    border-color: color-mix(in srgb, var(--card-glow, var(--text-dim)) 60%, transparent);
-    box-shadow: 0 0 14px color-mix(in srgb, var(--card-glow, var(--text-dim)) 22%, transparent);
-  }
   .srow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
-  .stime { font-family: var(--mono); font-size: 12.5px; }
-  .stime.aired { color: var(--ok); }
-  .stime.upcoming { color: var(--text-dim); }
-  .scover { width: 34px; min-width: 34px; height: 46px; border-radius: 6px; overflow: hidden; background: var(--media-bg); position: relative; }
+  .s-time {
+    grid-column: 1; text-align: right; padding-top: 2px;
+    font-family: var(--mono); font-size: calc(.9rem * var(--ui)); letter-spacing: .01em;
+  }
+  .s-time.aired { color: var(--ok); }
+  .s-time.upcoming { color: var(--text-dim); }
+  /* A photographic print, pasted on: white border, its own shadow, and its own
+     angle off the show's id so no two are laid down the same way. Hovering
+     squares it up, the way you would straighten one with a finger. */
+  .scover {
+    grid-column: 2; width: 44px; min-width: 44px; height: 60px; position: relative;
+    background: var(--media-bg); overflow: hidden;
+    border: 2px solid rgba(255,250,238,.80);
+    box-shadow: 1px 2px 5px rgba(0,0,0,.5);
+    transform: rotate(var(--tilt, 0deg));
+    transition: transform .22s cubic-bezier(.22,1,.36,1);
+  }
+  html[data-theme="light"] .scover { border-color: #fffdf7; box-shadow: 1px 2px 5px rgba(92,60,24,.32); }
+  .sched-item:hover .scover { transform: rotate(0deg) scale(1.05); }
   .scover .ph { font-size: 15px; }
-  .sbody { flex: 1; min-width: 0; }
+  .sbody { grid-column: 3; min-width: 0; }
   .stitle {
-    font-weight: 640; font-size: 13px; line-height: 1.3; overflow: hidden;
+    font-family: var(--font-display); font-weight: 640;
+    font-size: calc(1rem * var(--ui)); line-height: 1.3; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
   .sbody .jp { margin-top: 2px; }
+  .sched-col > .empty {
+    padding: 14px 0 4px; margin-left: 56px;
+    font-family: var(--mono); color: var(--text-faint); font-size: calc(.9rem * var(--ui));
+  }
 
-  /* ---------- toast ---------- */
+  /* ---------- toast: a slip pushed across the desk ---------- */
   #toast {
-    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
-    background: var(--toast-bg); border: 1px solid var(--panel-border); color: var(--text);
-    padding: 10px 20px; border-radius: 12px; font-size: 13px; opacity: 0;
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--toast-bg); border: 1px solid var(--gilt); color: var(--text);
+    padding: 12px 22px; border-radius: 3px; font-size: calc(.92rem * var(--ui)); opacity: 0;
     /* Springy entrance (slight overshoot), plain fade on the way out. */
     transition: opacity .25s ease, transform .4s cubic-bezier(.34,1.56,.64,1);
-    pointer-events: none; max-width: 80vw;
-    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    pointer-events: none; max-width: 80vw; z-index: 90;
+    box-shadow: 3px 8px 26px rgba(0,0,0,.6);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  html[data-theme="light"] #toast { box-shadow: 0 10px 30px rgba(13,23,40,.18); }
+  html[data-theme="light"] #toast { box-shadow: 3px 8px 26px rgba(92,60,24,.28); }
 
   .spin { display: inline-block; animation: rot 1s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
@@ -755,11 +1308,17 @@
     background: var(--bg);
     /* Same blob geometry as body::before/::after, so nothing jumps at lift-off. */
     background-image:
-      radial-gradient(95vw 72vh at 85% -10%, var(--glow-a), transparent 66%),
-      radial-gradient(70vw 55vh at 108% 92%, var(--glow-c), transparent 68%),
-      radial-gradient(80vw 62vh at -6% 42%, var(--glow-b), transparent 66%);
+      radial-gradient(78vw 58vh at 76% -12%, rgba(255,178,84,.20), transparent 68%),
+      radial-gradient(56vw 48vh at 104% 96%, rgba(150,70,16,.16), transparent 70%),
+      radial-gradient(64vw 56vh at -6% 40%, rgba(255,152,60,.13), transparent 68%);
     clip-path: inset(0 0 0 0);
     transition: clip-path .56s cubic-bezier(.76, 0, .24, 1);
+  }
+  html[data-theme="light"] #boot {
+    background-image:
+      radial-gradient(80vw 62vh at 12% -10%, rgba(206,226,246,.60), transparent 66%),
+      radial-gradient(52vw 46vh at 104% 92%, rgba(214,178,110,.30), transparent 70%),
+      radial-gradient(60vw 54vh at 96% 34%, rgba(255,236,196,.42), transparent 68%);
   }
   /* The curtain wipes up rather than fading: a fade leaves the page looking
      washed for half a second, a wipe reveals it already finished. */
@@ -780,12 +1339,13 @@
      gradient reads as an equaliser, not a shelf. */
   .boot-shelf { width: min(420px, 82vw); height: auto; display: block; }
 
-  /* Colour families. Cloth is flat; the head cap is the same hue lifted, the
-     fore-edge is paper, the bands and rules are the stamping. */
-  .bv.c-a    { --cloth: var(--accent-a); --stamp: #f3ecff; }
-  .bv.c-b    { --cloth: var(--accent-b); --stamp: #06222a; }
-  .bv.c-mute { --cloth: var(--muted);    --stamp: #f2f5fb; }
-  .bv.c-dim  { --cloth: var(--text-dim); --stamp: var(--bg); }
+  /* Colour families, taken from the same bindery the shelf uses so the opening
+     shows the wall it is about to build. Cloth is flat; the head cap is the
+     same hue lifted, the fore-edge is paper, the bands and rules are gilt. */
+  .bv.c-a    { --cloth: #6b2b2b; --stamp: #e8c98a; }
+  .bv.c-b    { --cloth: #1f4a63; --stamp: #cfe4f0; }
+  .bv.c-mute { --cloth: #1f5a44; --stamp: #e3d8a8; }
+  .bv.c-dim  { --cloth: #7a4a1c; --stamp: #f0dcae; }
 
   .bv-face  { fill: var(--cloth); }
   .bv-top   { fill: var(--cloth); filter: brightness(1.35); }
@@ -796,10 +1356,10 @@
   .bv-medal    { fill: none; stroke: var(--stamp); stroke-width: 1.2; opacity: .8; }
   .bv-medal-in { fill: var(--stamp); opacity: .8; }
   /* Brass bookend and the plank it all stands on. */
-  .bk { fill: var(--warn); opacity: .55; }
-  .bp-lip  { fill: var(--text-dim); }
-  .bp-face { fill: var(--panel-border); }
-  .bp-leg  { fill: var(--text-faint); opacity: .5; }
+  .bk { fill: var(--brass); opacity: .8; }
+  .bp-lip  { fill: var(--plank-lip); }
+  .bp-face { fill: var(--plank-face); }
+  .bp-leg  { fill: var(--brass); opacity: .6; }
 
   .bv {
     transform-box: fill-box; transform-origin: 50% 100%;
@@ -833,8 +1393,10 @@
 
   .boot-name { text-align: center; }
   .boot-brand {
-    font-size: 16px; font-weight: 650; letter-spacing: .3em; margin-left: .3em;
+    font-family: var(--font-display);
+    font-size: calc(1.25rem * var(--ui)); font-weight: 650; letter-spacing: .3em; margin-left: .3em;
     display: flex; justify-content: center;
+    color: color-mix(in srgb, var(--brass-hi) 72%, var(--text));
   }
   /* Letters settle individually. Never animate letter-spacing — it reflows
      the whole line every frame; per-glyph transforms stay on the compositor. */
@@ -845,7 +1407,7 @@
   }
   @keyframes bchar { from { opacity: 0; transform: translateY(9px) rotateX(-40deg); } }
   .boot-sub {
-    color: var(--text-faint); font-size: 11px; letter-spacing: .06em; margin-top: 6px;
+    color: var(--text-faint); font-size: calc(.86rem * var(--ui)); letter-spacing: .06em; margin-top: 8px;
     animation: bfade .5s ease .78s backwards;
   }
   @keyframes bfade { from { opacity: 0; } }
@@ -853,11 +1415,11 @@
   /* Status line: words, not a percentage. Only speaks up when something is
      wrong or slow — a healthy boot never shows a number. */
   .boot-status {
-    min-height: 16px; color: var(--text-faint); font-size: 11px;
-    letter-spacing: .1em; text-transform: uppercase;
+    min-height: 20px; color: var(--text-faint); font-size: calc(.86rem * var(--ui));
+    letter-spacing: .05em;
     animation: bfade .5s ease .9s backwards;
   }
-  #boot.err .boot-status { color: var(--warn); letter-spacing: .04em; text-transform: none; }
+  #boot.err .boot-status { color: var(--warn); letter-spacing: .02em; }
   #boot.err .bv-face, #boot.err .bv-top { fill: var(--warn); }
 
   @media (prefers-reduced-motion: reduce) {
@@ -905,40 +1467,62 @@
      the body itself, translate the whole page by the panel width and make
      body a containing block for its own fixed children. */
   body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
+  /* The settings drawer really is a drawer now: it slides out of the right
+     pedestal, its front face carries a brass pull and cockbead moulding, and
+     its inside is bare timber. */
   aside.drawer {
     position: fixed; z-index: 61; top: 0; right: 0; bottom: 0;
-    width: min(420px, 94vw);
+    width: min(460px, 94vw);
     display: flex; flex-direction: column;
-    background: var(--drawer-bg); border-left: 1px solid var(--panel-border);
-    box-shadow: -24px 0 60px rgba(0, 0, 0, .45);
+    background:
+      var(--grain),
+      linear-gradient(90deg, rgba(0,0,0,.32), transparent 90px),
+      var(--drawer-bg);
+    background-size: 140px 140px, auto, auto;
+    background-blend-mode: var(--grain-blend), normal, normal;
+    border-left: 3px solid transparent;
+    border-image: linear-gradient(to bottom, var(--brass-lo), var(--brass) 30%, var(--brass-hi) 50%, var(--brass) 70%, var(--brass-lo)) 1;
+    box-shadow: -24px 0 60px rgba(0, 0, 0, .55);
     transform: translateX(100%);
+    /* The leading-edge vignette and the cast shadow are both lamplight values;
+       in daylight they become brown so the drawer does not read as a black
+       slab dropped onto the oak. See the light override below. */
     transition: transform .38s cubic-bezier(.22, 1, .36, 1);
     overflow-y: auto; overscroll-behavior: contain;
   }
-  :root { --drawer-bg: #0f131b; }
-  html[data-theme="light"] { --drawer-bg: #f7f9fd; }
+  html[data-theme="light"] aside.drawer {
+    background:
+      var(--grain),
+      linear-gradient(90deg, rgba(92,60,24,.16), transparent 90px),
+      var(--drawer-bg);
+    background-size: 140px 140px, auto, auto;
+    background-blend-mode: var(--grain-blend), normal, normal;
+    box-shadow: -14px 0 44px rgba(92,60,24,.26);
+  }
   aside.drawer[data-open="1"] { transform: none; }
   .drawer-head {
     position: sticky; top: 0; z-index: 2;
     display: flex; align-items: center; gap: 10px;
-    padding: 16px 16px 12px; background: var(--drawer-bg);
-    border-bottom: 1px solid var(--panel-border);
+    padding: 18px 18px 14px; background: var(--drawer-bg);
+    border-bottom: 1px solid var(--gilt-soft);
+    box-shadow: 0 1px 0 rgba(0,0,0,.35);
   }
   .drawer-head h2 {
-    margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .18em;
-    text-transform: uppercase; color: var(--text-dim); margin-right: auto;
+    margin: 0; font-family: var(--font-display);
+    font-size: calc(1.05rem * var(--ui)); font-weight: 650; letter-spacing: .07em;
+    color: var(--text-dim); margin-right: auto;
   }
   .drawer-close {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    font-size: 15px; line-height: 1; padding: 6px 8px; border-radius: 6px;
+    font-size: calc(1.05rem * var(--ui)); line-height: 1; padding: 7px 9px; border-radius: 3px;
   }
   .drawer-close:hover { color: var(--text); background: var(--panel); }
-  .drawer-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .drawer-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
 
   /* The card sheet: the clicked volume, opened in the middle of the screen. */
   .sheet {
     position: fixed; z-index: 61; top: 50%; left: 50%;
-    width: min(460px, 92vw); max-height: 86vh; overflow-y: auto;
+    width: min(520px, 92vw); max-height: 86vh; overflow-y: auto;
     transform: translate(-50%, -46%) scale(.96);
     opacity: 0; pointer-events: none;
     transition: transform .3s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
@@ -953,59 +1537,597 @@
     background: color-mix(in srgb, var(--bg) 74%, transparent);
     backdrop-filter: blur(4px);
   }
-  .sheet .card { box-shadow: 0 28px 70px rgba(0, 0, 0, .5); }
+  /* Lifted clear of the leather: a hard directional shadow from the lamp, plus
+     a gilt ring so the sheet reads as the same stock the cards are cut from. */
+  .sheet .card { box-shadow: 6px 18px 48px -6px rgba(0, 0, 0, .72), 0 0 0 1px var(--gilt-soft); }
+  html[data-theme="light"] .sheet .card { box-shadow: 4px 14px 36px -4px rgba(92,60,24,.34), 0 0 0 1px var(--gilt-soft); }
 
   /* Settings groups. */
-  .set-group { display: flex; flex-direction: column; gap: 9px; }
+  .set-group { display: flex; flex-direction: column; gap: 10px; }
   .set-group > h4 {
-    margin: 0; font-size: 10px; font-weight: 700; letter-spacing: .16em;
-    text-transform: uppercase; color: var(--text-faint);
+    margin: 0; font-family: var(--font-display);
+    font-size: calc(.98rem * var(--ui)); font-weight: 650; letter-spacing: .05em;
+    color: var(--text-faint);
   }
   .set-row {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    font-size: 13px; color: var(--text-dim);
+    font-size: calc(.92rem * var(--ui)); color: var(--text-dim);
   }
   .set-row .lab { margin-right: auto; }
-  .seg { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 8px; overflow: hidden; }
+  /* A segmented control is a row of brass keys in one bezel. */
+  .seg {
+    display: inline-flex; border: 1px solid var(--panel-border); border-radius: 3px; overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
+  }
   .seg button {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    font: inherit; font-size: 12px; padding: 6px 12px;
+    font: inherit; font-size: calc(.86rem * var(--ui)); padding: 7px 13px;
+    transition: background .15s ease, color .15s ease;
   }
-  .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); }
+  .seg button[aria-pressed="true"] {
+    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    color: var(--key-text); text-shadow: 0 1px 0 rgba(255,246,214,.3);
+  }
   .seg button + button { border-left: 1px solid var(--panel-border); }
-  #settings .logs { margin-top: 4px; max-height: 240px; }
+  #settings .logs { margin-top: 4px; max-height: 260px; }
   #settings .prio { gap: 6px; }
 
   /* The gear itself. */
-  #gearbtn svg { width: 17px; height: 17px; display: block; }
+  #gearbtn svg { width: 18px; height: 18px; display: block; }
   #gearbtn[aria-expanded="true"] svg { transform: rotate(60deg); }
   #gearbtn svg { transition: transform .5s cubic-bezier(.22,1,.36,1); }
 
+  /* ==========================================================================
+     THE ROOM — past 1800px the writing surface stops being the whole page and
+     becomes the middle of a study.
+
+     The archive stands along the left pedestal (every finished show, edge-on,
+     the way a read book actually sits), the duty desk along the right, and the
+     writing surface keeps the centre. Narrower than that the room collapses to
+     the single column it has always been — but the desk does not go with it:
+     the cornice, the skiver, the gilt tooling and the warm lamplight are all
+     outside this media query, because a laptop is the width this is read at
+     most of the time.
+     ========================================================================== */
+
+  /* The bookcase cornice: a dentil course under a bed mould, run across the
+     top of the window at every width. Each tooth is a block of timber with a
+     lit left face and a shadowed right, which is what makes it read as carved
+     rather than as a striped bar. */
+  .cornice {
+    position: sticky; top: 0; z-index: 40; height: 22px;
+    background:
+      repeating-linear-gradient(90deg,
+        var(--wood-a) 0 13px,
+        rgba(255,224,170,.10) 13px 14px,
+        rgba(0,0,0,.42) 14px 20px,
+        var(--wood-b) 20px 22px),
+      var(--wood-b);
+    border-bottom: 2px solid var(--brass);
+    box-shadow: 0 2px 5px rgba(0,0,0,.5), inset 0 -3px 4px rgba(0,0,0,.35);
+  }
+  html[data-theme="light"] .cornice { box-shadow: 0 2px 5px rgba(92,60,24,.25), inset 0 -3px 4px rgba(92,60,24,.18); }
+  html[data-theme="light"] .cornice::after {
+    background: linear-gradient(180deg, rgba(255,255,255,.45), rgba(92,60,24,.28));
+  }
+  /* The bed mould below the dentils: one lit bead over one shadowed hollow. */
+  .cornice::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 5px;
+    background: linear-gradient(180deg, rgba(255,224,170,.16), rgba(0,0,0,.45));
+    pointer-events: none;
+  }
+
+  .rail { display: none; }
+
+  @media (min-width: 1800px) {
+    /* The centre keeps a 1180px floor so the writing surface never gets
+       narrower than it used to be, and stops growing at 1700px so a volume
+       stays a volume instead of stretching into a poster. Everything past that
+       is the room's, split evenly between the two pedestals — at 3440px they
+       are ~870px each, which the spine wall and the desk both absorb by
+       reflowing. */
+    .room {
+      display: grid;
+      /* The centre track is a definite length, not minmax(0, …): wrapped in a
+         minmax it would be sized by max-content instead, and an auto-fill grid
+         has a max-content of one column — the surface would collapse to a
+         third of its track and hand the slack back to the rails.
+         align-items is left at its default `stretch` on purpose: that is what
+         makes both pedestals as tall as the tallest column, which is what
+         makes both uprights the same length. `start` sized each rail to its own
+         content — 1336px of spines on the left against 772px of desk panels on
+         the right — and that is why the two lines ended at different heights. */
+      grid-template-columns:
+        minmax(300px, 1fr)
+        clamp(1180px, 52vw, 1700px)
+        minmax(300px, 1fr);
+    }
+    /* Auto inline margins DISABLE stretch for a grid item, so `margin: 0 auto`
+       left the surface shrink-to-fit at its max-content (the header flex row,
+       ~900px) and centred inside a 1700px track. That, not the wall itself, is
+       why the middle of the screen read as empty. */
+    .wrap { max-width: none; margin: 0; padding: 52px 56px 120px; }
+    .rail {
+      display: block; position: relative; min-width: 0; min-height: 100vh;
+      padding: 26px 26px 110px;
+      /* Contains the lamp's screen-blended cone: without it the blend
+         composites against the whole page instead of this pedestal's timber. */
+      isolation: isolate;
+      /* Wood grain, not corduroy. One repeating gradient at a fixed period
+         reads as a machined stripe; four at co-prime periods (13/23/37/61px)
+         beat against each other so no two millimetres of the board look alike,
+         which is what actual figure does. All four sit at 1-4% alpha — grain is
+         something you notice on the second look, never the first. */
+      background:
+        var(--grain),
+        repeating-linear-gradient(90.4deg, transparent 0 11px, var(--wood-grain-hi) 11px 12px, transparent 12px 13px),
+        repeating-linear-gradient(89.6deg, transparent 0 21px, var(--wood-grain-lo) 21px 23px),
+        repeating-linear-gradient(90.8deg, transparent 0 34px, var(--wood-grain-hi) 34px 36px, transparent 36px 37px),
+        repeating-linear-gradient(89.2deg, transparent 0 57px, var(--wood-grain-lo) 57px 61px),
+        linear-gradient(180deg, var(--wood-a), var(--wood-b) 62%, var(--wood-b));
+      background-size: 140px 140px, auto, auto, auto, auto, auto;
+      background-blend-mode: var(--grain-blend), normal, normal, normal, normal, normal;
+    }
+    /* Parallax moves the furniture, not the room: the uprights and the lamp
+       are mounted on the wall and must not drift, or the structure reads as
+       loose. It rides one custom property, so the scroll handler writes a
+       single value and the transforms stay on the compositor. */
+    .rail > :not(.lamp) { transform: translate3d(0, var(--par, 0px), 0); }
+    /* The uprights: a polished brass gallery-rail edge on each pedestal, three
+       stops so the moulding catches the light down its middle. Both are drawn
+       from the same declaration and both now run the full height of the room. */
+    .rail-l, .rail-r {
+      border-style: solid; border-width: 0;
+      border-image: linear-gradient(to bottom,
+        var(--brass-lo), var(--brass) 18%, var(--brass-hi) 50%, var(--brass) 82%, var(--brass-lo)) 1;
+    }
+    .rail-l { border-right-width: 3px; box-shadow: 3px 0 7px -2px rgba(0,0,0,.55); }
+    .rail-r { border-left-width: 3px; box-shadow: -3px 0 7px -2px rgba(0,0,0,.55); }
+    /* The floor, held at the foot of the window: it is the room's parquet, not
+       the page's end, so it must not scroll away with the content. */
+    .room::after {
+      content: ""; position: fixed; z-index: -1; left: 0; right: 0; bottom: 0;
+      height: 52px; pointer-events: none;
+      background:
+        repeating-linear-gradient(46deg, rgba(0,0,0,.30) 0 9px, transparent 9px 18px),
+        repeating-linear-gradient(-46deg, rgba(255,214,150,.05) 0 9px, transparent 9px 18px),
+        linear-gradient(to bottom, transparent, var(--wood-a));
+      border-top: 2px solid var(--brass-lo);
+    }
+    html[data-theme="light"] .room::after {
+      background:
+        repeating-linear-gradient(46deg, rgba(92,58,20,.16) 0 9px, transparent 9px 18px),
+        repeating-linear-gradient(-46deg, rgba(255,255,255,.35) 0 9px, transparent 9px 18px),
+        linear-gradient(to bottom, transparent, var(--wood-b));
+    }
+    /* The ambient wash was aimed at the side margins, because that is where it
+       stayed visible. Those margins are the pedestals now and the lamps light
+       them, so the two blobs move onto the ceiling and the floor instead. */
+    body::before {
+      background:
+        radial-gradient(46vw 40vh at 50% -14%, rgba(255,178,84,.16), transparent 72%),
+        radial-gradient(28vw 30vh at 72% 104%, rgba(150,70,16,.14), transparent 74%);
+    }
+    body::after {
+      background: radial-gradient(28vw 30vh at 34% 102%, rgba(255,152,60,.10), transparent 74%);
+    }
+    html[data-theme="light"] body::before {
+      background:
+        radial-gradient(46vw 40vh at 50% -14%, rgba(206,226,246,.45), transparent 72%),
+        radial-gradient(28vw 30vh at 72% 104%, rgba(214,178,110,.22), transparent 74%);
+    }
+    html[data-theme="light"] body::after {
+      background: radial-gradient(28vw 30vh at 34% 102%, rgba(255,236,196,.30), transparent 74%);
+    }
+  }
+
+  /* ----- the lamp: a real Emeralite over each pedestal -----
+     Cased green glass on a brass stem, hung from the cornice on a rod, with a
+     pull chain. What makes it read as LIT is not the shade colour but the opal
+     underside: cream at the mouth falling to jade and then to nothing, so the
+     light looks like it is coming out of the fixture rather than painted on.
+     In daylight --lamp-opal-a goes to 0 and the same fixture reads as switched
+     off — the room does not change, the hour does. */
+  .lamp {
+    position: absolute; top: 0; left: 0; right: 0; height: 300px;
+    pointer-events: none; z-index: 1;
+  }
+  /* The bounce: a tight hot spot on the timber right under the shade, and the
+     wide warm pool it falls off into. */
+  .lamp::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(22% 16% at 50% 21%, rgba(255,232,168,.42), transparent 100%),
+      radial-gradient(62% 100% at 50% 4%, var(--lamp-glow), transparent 74%);
+    mix-blend-mode: screen;
+  }
+  html[data-theme="light"] .lamp::after { mix-blend-mode: normal; opacity: .5; }
+  .lamp svg {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 132px; height: 300px; overflow: visible;
+  }
+  .lamp .l-brass    { fill: var(--lamp-brass); }
+  .lamp .l-brass-hi { fill: var(--lamp-brass-hi); }
+  .lamp .l-brass-lo { fill: var(--lamp-brass-lo); }
+  .lamp .l-harp     { fill: none; stroke: var(--lamp-brass); stroke-width: 2; }
+  .lamp .l-cord     { stroke: var(--lamp-brass); stroke-width: 1.1; }
+  .lamp .l-shade    { fill: url(#lampShade); }
+  .lamp .l-rim      { fill: none; stroke: var(--lamp-brass-hi); stroke-width: 1.6; opacity: .9; }
+  .lamp .l-spec     { stroke: rgba(255,255,255,.20); stroke-width: 1.4; }
+  .lamp .l-opal     { opacity: var(--lamp-opal-a); }
+  .lamp .l-cone     { opacity: var(--lamp-cone-a); mix-blend-mode: screen; }
+  .lamp .l-pool     { opacity: var(--lamp-pool-a); mix-blend-mode: screen; }
+  html[data-theme="light"] .lamp .l-cone,
+  html[data-theme="light"] .lamp .l-pool { mix-blend-mode: normal; }
+  /* The chain sways once when the pointer crosses the pedestal — the only
+     thing in the room that moves on its own. */
+  .lamp .l-chain { transform-origin: 80px 96px; }
+  .rail:hover .lamp .l-chain { animation: chainSway 2.6s cubic-bezier(.36,.07,.19,.97); }
+  @keyframes chainSway {
+    0%, 100% { transform: rotate(0deg); }
+    18% { transform: rotate(5.5deg); }
+    44% { transform: rotate(-3.4deg); }
+    70% { transform: rotate(1.8deg); }
+    88% { transform: rotate(-.7deg); }
+  }
+
+  /* The rail heading rides a leather label strip in a brass holder, the way a
+     bookcase shelf is labelled. */
+  .rail-head {
+    display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+    margin: 300px 0 18px; position: relative; padding-bottom: 11px;
+  }
+  .rail-head::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    border-radius: 1px;
+    background: linear-gradient(90deg, var(--brass-hi), var(--brass) 12%,
+      color-mix(in srgb, var(--brass) 40%, transparent) 60%, transparent);
+    opacity: .8;
+  }
+  .rail-head h2 {
+    margin: 0; font-family: var(--font-display);
+    font-size: calc(1.06rem * var(--ui)); font-weight: 650; letter-spacing: .09em;
+    color: color-mix(in srgb, var(--brass-hi) 55%, var(--text));
+  }
+  html[data-theme="light"] .rail-head h2 { color: color-mix(in srgb, var(--brass) 55%, var(--text)); }
+  .rail-head .n { font-family: var(--mono); font-size: calc(.86rem * var(--ui)); color: var(--text-dim); }
+  .rail-head .seg { margin-left: auto; }
+  .rail-head .seg button { padding: 6px 11px; font-size: calc(.84rem * var(--ui)); }
+
+  /* ----- the archive: shelves of spines, read edge-on -----
+     Rows are a fixed height so one repeating gradient can paint a shelf under
+     every one of them, however the spines happen to wrap. The shelf is three
+     bands — a bright front lip, the board's dark face, and the shadow the
+     books above cast onto the next shelf down. */
+  .spinewall {
+    /* The row has to grow with the type, because the spines it carries do. */
+    --rowh: calc(244px * var(--ui));
+    display: flex; flex-wrap: wrap; align-items: flex-end; align-content: flex-start;
+    gap: 0 3px;
+    background: repeating-linear-gradient(to bottom,
+      rgba(0,0,0,.22) 0 10px,
+      transparent 10px calc(var(--rowh) - 9px),
+      var(--plank-lip) calc(var(--rowh) - 9px) calc(var(--rowh) - 7px),
+      var(--plank-face) calc(var(--rowh) - 7px) calc(var(--rowh) - 2px),
+      rgba(0,0,0,.45) calc(var(--rowh) - 2px) var(--rowh));
+  }
+  .spine {
+    height: var(--rowh); padding: 0 0 9px; border: 0; background: none;
+    display: flex; align-items: flex-end; cursor: pointer; font: inherit; color: inherit;
+  }
+  .spine:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
+  .svol {
+    position: relative; width: var(--svw); height: var(--svh);
+    background: var(--cloth); overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset -1px 0 0 rgba(0,0,0,.45), inset 1px 0 0 rgba(255,255,255,.07);
+    transition: transform .3s cubic-bezier(.22,1,.36,1), filter .3s ease;
+  }
+  /* A spine is pulled up off the shelf, not tipped out — tipping needs the
+     other two faces, and the archive deliberately has none. */
+  .spine:hover .svol, .spine:focus-visible .svol, .spine.open .svol {
+    transform: translateY(-11px); filter: brightness(1.22);
+  }
+  .spine.open .svol { box-shadow: inset 0 0 0 1px var(--foil), inset -1px 0 0 rgba(0,0,0,.45); }
+  /* Tail band, tinted by the show's own rating — the payoff for sorting the
+     wall by score, and the only reading a spine carries. */
+  .svol::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+    background: hsl(var(--hue, 0) 62% 46%); opacity: var(--hueop, 0);
+  }
+  /* The title is stamped down the spine, which is the one place CJK has the
+     advantage: it sets vertically without rotating a glyph. This is the
+     smallest type in the room and the hardest to read — vertical, on cloth, in
+     foil — so it is set larger than anything else its size class, in the book
+     face, and the boards were widened again to carry it. */
+  .stxt {
+    position: relative; z-index: 1;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-family: var(--font-display); font-weight: 560;
+    font-size: calc(.97rem * var(--ui)); line-height: 1.06; letter-spacing: .04em;
+    color: var(--foil); opacity: .96; max-height: 80%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-shadow: 0 1px 2px rgba(0,0,0,.65);
+  }
+  /* The archive comes up shelf by shelf, not volume by volume.
+     --i is the row a spine landed on, stamped after layout, so a whole shelf
+     rises as one. Dealing 141 spines out individually took the better part of a
+     second and read as loading rather than as an entrance — which is exactly
+     what it was mistaken for: a second wave arriving after the covers, when in
+     fact both had been standing there since before the curtain moved. Six rows
+     of stagger is the whole budget now. */
+  @keyframes spineIn { from { opacity: 0; transform: translateY(20px); } }
+  .spinewall.anim .spine { animation: spineIn .46s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms); }
+  /* Picking a year off the census lights that year's volumes for a moment, so
+     a figure in one rail can be found in the other. */
+  .spine.lit .svol {
+    transform: translateY(-11px);
+    box-shadow: inset 0 0 0 1px var(--foil), 0 0 14px 2px var(--lamp-glow);
+    filter: brightness(1.3);
+  }
+
+  /* ----- the duty desk -----
+     Three instruments standing on the desk. Columns rather than a grid: the
+     panels are wildly different heights, and grid would align them into rows
+     and leave a hole beside the shortest. Columns let them flow and pack. */
+  .desk { columns: 330px; column-gap: 16px; margin-top: 26px; }
+  /* Each panel is a drawer front: cockbead moulding around the edge, a lit top
+     roll and a dark bottom one, and a shadow cast to the lower right by the
+     lamp above and to the left. */
+  .deskpanel {
+    background:
+      var(--grain),
+      linear-gradient(180deg, rgba(255,246,225,.055), rgba(0,0,0,.10));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
+    border: 1px solid var(--gilt-soft);
+    border-radius: 3px; padding: 16px 18px 17px;
+    break-inside: avoid; margin: 0 0 16px;
+    box-shadow: inset 0 1px 0 rgba(255,240,215,.14), inset 0 -2px 0 rgba(0,0,0,.42),
+                3px 6px 14px -4px rgba(0,0,0,.6);
+  }
+  html[data-theme="light"] .deskpanel {
+    background:
+      var(--grain),
+      linear-gradient(180deg, rgba(255,255,255,.72), rgba(92,60,24,.05));
+    background-size: 140px 140px, auto;
+    background-blend-mode: var(--grain-blend), normal;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 0 rgba(92,60,24,.16),
+                3px 6px 14px -4px rgba(92,60,24,.26);
+  }
+  /* Four instruments, four different metals in their edging, so the desk is
+     not one repeated widget. */
+  .deskpanel:nth-of-type(1) { border-color: var(--gilt); }
+  .deskpanel:nth-of-type(2) { border-color: color-mix(in srgb, var(--ledger-margin) 60%, transparent); }
+  .deskpanel:nth-of-type(3) { border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
+  .deskpanel:nth-of-type(4) { border-color: color-mix(in srgb, var(--accent-b) 38%, transparent); }
+  /* A brass drop pull, hung from the top edge of each drawer front. */
+  .deskpanel > h3 {
+    margin: 0 0 13px; position: relative; padding-left: 20px;
+    font-family: var(--font-display);
+    font-size: calc(1.02rem * var(--ui)); font-weight: 650; letter-spacing: .05em;
+    color: color-mix(in srgb, var(--brass-hi) 42%, var(--text));
+  }
+  html[data-theme="light"] .deskpanel > h3 { color: color-mix(in srgb, var(--brass) 48%, var(--text)); }
+  .deskpanel > h3::before {
+    content: ""; position: absolute; left: 0; top: 50%; width: 12px; height: 12px;
+    margin-top: -6px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, var(--brass-hi), var(--brass) 52%, var(--brass-lo));
+    box-shadow: 0 1px 2px rgba(0,0,0,.5);
+  }
+  .deskpanel .none { font-size: calc(.88rem * var(--ui)); color: var(--text-faint); padding: 4px 0; }
+
+  /* Two faces, because the schedule is kept in Tokyo and watched here. Real
+     desk clocks: a bezel, an ivory dial, a blued steel second hand. */
+  .clocks { display: flex; gap: 22px; justify-content: center; margin: 4px 0 16px; }
+  .clock { text-align: center; }
+  .clock svg { width: 88px; height: 88px; display: block;
+    filter: drop-shadow(2px 3px 4px rgba(0,0,0,.45)); }
+  .clock .bezel { fill: none; stroke: var(--brass); stroke-width: 3; }
+  .clock .bezel-hi { fill: none; stroke: var(--brass-hi); stroke-width: 1; opacity: .8; }
+  .clock .face { fill: var(--paper-dial); stroke: none; }
+  .clock .tick { stroke: var(--text-dim); stroke-width: 1.2; opacity: .7; }
+  .clock .tick.h { stroke-width: 2.2; opacity: .9; }
+  .clock .hh, .clock .mh { stroke: var(--dial-hand); stroke-linecap: round; }
+  .clock .hh { stroke-width: 3; }
+  .clock .mh { stroke-width: 2; }
+  .clock .sh { stroke: #b0492f; stroke-width: 1.1; }
+  .clock .pin { fill: #b0492f; }
+  .clock .cl { font-family: var(--mono); font-size: calc(.94rem * var(--ui)); color: var(--text); margin-top: 7px; }
+  /* 13px is the floor for Chinese anywhere in the sheet: 本地 / 东京 at 12px
+     is a pair of smudges where the same size in Latin is merely small. */
+  .clock .cz { font-size: calc(.85rem * var(--ui)); letter-spacing: .07em; color: var(--text-faint); }
+  :root { --paper-dial: #efe4c6; --dial-hand: #221a10; }
+  html[data-theme="light"] { --paper-dial: #fdf8ec; --dial-hand: #241a10; }
+
+  .up {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 0; border: 0; border-top: 1px dashed var(--gilt-soft);
+    background: none; font: inherit; text-align: left; cursor: pointer;
+  }
+  .up:first-of-type { border-top: 0; }
+  .up:hover .un { color: var(--text); }
+  .up .uw { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); color: var(--accent-b); flex: none; min-width: 64px; }
+  .up .un { font-size: calc(.9rem * var(--ui)); color: var(--text-dim); min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .up .ucd { font-family: var(--mono); font-size: calc(.84rem * var(--ui)); color: var(--text-faint); flex: none; }
+  .up.soon .ucd { color: var(--warn); }
+
+  /* The ledger is ruled paper with a red margin — the entries are written
+     into it by the daemon, so it reads as a record, not a feed. */
+  .ledger {
+    background:
+      var(--grain),
+      repeating-linear-gradient(90deg, transparent 0 3px, var(--paper-rule) 3px 4px),
+      var(--paper);
+    background-size: 140px 140px, auto, auto;
+    background-blend-mode: var(--grain-blend), normal, normal;
+    border-radius: 2px; padding: 2px 0; position: relative;
+    box-shadow: inset 0 0 0 1px var(--gilt-soft);
+  }
+  .lrow {
+    display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px;
+    align-items: baseline; font-family: var(--mono); font-size: calc(.88rem * var(--ui));
+    padding: 7px 12px 7px 30px; border-bottom: 1px dashed var(--ledger-rule);
+    position: relative;
+  }
+  .lrow::before {
+    content: ""; position: absolute; left: 19px; top: 0; bottom: 0;
+    border-left: 1px solid var(--ledger-margin);
+  }
+  .lrow:last-child { border-bottom: 0; }
+  .lrow .ld { color: var(--text-faint); }
+  .lrow .ln { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .le { color: var(--text); }
+  .lrow .lg { font-size: calc(.78rem * var(--ui)); color: var(--text-faint); }
+  /* Today's entries are stamped, the way a ledger page is closed off. Each
+     stamp is pressed at its own angle — no two land square. */
+  .lrow.today .le {
+    color: var(--stamp-ink); border: 1px solid var(--stamp-ink);
+    border-radius: 2px; padding: 1px 4px; transform: rotate(var(--rot, -2deg));
+    display: inline-block;
+  }
+
+  .mrow { display: flex; align-items: center; gap: 10px; font-size: calc(.9rem * var(--ui)); padding: 7px 0;
+    color: var(--text-dim); border-top: 1px dashed var(--gilt-soft); }
+  .mrow:first-of-type { border-top: 0; }
+  /* Status is a domed glass indicator lamp in a brass bezel, not a flat dot:
+     a catchlight at the upper left, the colour in the body, a dark base. */
+  .mrow .dot {
+    width: 14px; height: 14px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 34% 28%,
+      rgba(255,255,255,.85), var(--dot-c, var(--ok)) 42%,
+      color-mix(in srgb, var(--dot-c, var(--ok)) 45%, #000) 100%);
+    box-shadow: 0 0 0 1px var(--brass-lo), 0 0 7px color-mix(in srgb, var(--dot-c, var(--ok)) 55%, transparent);
+  }
+  .mrow .dot.warn { --dot-c: var(--warn); }
+  .mrow .dot.bad { --dot-c: var(--muted); box-shadow: 0 0 0 1px var(--brass-lo); }
+  .mrow .mv { margin-left: auto; font-family: var(--mono); font-size: calc(.86rem * var(--ui)); color: var(--text); }
+  /* ----- the census: the archive plotted by year -----
+     Three figures struck in the display face, then a run of columns — one per
+     year across the whole span, gaps drawn as gaps. Each column is a brass
+     shim standing on a ruled baseline; the tallest years are capped bright so
+     the shape of the collection reads before any number does. */
+  .cfigs {
+    display: flex; align-items: stretch; margin: 2px 0 16px;
+  }
+  .cfig {
+    flex: 1; min-width: 0; text-align: center; position: relative; padding: 0 4px;
+  }
+  .cfig + .cfig::before {
+    content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 1px;
+    background: var(--gilt-soft);
+  }
+  .cfig b {
+    display: block; font-family: var(--font-display); font-weight: 640;
+    font-size: calc(1.24rem * var(--ui)); line-height: 1.15; letter-spacing: .01em;
+    color: color-mix(in srgb, var(--brass-hi) 34%, var(--text));
+  }
+  html[data-theme="light"] .cfig b { color: color-mix(in srgb, var(--brass) 40%, var(--text)); }
+  .cfig span {
+    display: block; margin-top: 2px;
+    font-size: calc(.8rem * var(--ui)); color: var(--text-faint); letter-spacing: .04em;
+  }
+  .cchart {
+    display: flex; align-items: flex-end; gap: 2px; height: 108px;
+    margin-top: 16px; padding-bottom: 2px; border-bottom: 2px solid var(--gilt-soft);
+  }
+  .cbar {
+    position: relative;
+    flex: 1; min-width: 0; height: var(--h, 0%); padding: 0; border: 0; cursor: pointer;
+    border-radius: 1px 1px 0 0;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--brass) 62%, transparent),
+      color-mix(in srgb, var(--brass-lo) 70%, transparent));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brass-hi) 55%, transparent);
+    transition: filter .16s ease, transform .16s ease;
+    transform-origin: 50% 100%;
+  }
+  .cbar.top { background: linear-gradient(180deg, var(--brass-hi), var(--brass) 55%, var(--brass-lo)); }
+  /* The tallest year is the only column the chart can be read against, so it
+     carries its own figure. Everything else is a proportion of it, and says so
+     on hover. */
+  .cbar.top::after {
+    content: attr(data-n); position: absolute; left: 50%; bottom: 100%;
+    transform: translateX(-50%); padding-bottom: 3px;
+    font-family: var(--mono); font-size: calc(.76rem * var(--ui));
+    color: var(--brass-hi); pointer-events: none;
+  }
+  html[data-theme="light"] .cbar.top::after { color: var(--brass); }
+  /* A year with nothing on the shelf still holds its place in the run: a
+     hairline on the baseline, so the gap is visibly a gap and not a missing
+     column. */
+  .cbar.nil {
+    height: 2px; background: color-mix(in srgb, var(--text-faint) 40%, transparent);
+    box-shadow: none; cursor: default;
+  }
+  .cbar:hover, .cbar:focus-visible { filter: brightness(1.35); transform: scaleY(1.06); }
+  .caxis {
+    display: flex; justify-content: space-between; margin-top: 5px;
+    font-family: var(--mono); font-size: calc(.78rem * var(--ui)); color: var(--text-faint);
+  }
+
   /* ---------- small screens / touch ---------- */
+  @media (max-width: 899px) {
+    .wrap { padding: 24px 18px 72px; }
+    /* --surface-inset is 0 below 900px, so the corners sit flush with the
+       column edge — at 62px they would reach 44px in under the header. */
+    .blotter i { width: 34px; height: 34px; }
+  }
   @media (max-width: 480px) {
-    .wrap { padding: 16px 12px 64px; }
-    header { gap: 8px 10px; margin-bottom: 16px; }
+    .wrap { padding: 18px 14px 64px; }
+    header { gap: 8px 10px; padding-bottom: 14px; margin-bottom: 16px; }
     .brand small { display: none; }
     .search { margin-left: 0; }
+    .cornice { height: 14px; }
   }
   @media (pointer: coarse) {
-    .btn.small, .fchip { min-height: 40px; }
-    .grouprow select { font-size: 16px; min-height: 40px; }
+    .btn.small, .fchip, .seg button, .drawer-close, .up { min-height: 44px; }
+    .grouprow select { font-size: 16px; min-height: 44px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
-    .spin, .boot-arc { animation: rot 1.5s linear infinite !important; }  /* progress convention */
+    .spin { animation: rot 1.5s linear infinite !important; }  /* progress convention */
     /* View-transition pseudos live outside the page tree — silence explicitly. */
     ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
       animation: none !important;
     }
+  }
+
+  /* On paper there is no room, only the record. The furniture, the lamps and
+     everything that only exists to be looked at come off; what is left is the
+     data on white stock. */
+  @media print {
+    :root, html[data-theme="light"], html[data-theme="dark"] {
+      --bg: #fff; --panel: #fff; --panel-border: #999;
+      --text: #000; --text-dim: #333; --text-faint: #555;
+      --skiver: #fff; --skiver-lit: transparent; --skiver-pebble: transparent;
+      --paper: #fff; --paper-form: #fff; --grain: none;
+      --gilt: #999; --gilt-soft: #ccc; --timber-lip: #fff;
+    }
+    body { background: #fff !important; color: #000 !important; }
+    body::before, body::after,
+    .cornice, .rail, .gutter, .cover-ghost, .blotter, .lamp,
+    #boot, #toast, .scrim, aside.drawer, .room::after { display: none !important; }
+    .wrap { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+    .wrap::before, .wrap::after { display: none !important; }
+    * { box-shadow: none !important; text-shadow: none !important; }
+    /* The sheet's printed border is drawn in box-shadow, which the rule above
+       has just removed, and its days are behind a horizontal scroller that a
+       sheet of paper does not have. Give it a real border and let the whole
+       week onto the page. */
+    .sched-sheet { border: 1px solid #999; }
+    .sched-board { overflow: visible !important; }
   }
 </style>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
-    <symbol id="applogo" viewBox="0 0 96 96"><g transform="translate(48,48) scale(1) translate(-48,-48)" fill="#4a2795"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.855) translate(-48,-48)" fill="#6d3fd4"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.8) translate(-48,-48)" fill="none" stroke="#f3ecff" stroke-opacity=".55" stroke-width="1.4"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.755) translate(-48,-48)" fill="none" stroke="#f3ecff" stroke-opacity=".3" stroke-width="1.4"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><line x1="65.00" y1="48.00" x2="85.00" y2="48.00" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="64.74" y1="50.95" x2="84.44" y2="54.42" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="63.97" y1="53.81" x2="82.77" y2="60.65" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="62.72" y1="56.50" x2="80.04" y2="66.50" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="61.02" y1="58.93" x2="76.34" y2="71.78" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="58.93" y1="61.02" x2="71.78" y2="76.34" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="56.50" y1="62.72" x2="66.50" y2="80.04" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="53.81" y1="63.97" x2="60.65" y2="82.77" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="50.95" y1="64.74" x2="54.42" y2="84.44" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="48.00" y1="65.00" x2="48.00" y2="85.00" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="45.05" y1="64.74" x2="41.58" y2="84.44" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="42.19" y1="63.97" x2="35.35" y2="82.77" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="39.50" y1="62.72" x2="29.50" y2="80.04" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="37.07" y1="61.02" x2="24.22" y2="76.34" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="34.98" y1="58.93" x2="19.66" y2="71.78" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="33.28" y1="56.50" x2="15.96" y2="66.50" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="32.03" y1="53.81" x2="13.23" y2="60.65" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.26" y1="50.95" x2="11.56" y2="54.42" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.00" y1="48.00" x2="11.00" y2="48.00" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.26" y1="45.05" x2="11.56" y2="41.58" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="32.03" y1="42.19" x2="13.23" y2="35.35" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="33.28" y1="39.50" x2="15.96" y2="29.50" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="34.98" y1="37.07" x2="19.66" y2="24.22" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="37.07" y1="34.98" x2="24.22" y2="19.66" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="39.50" y1="33.28" x2="29.50" y2="15.96" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="42.19" y1="32.03" x2="35.35" y2="13.23" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="45.05" y1="31.26" x2="41.58" y2="11.56" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="48.00" y1="31.00" x2="48.00" y2="11.00" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="50.95" y1="31.26" x2="54.42" y2="11.56" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="53.81" y1="32.03" x2="60.65" y2="13.23" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="56.50" y1="33.28" x2="66.50" y2="15.96" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="58.93" y1="34.98" x2="71.78" y2="19.66" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="61.02" y1="37.07" x2="76.34" y2="24.22" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="62.72" y1="39.50" x2="80.04" y2="29.50" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="63.97" y1="42.19" x2="82.77" y2="35.35" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><line x1="64.74" y1="45.05" x2="84.44" y2="41.58" stroke="#f3ecff" stroke-width="0.7" stroke-opacity=".26"/><g transform="rotate(45 48 48)" fill="none" stroke="#f3ecff" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(135 48 48)" fill="none" stroke="#f3ecff" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(225 48 48)" fill="none" stroke="#f3ecff" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(315 48 48)" fill="none" stroke="#f3ecff" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="translate(48,48) scale(0.86) translate(-48,-48)"><g fill="#f3ecff"><rect x="22" y="62" width="52" height="6"/><rect x="26" y="34" width="8" height="28"/><rect x="36" y="26" width="10" height="36"/><rect x="48" y="38" width="8" height="24"/><polygon points="60,62 68,58.5 56.6,32.6 48.6,36.1" fill="#22d3ee"/></g></g><polygon points="48,3.5 53,8.5 48,13.5 43,8.5" fill="#22d3ee"/></symbol>
+    <!-- BEGIN generated app mark (icons/gen.py) -->
+    <symbol id="applogo" viewBox="0 0 96 96"><g transform="translate(48,48) scale(1) translate(-48,-48)" fill="#4a1512"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.855) translate(-48,-48)" fill="#8c2f28"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.8) translate(-48,-48)" fill="none" stroke="#f7ecd0" stroke-opacity=".55" stroke-width="1.4"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><g transform="translate(48,48) scale(0.755) translate(-48,-48)" fill="none" stroke="#f7ecd0" stroke-opacity=".3" stroke-width="1.4"><path d="M56.957 2.880 A46 46 0 0 1 82.596 17.683 A9 9 0 0 0 91.553 33.197 A46 46 0 0 1 91.553 62.803 A9 9 0 0 0 82.596 78.317 A46 46 0 0 1 56.957 93.120 A9 9 0 0 0 39.043 93.120 A46 46 0 0 1 13.404 78.317 A9 9 0 0 0 4.447 62.803 A46 46 0 0 1 4.447 33.197 A9 9 0 0 0 13.404 17.683 A46 46 0 0 1 39.043 2.880 A9 9 0 0 0 56.957 2.880 Z"/></g><line x1="65.00" y1="48.00" x2="85.00" y2="48.00" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="64.74" y1="50.95" x2="84.44" y2="54.42" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="63.97" y1="53.81" x2="82.77" y2="60.65" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="62.72" y1="56.50" x2="80.04" y2="66.50" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="61.02" y1="58.93" x2="76.34" y2="71.78" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="58.93" y1="61.02" x2="71.78" y2="76.34" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="56.50" y1="62.72" x2="66.50" y2="80.04" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="53.81" y1="63.97" x2="60.65" y2="82.77" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="50.95" y1="64.74" x2="54.42" y2="84.44" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="48.00" y1="65.00" x2="48.00" y2="85.00" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="45.05" y1="64.74" x2="41.58" y2="84.44" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="42.19" y1="63.97" x2="35.35" y2="82.77" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="39.50" y1="62.72" x2="29.50" y2="80.04" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="37.07" y1="61.02" x2="24.22" y2="76.34" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="34.98" y1="58.93" x2="19.66" y2="71.78" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="33.28" y1="56.50" x2="15.96" y2="66.50" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="32.03" y1="53.81" x2="13.23" y2="60.65" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.26" y1="50.95" x2="11.56" y2="54.42" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.00" y1="48.00" x2="11.00" y2="48.00" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="31.26" y1="45.05" x2="11.56" y2="41.58" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="32.03" y1="42.19" x2="13.23" y2="35.35" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="33.28" y1="39.50" x2="15.96" y2="29.50" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="34.98" y1="37.07" x2="19.66" y2="24.22" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="37.07" y1="34.98" x2="24.22" y2="19.66" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="39.50" y1="33.28" x2="29.50" y2="15.96" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="42.19" y1="32.03" x2="35.35" y2="13.23" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="45.05" y1="31.26" x2="41.58" y2="11.56" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="48.00" y1="31.00" x2="48.00" y2="11.00" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="50.95" y1="31.26" x2="54.42" y2="11.56" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="53.81" y1="32.03" x2="60.65" y2="13.23" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="56.50" y1="33.28" x2="66.50" y2="15.96" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="58.93" y1="34.98" x2="71.78" y2="19.66" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="61.02" y1="37.07" x2="76.34" y2="24.22" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="62.72" y1="39.50" x2="80.04" y2="29.50" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="63.97" y1="42.19" x2="82.77" y2="35.35" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><line x1="64.74" y1="45.05" x2="84.44" y2="41.58" stroke="#f7ecd0" stroke-width="0.7" stroke-opacity=".26"/><g transform="rotate(45 48 48)" fill="none" stroke="#f7ecd0" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(135 48 48)" fill="none" stroke="#f7ecd0" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(225 48 48)" fill="none" stroke="#f7ecd0" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="rotate(315 48 48)" fill="none" stroke="#f7ecd0" stroke-opacity=".5" stroke-width="1.4"><path d="M41 12.5 L48 7 L55 12.5"/><path d="M43 17.5 L48 13.5 L53 17.5"/></g><g transform="translate(48,48) scale(0.86) translate(-48,-48)"><g fill="#f7ecd0"><rect x="21" y="66" width="54" height="6"/><polygon points="23,24 45,30 45,63 23,57"/><polygon points="73,24 51,30 51,63 73,57"/></g><g fill="#4a1512"><rect x="27" y="37" width="14" height="3.4"/><rect x="27" y="45" width="14" height="3.4"/><rect x="55" y="37" width="14" height="3.4"/><rect x="55" y="45" width="14" height="3.4"/></g><rect x="44" y="27" width="8" height="34" fill="#e2b248"/></g><polygon points="48,3.5 53,8.5 48,13.5 43,8.5" fill="#e2b248"/></symbol>
+    <!-- END generated app mark -->
   </defs>
 </svg>
 <div id="boot" role="status" aria-live="polite">
@@ -1114,7 +2236,133 @@
     <div class="boot-status" id="bootmsg"></div>
   </div>
 </div>
+<!-- The bookcase cornice, run across the top of the window at every width.
+     Sticky rather than fixed so it participates in the document flow and the
+     page still starts underneath it. -->
+<div class="cornice" aria-hidden="true"></div>
+
+<!-- The lamp's paint: gradients and one filter, defined once and referenced by
+     both fixtures. Only the paint is shared — the geometry is written out in
+     each rail. A <use> would have been shorter, but its content lives in a
+     shadow tree that document CSS cannot select into, so `.l-shade { fill: … }`
+     silently did nothing and the shade rendered black. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- var() is spelled through style= rather than as a presentation
+         attribute: stop-color="var(…)" is not reliably resolved. -->
+    <linearGradient id="lampStem" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" style="stop-color:var(--lamp-brass-lo)"/>
+      <stop offset="34%" style="stop-color:var(--lamp-brass-hi)"/>
+      <stop offset="62%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="100%" style="stop-color:var(--lamp-brass-lo)"/>
+    </linearGradient>
+    <!-- Cased glass: dark at the edges, where the eye looks through more of
+         it, and lighter across the belly. -->
+    <linearGradient id="lampShade" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" style="stop-color:var(--lamp-shade-b)"/>
+      <stop offset="24%" style="stop-color:var(--lamp-shade-a)"/>
+      <stop offset="44%" style="stop-color:var(--lamp-shade-hi)"/>
+      <stop offset="66%" style="stop-color:var(--lamp-shade-a)"/>
+      <stop offset="100%" style="stop-color:var(--lamp-shade-b)"/>
+    </linearGradient>
+    <!-- The opal underside. This, not the shade, is what says "lit". -->
+    <radialGradient id="lampOpal" cx="50%" cy="96%" r="76%">
+      <stop offset="0%" style="stop-color:var(--lamp-opal)" stop-opacity=".95"/>
+      <stop offset="38%" stop-color="#cdf0a8" stop-opacity=".48"/>
+      <stop offset="100%" stop-color="#4caf6e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lampCone" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#fff2ae" stop-opacity=".85"/>
+      <stop offset="55%" stop-color="#fff2ae" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#fff2ae" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="lampPool" cx="50%" cy="34%" r="68%">
+      <stop offset="0%" stop-color="#fff4d6" stop-opacity=".70"/>
+      <stop offset="46%" stop-color="#ffdf90" stop-opacity=".24"/>
+      <stop offset="100%" stop-color="#ffcc44" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Soft laterally, crisp along its length: a shaded cone has a hard tip
+         and blurred sides, which is the whole tell that it is light and not a
+         grey triangle. The filtered polygon is 128x210 — small enough that the
+         blur is a one-off cost, and it sits in .lamp, which the parallax
+         transform deliberately excludes, so it never re-rasterises on scroll. -->
+    <filter id="lampSoft" x="-25%" y="-6%" width="150%" height="112%">
+      <feGaussianBlur stdDeviation="6 1.4"/>
+    </filter>
+  </defs>
+</svg>
+
+<div class="room">
+
+<!-- Left pedestal: the archive. Every finished show stands here edge-on, which
+     is the only way a wall of 140 volumes stays readable — and the only place
+     they were visible from at all before, short of opening a tab. -->
+<aside class="rail rail-l" id="rail-l" aria-labelledby="archive-h">
+  <div class="lamp" aria-hidden="true">
+    <svg viewBox="0 0 132 300">
+      <!-- Suspension rod up into the cornice, and its ceiling rose -->
+      <rect x="62" y="0" width="8" height="4" rx="1" class="l-brass"/>
+      <rect x="64.4" y="4" width="3.2" height="48" fill="url(#lampStem)"/>
+      <!-- Canopy and the knurled collar under it -->
+      <ellipse cx="66" cy="52" rx="9" ry="2.6" class="l-brass"/>
+      <rect x="60" y="52" width="12" height="4" rx="1.4" fill="url(#lampStem)"/>
+      <!-- Harp: the U that carries the shade, and its finial -->
+      <path d="M53 78 Q49 64 66 60 Q83 64 79 78" class="l-harp"/>
+      <circle cx="66" cy="58" r="2.6" class="l-brass-hi"/>
+      <!-- Socket and its collar -->
+      <rect x="59" y="60" width="14" height="9" rx="1.5" class="l-brass-lo"/>
+      <rect x="57.5" y="58" width="17" height="3.5" rx="1.4" class="l-brass"/>
+      <!-- Rolled brass fitter, then the cased green shade. The mouth is an
+           elliptical arc, not a straight line: the shade is a cone seen from
+           slightly above, so its opening reads as an ellipse. -->
+      <rect x="52" y="66" width="28" height="4" rx="1.4" class="l-brass"/>
+      <path class="l-shade" d="M52 70 L28 108 A38 7 0 0 0 104 108 L80 70 Z"/>
+      <!-- The opal mouth: this, not the shade colour, is what says "lit" -->
+      <ellipse class="l-opal" cx="66" cy="108" rx="36" ry="6.5" fill="url(#lampOpal)"/>
+      <!-- The rolled rim every real Emeralite has, catching its own light.
+           Only the front half is drawn — the back of the rim is behind glass. -->
+      <path class="l-rim" d="M28 108 A38 7 0 0 0 104 108"/>
+      <!-- One specular streak across the glass -->
+      <line class="l-spec" x1="40" y1="99" x2="92" y2="85"/>
+      <!-- Pull chain: five balls on this one, six on the other -->
+      <g class="l-chain">
+        <line x1="80" y1="96" x2="80" y2="126" class="l-cord"/>
+        <circle cx="80" cy="100" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="106" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="112" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="118" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="124" r="2.1" class="l-brass-hi"/>
+        <rect x="78.4" y="127" width="3.2" height="7" rx="1.2" class="l-brass"/>
+        <circle cx="80" cy="138" r="3.2" class="l-brass"/>
+      </g>
+      <!-- The cone in the air, and the ellipse where it lands. The pool is an
+           ellipse because the timber is not perpendicular to the beam. -->
+      <g class="l-cone" filter="url(#lampSoft)">
+        <polygon points="66,112 2,300 130,300" fill="url(#lampCone)"/>
+      </g>
+      <ellipse class="l-pool" cx="66" cy="292" rx="98" ry="18" fill="url(#lampPool)"/>
+    </svg>
+  </div>
+  <div class="rail-head">
+    <h2 id="archive-h" data-i18n="archive">Archive</h2>
+    <span class="n" id="archive-n"></span>
+    <span class="sr-only" id="spinesort-h" data-i18n="sortBy">Sort by</span>
+    <div class="seg" id="spinesort" role="group" aria-labelledby="spinesort-h">
+      <button onclick="setSpineSort('season')" data-v="season" data-i18n="sortSeason">Season</button>
+      <button onclick="setSpineSort('score')" data-v="score" data-i18n="sortScore">Score</button>
+      <button onclick="setSpineSort('year')" data-v="year" data-i18n="sortYear">Year</button>
+    </div>
+  </div>
+  <div class="spinewall" id="spinewall"></div>
+</aside>
+
 <main class="wrap">
+  <!-- The desk surface itself: the binding fold of the register lying open on
+       it, the plate of the last cover pulled, and the blotter's leather
+       corners. All three are pointer-transparent and sit behind the content. -->
+  <div class="gutter" aria-hidden="true"></div>
+  <div class="cover-ghost" id="coverghost" aria-hidden="true"></div>
+  <div class="blotter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <header>
     <div class="brand">
       <svg class="logo" aria-hidden="true"><use href="#applogo"/></svg>
@@ -1152,6 +2400,69 @@
   <div class="grid" id="cards"><div class="empty"><span class="spin">◌</span> <span data-i18n="loading">Loading…</span></div></div>
 </main>
 
+<!-- Right pedestal: the duty desk. What the automation is about to do, what it
+     has just done, and whether its machinery is answering. -->
+<aside class="rail rail-r" id="rail-r" aria-labelledby="desk-h">
+  <!-- The same fixture, hung a little lower and with one more link in its
+       chain: two lamps off one bench are never quite identical. -->
+  <div class="lamp" aria-hidden="true">
+    <svg viewBox="0 0 132 300">
+      <rect x="62" y="0" width="8" height="4" rx="1" class="l-brass"/>
+      <rect x="64.4" y="4" width="3.2" height="54" fill="url(#lampStem)"/>
+      <ellipse cx="66" cy="58" rx="9" ry="2.6" class="l-brass"/>
+      <rect x="60" y="58" width="12" height="4" rx="1.4" fill="url(#lampStem)"/>
+      <path d="M53 84 Q49 70 66 66 Q83 70 79 84" class="l-harp"/>
+      <circle cx="66" cy="64" r="2.6" class="l-brass-hi"/>
+      <rect x="59" y="66" width="14" height="9" rx="1.5" class="l-brass-lo"/>
+      <rect x="57.5" y="64" width="17" height="3.5" rx="1.4" class="l-brass"/>
+      <rect x="52" y="72" width="28" height="4" rx="1.4" class="l-brass"/>
+      <path class="l-shade" d="M52 76 L28 114 A38 7 0 0 0 104 114 L80 76 Z"/>
+      <ellipse class="l-opal" cx="66" cy="114" rx="36" ry="6.5" fill="url(#lampOpal)"/>
+      <path class="l-rim" d="M28 114 A38 7 0 0 0 104 114"/>
+      <line class="l-spec" x1="41" y1="104" x2="93" y2="92"/>
+      <g class="l-chain" style="transform-origin:80px 102px">
+        <line x1="80" y1="102" x2="80" y2="138" class="l-cord"/>
+        <circle cx="80" cy="106" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="112" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="118" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="124" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="130" r="2.1" class="l-brass-hi"/>
+        <circle cx="80" cy="136" r="2.1" class="l-brass-hi"/>
+        <rect x="78.4" y="139" width="3.2" height="7" rx="1.2" class="l-brass"/>
+        <circle cx="80" cy="150" r="3.2" class="l-brass"/>
+      </g>
+      <g class="l-cone" filter="url(#lampSoft)">
+        <polygon points="66,118 2,300 130,300" fill="url(#lampCone)"/>
+      </g>
+      <ellipse class="l-pool" cx="66" cy="292" rx="98" ry="18" fill="url(#lampPool)"/>
+    </svg>
+  </div>
+  <div class="rail-head">
+    <h2 id="desk-h" data-i18n="dutyDesk">Duty desk</h2>
+  </div>
+  <div class="desk">
+    <section class="deskpanel">
+      <h3 data-i18n="upNext">Next 48 hours</h3>
+      <div class="clocks" id="clocks"></div>
+      <div id="upcoming"></div>
+    </section>
+    <section class="deskpanel">
+      <h3 data-i18n="ledgerHead">Accession ledger</h3>
+      <div class="ledger" id="ledger"></div>
+    </section>
+    <section class="deskpanel">
+      <h3 data-i18n="machineHead">Machine</h3>
+      <div id="machine"></div>
+    </section>
+    <section class="deskpanel">
+      <h3 data-i18n="censusHead">The census</h3>
+      <div id="census"></div>
+    </section>
+  </div>
+</aside>
+
+</div>
+
 <div class="scrim" id="scrim" onclick="closeDrawers()"></div>
 
 <!-- The card, opened in the middle of the screen. Body is built by openCard();
@@ -1166,7 +2477,7 @@
 </div>
 
 <aside class="drawer" id="settings" data-open="0" role="dialog" aria-modal="true"
-       aria-labelledby="set-h" hidden>
+       aria-labelledby="set-h" hidden inert>
   <div class="drawer-head">
     <h2 id="set-h" data-i18n="settings">Settings</h2>
     <button class="drawer-close" onclick="closeDrawers()" aria-label="close">✕</button>
@@ -1187,6 +2498,16 @@
         <div class="seg" id="langseg" role="group" aria-labelledby="lab-language">
           <button onclick="setLang('en')" data-v="en">EN</button>
           <button onclick="setLang('zh')" data-v="zh">中文</button>
+        </div>
+      </div>
+      <!-- One multiplier drives every size in the sheet, so the whole desk
+           scales together rather than a few labels growing out of step. -->
+      <div class="set-row">
+        <span class="lab" id="lab-uiscale" data-i18n="textSize">Text size</span>
+        <div class="seg" id="uiseg" role="group" aria-labelledby="lab-uiscale">
+          <button onclick="setUiScale('m')" data-v="m" data-i18n="sizeM">Normal</button>
+          <button onclick="setUiScale('l')" data-v="l" data-i18n="sizeL">Large</button>
+          <button onclick="setUiScale('xl')" data-v="xl" data-i18n="sizeXL">Larger</button>
         </div>
       </div>
     </div>
@@ -1282,6 +2603,25 @@ const I18N = {
     sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
     sched_season_only: "This season only",
     noSeason: "SEASON UNKNOWN",
+    archive: "Archive", volumes: n => `${n} volume${n === 1 ? "" : "s"}`,
+    sortBy: "Sort by", sortSeason: "Season", sortScore: "Score", sortYear: "Year",
+    dutyDesk: "Duty desk",
+    textSize: "Text size", sizeM: "Normal", sizeL: "Large", sizeXL: "Larger",
+    upNext: "Next 48 hours", tzLocal: "Local", tzTokyo: "Tokyo",
+    upNone: "Nothing airing in the next 48 hours",
+    ledgerHead: "Accession ledger", ledgerNone: "No episodes recorded yet",
+    machineHead: "Machine",
+    mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
+    mSync: "Last sync", mSyncing: "running",
+    mSubs: "Subscriptions", mReady: "Episodes ready",
+    mGrace: "In grace", mWaiting: "Awaiting mikan",
+    censusHead: "The census", censusNone: "Nothing shelved yet",
+    censusVols: "volumes", censusSpan: "years", censusMean: "mean bgm rating",
+    censusBar: o => `${o.y} — ${o.n === 1 ? "1 volume" : o.n + " volumes"}`,
+    schedSheet: "Weekly broadcast sheet",
+    schedFootLeft: "Set in local time",
+    schedFootRight: n => `${n} slots this week`,
+    dayEmpty: "nothing scheduled",
   },
   zh: {
     settings: "设置", gracePip: "等",
@@ -1348,6 +2688,25 @@ const I18N = {
     sched_all: "全部", sched_aired: "已开播", sched_upcoming: "未开播",
     sched_season_only: "仅本季",
     noSeason: "季度未知",
+    archive: "藏书阁", volumes: n => `${n} 卷`,
+    sortBy: "排序方式", sortSeason: "季度", sortScore: "评分", sortYear: "年代",
+    dutyDesk: "值班台",
+    textSize: "字号", sizeM: "标准", sizeL: "大", sizeXL: "特大",
+    upNext: "接下来 48 小时", tzLocal: "本地", tzTokyo: "东京",
+    upNone: "48 小时内没有放送",
+    ledgerHead: "入库登记簿", ledgerNone: "还没有入库记录",
+    machineHead: "机器状态",
+    mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
+    mSync: "上次同步", mSyncing: "进行中",
+    mSubs: "订阅", mReady: "已就绪剧集",
+    mGrace: "宽限中", mWaiting: "等待 mikan",
+    censusHead: "藏书年谱", censusNone: "书架上还没有藏书",
+    censusVols: "卷", censusSpan: "年份", censusMean: "bgm 均分",
+    censusBar: o => `${o.y} 年 — ${o.n} 卷`,
+    schedSheet: "放送周表",
+    schedFootLeft: "按本地时区排印",
+    schedFootRight: n => `本周共 ${n} 场`,
+    dayEmpty: "本日无放送",
   },
 };
 
@@ -1365,6 +2724,16 @@ let lang = pick(
   ["en", "zh"], "en");
 let themeMode = pick(QS.get("theme") || localStorage.getItem("theme") || "auto",
   ["auto", "dark", "light"], "auto");
+// One multiplier scales every size in the stylesheet at once (see --ui). It is
+// deliberately a user setting rather than a viewport formula: how big the type
+// needs to be depends on the monitor and how far away it is, which no media
+// query can know.
+// The scale only ever goes up. A multiplier below 1 would push the smallest
+// sizes back under the 12px floor — and under 13px for Chinese — which is the
+// exact problem this pass exists to fix, so there is no Small.
+let uiScale = pick(QS.get("size") || localStorage.getItem("uiScale") || "m",
+  ["m", "l", "xl"], "m");
+const UI_SCALES = { m: 1, l: 1.12, xl: 1.25 };
 let activeType = pick(QS.get("tab") || localStorage.getItem("tab") || "watching",
   [...FILTER_ORDER, "schedule"], "watching");
 let schedFilter = pick(localStorage.getItem("schedFilter") || "all",
@@ -1400,16 +2769,34 @@ function setHTML(el, html) {
 // triggers the opening replay itself, timed to the overlay lift.
 let animateCards = false;
 
-// Stamp each animatable child with its index for the CSS stagger delay.
-// Timetable mode staggers per column (a wave), grids stagger across the run.
+// Stamp each animatable child with its stagger rank.
+// The timetable staggers per column, which is a wave running down each day.
+// The grid staggers by shelf: everything standing on one plank rises together,
+// the same rank the archive rail uses, so the whole room comes up in a few
+// broad moves instead of dealing itself out item by item.
 function applyStagger() {
   const c = $("cards");
   if (activeType === "schedule") {
     c.querySelectorAll(".sched-col").forEach(col =>
       col.querySelectorAll(".sched-item").forEach((el, i) => el.style.setProperty("--i", i)));
-  } else {
-    [...c.children].forEach((el, i) => el.style.setProperty("--i", i));
+    return;
   }
+  stampShelves(c.children);
+}
+
+// Rank each element by the plank it stands on. Grid and archive alike are
+// bottom-aligned rows of objects of different heights, so the shelf line is the
+// bottom edge, not the top — grouping by top would give a volume its own rank
+// per height and put the stagger back to one item at a time. Rounded to 4px to
+// absorb subpixel differences between neighbours on the same plank.
+// All the measuring first, then all the writing. Interleaving them would make
+// each of 141 volumes invalidate style and force the next rect back through
+// layout — the classic thrash, and this runs on every archive render.
+function stampShelves(els) {
+  const lines = [...els].map(el => Math.round(el.getBoundingClientRect().bottom / 4));
+  const shelves = new Map();
+  for (const line of lines) if (!shelves.has(line)) shelves.set(line, shelves.size);
+  [...els].forEach((el, i) => el.style.setProperty("--i", shelves.get(lines[i])));
 }
 
 const bgmLink = (id, text) => `<a href="https://bgm.tv/subject/${id}" target="_blank" rel="noopener">${text}</a>`;
@@ -1523,12 +2910,30 @@ function setTheme(v) {
   themeMode = v;
   localStorage.setItem("theme", themeMode);
   const apply = () => { applyTheme(); applyStatic(); };
-  // Cross-fade the palette swap where View Transitions exist; plain swap elsewhere.
-  if (document.startViewTransition) document.startViewTransition(apply);
+  // Cross-fade the palette swap where View Transitions exist; plain swap
+  // elsewhere. A transition that is superseded — or that times out because
+  // something else rewrote the page mid-capture — rejects .ready, and an
+  // unhandled rejection is an error in the console for a cross-fade nobody
+  // was going to see. The swap itself still happens; only the animation is
+  // dropped, so there is nothing to report.
+  if (document.startViewTransition) document.startViewTransition(apply).ready.catch(() => {});
   else apply();
   syncSegs();
 }
 themeMedia.addEventListener("change", () => { if (themeMode === "auto") applyTheme(); });
+
+function applyUiScale() {
+  document.documentElement.style.setProperty("--ui", String(UI_SCALES[uiScale] || 1));
+}
+function setUiScale(v) {
+  uiScale = v;
+  localStorage.setItem("uiScale", v);
+  applyUiScale();
+  syncSegs();
+  // The spine wall sizes its rows in px but its titles in rem — re-shelve so
+  // the new type gets the room it needs rather than being clipped.
+  renderSpineWall(false);
+}
 
 function applyStatic() {
   document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
@@ -1832,8 +3237,9 @@ function showPanel(id) {
   d.hidden = false;
   d.inert = false;
   // Everything behind the panel goes inert, which is the focus trap: Tab
-  // cannot walk out of the dialog into content the scrim is covering.
-  document.querySelectorAll("main.wrap").forEach(el => el.inert = true);
+  // cannot walk out of the dialog into content the scrim is covering. The
+  // rails are siblings of the wall, not children — they have to be named.
+  document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = true);
   // The panel must be laid out before its transition can run.
   requestAnimationFrame(() => d.dataset.open = "1");
   document.body.classList.add("drawer-open");
@@ -1843,10 +3249,11 @@ function showPanel(id) {
 function closeDrawers(silent) {
   hidePanel("cardsheet");
   hidePanel("settings");
-  document.querySelectorAll("main.wrap").forEach(el => el.inert = false);
+  document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = false);
   document.body.classList.remove("drawer-open");
-  document.querySelectorAll(".unit.open").forEach(u => u.classList.remove("open"));
+  document.querySelectorAll(".unit.open, .spine.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
+  setCoverGhost(null);
   openBgm = null;
   if (!silent && drawerReturn && drawerReturn.isConnected) drawerReturn.focus();
   drawerReturn = null;
@@ -1871,8 +3278,23 @@ function findShow(bgmId) {
 // would silently revert to looking closed while its card is still up.
 function markOpenUnit() {
   if (openBgm === null) return;
-  const u = document.querySelector(`.unit[data-bgm="${openBgm}"]`);
-  if (u) u.classList.add("open");
+  // The same show can be on the wall and on the archive rail at once — mark
+  // whichever copies exist so the room never disagrees with the open card.
+  document.querySelectorAll(`.unit[data-bgm="${openBgm}"], .spine[data-bgm="${openBgm}"]`)
+    .forEach(el => el.classList.add("open"));
+}
+
+// The plate printed into the desk leather: whichever cover was pulled last.
+// The URL is the one the volume's own <img> already loaded, so setting it here
+// costs a cache hit rather than a request.
+function setCoverGhost(url) {
+  const el = $("coverghost");
+  if (!el) return;
+  // Only the alpha is cleared on close, never the image: dropping the URL would
+  // make the plate vanish instantly instead of fading out.
+  if (!url) { el.style.setProperty("--cover-ghost-a", "0"); return; }
+  el.style.setProperty("--cover-ghost", `url("${url.replace(/"/g, "%22")}")`);
+  el.style.setProperty("--cover-ghost-a", ".085");
 }
 
 function openCard(bgmId) {
@@ -1880,6 +3302,7 @@ function openCard(bgmId) {
   if (!found) return;
   openBgm = bgmId;
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
+  setCoverGhost(found.show.image);
   markOpenUnit();
   showPanel("cardsheet");
 }
@@ -1895,6 +3318,7 @@ function refreshCard() {
   const found = findShow(openBgm);
   if (!found) { closeDrawers(); return; }
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
+  setCoverGhost(found.show.image);
 }
 
 function openSettings() {
@@ -1908,6 +3332,8 @@ function syncSegs() {
     b.setAttribute("aria-pressed", String(b.dataset.v === themeMode)));
   $("langseg").querySelectorAll("button").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.v === lang)));
+  $("uiseg").querySelectorAll("button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.v === uiScale)));
 }
 
 document.addEventListener("keydown", e => {
@@ -1976,7 +3402,10 @@ function withSeasonDividers(shows, renderFn) {
   for (const sh of shows) {
     const season = sh.season || "";
     if (season !== prev) {
-      out.push(`<div class="season-divider ${seasonClass(season)}">${season ? esc(season) : t("noSeason")}</div>`);
+      // The label sits on its own plate so the brass holder (::before) and the
+      // shelf rail running out of it (::after) can be drawn around it.
+      out.push(`<div class="season-divider ${seasonClass(season)}"><span class="plate">${
+        season ? esc(season) : t("noSeason")}</span></div>`);
       prev = season;
     }
     out.push(renderFn(sh));
@@ -2115,33 +3544,60 @@ function renderSchedule() {
   const today = (new Date().getDay() + 6) % 7;
   const names = t("days");
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  const col = (name, isToday, list) => {
+  const col = (name, isToday, list, dated) => {
     const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
     const items = list.map(schedItem);
-    // "Now" marker: slot the pulse line where the current time falls in
-    // today's column (between the last aired and the next upcoming show).
+    // "Now" marker: slot the caret where the current time falls in today's
+    // column (between the last aired and the next upcoming show).
     if (isToday && items.length) {
       let at = list.findIndex(s => minuteOf(s) > nowMin);
       if (at === -1) at = items.length;
       items.splice(at, 0, `<div class="now-line" aria-hidden="true"></div>`);
     }
-    const body = items.length ? items.join("") : `<div class="empty">—</div>`;
-    return `<div class="sched-col ${isToday ? "today" : ""}">
-      <div class="sched-day">${name}${badge}</div>${body}
+    const body = items.length ? items.join("") : `<div class="empty">${t("dayEmpty")}</div>`;
+    // The margin rule is drawn by the column, so a column with nothing typed
+    // into it must not draw one: a ruled margin beside blank stock reads as a
+    // printing fault rather than as a quiet day.
+    return `<div class="sched-col ${isToday ? "today" : ""}${list.length ? "" : " empty-day"}">
+      <div class="sched-day"><span class="d-name">${name}</span>${
+        dated ? `<span class="d-date">${dated}</span>` : ""}${badge}</div>${body}
     </div>`;
   };
+  // The head of each column carries its date as well as its weekday: the sheet
+  // starts at today and runs a week forward, so "周一" alone is ambiguous about
+  // which Monday is meant.
+  const dayStamp = off => {
+    const d = new Date();
+    d.setDate(d.getDate() + off);
+    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   let board = "";
+  let slots = 0;
   for (let off = 0; off < 7; off++) {
     const i = (today + off) % 7;
     days[i].sort((a, b) => minuteOf(a) - minuteOf(b) || byAir(a, b));
-    board += col(names[i], off === 0, days[i]);
+    slots += days[i].length;
+    board += col(names[i], off === 0, days[i], dayStamp(off));
   }
-  if (tba.length) board += col(t("timeTBA"), false, tba.slice().sort(byAir));
+  if (tba.length) {
+    board += col(t("timeTBA"), false, tba.slice().sort(byAir), "");
+    slots += tba.length;
+  }
   // Keep the horizontal scroll position across re-renders.
   const prev = $("cards").querySelector(".sched-board");
   const sl = prev ? prev.scrollLeft : 0;
+  const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").replace(/_/g, " ");
   setHTML($("cards"), `<div class="sched-filters">${chips}${seasonToggle}</div>
-    <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>`);
+    <div class="sched-sheet">
+      <div class="sched-masthead">
+        <h4>${esc(t("schedSheet"))}</h4>
+        <span class="mh-meta">${esc(state && state.season ? state.season : "")}${
+          tz ? " · " + esc(tz) : ""}</span>
+      </div>
+      <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>
+      <div class="sched-foot"><span>${esc(t("schedFootLeft"))}</span>
+        <span class="fn">${esc(t("schedFootRight", slots))}</span></div>
+    </div>`);
   const board2 = $("cards").querySelector(".sched-board");
   if (board2 && sl) board2.scrollLeft = sl;
   if (board2) attachSchedDrag(board2);
@@ -2196,17 +3652,22 @@ function schedItem(s) {
   const d = s.airing_at ? new Date(s.airing_at * 1000) : null;
   const hm = d ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "--:--";
   // Air status lives in the time's color (green = aired, dim = upcoming) so
-  // each card carries a single pill — the collection type.
+  // each entry carries a single pill — the collection type.
   const aired = hasAired(s);
   const title = displayTitle(s);
   const when = fmtLocal(s.airing_at, s.premiere_date);
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(aired ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
-  return `<div class="sched-item t-${s.type}">
+  // Each print is pasted down at its own angle, taken from the show's own id,
+  // so a column of them reads as pasted by hand rather than as a list of
+  // thumbnails. Same hash the archive binds its volumes from.
+  const tilt = (((bookHash(s.bgm_id) >>> 9) % 81) / 10 - 4).toFixed(1);
+  return `<div class="sched-item t-${s.type}" style="--tilt:${tilt}deg">
+    <span class="s-time ${aired ? "aired" : "upcoming"}">${hm}</span>
     <div class="scover">${coverHtml(s.image)}</div>
     <div class="sbody">
-      <div class="srow"><span class="stime ${aired ? "aired" : "upcoming"}">${hm}</span><span class="pill ${s.type}">${t("t_" + s.type)}</span>${courTag(s)}</div>
-      <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>${showLinks(s)}
+      <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>
+      <div class="srow"><span class="pill ${s.type}">${t("t_" + s.type)}</span>${courTag(s)}${showLinks(s)}</div>
       ${jpLine(s)}
       ${airRow}
     </div>
@@ -2249,6 +3710,7 @@ function render() {
   renderHeader();
   renderFilters();
   renderCards();
+  renderRoom();
   refreshCard();
 }
 
@@ -2313,37 +3775,64 @@ function bootDone() {
   setTimeout(() => {
     el.classList.add("done");
     document.body.classList.add("booted");
-    // The curtain wipes for .56s and the shelves start their stagger while it
-    // is still moving — the motion is handed over, not restarted.
+    // The curtain wipes for .56s and the room starts its stagger while it is
+    // still moving — the motion is handed over, not restarted. Grid and
+    // archive are started here, off the same offset, so the covers and the
+    // spines rise together instead of the wall waiting its turn.
     const c = $("cards");
     c.style.setProperty("--stagger-base", ".3s");
     c.classList.add("anim");
     applyStagger();
+    const wall = $("spinewall");
+    if (wall) {
+      wall.style.setProperty("--stagger-base", ".3s");
+      wall.classList.add("anim");
+    }
     setTimeout(() => el.remove(), 700);
   }, wait);
 }
 
+// Everything the opening needs, asked for at once.
+//
+// This used to run in series — overview, then notifications, then unresolved,
+// and only after the curtain had already lifted did anyone ask for
+// /api/collections. The archive is built from that last response, so the room
+// assembled itself in two visible waves: the covers dealt themselves out, the
+// page settled, and *then* the shelves started filling in one spine at a time,
+// as if the wall were still loading after the desk had finished. Four requests
+// in flight together, and the curtain held until the two that furnish the room
+// have both landed, so the whole study is standing there when it lifts.
+//
+// The awaits below do not serialise anything: every fetch is started before
+// the first one is awaited.
 async function refresh() {
   const q = ++seqO;
   bootStage(45, "bootConnect");
   try {
-    const d = await (await fetch("/api/overview")).json();
+    const overview = fetch("/api/overview").then(r => r.json());
+    const shelves = refreshCollections();
+    const notes = refreshPremieres();
+    const stuck = refreshUnresolved();
+    const d = await overview;
     if (q !== seqO) return;   // an out-of-order older response must not win
     state = d;
     offline = false;
     render();
-    // The default 在看 tab is fully rendered from /api/overview above, so the boot
-    // screen lifts as soon as it (+ the cheap notification/unresolved calls) land.
-    // /api/collections powers only the other tabs (想看/看过/…/timetable); it's the
-    // slow one (5 bgm lists incl. the big 看过 history), so it loads in the
-    // background — renderCards() shows a brief "Loading…" if one of those tabs is
-    // the pinned start tab, then fills in. refreshPremieres re-runs once collections
-    // arrive so banner titles can follow the UI language.
     bootStage(90, "bootNotif");
+    // The shelves are worth waiting for, but not indefinitely: /api/collections
+    // fans out to five bgm list calls and answers in ~50ms off its two-minute
+    // cache and in seconds when that cache is cold. Four seconds is the most
+    // the opening will hold for it; past that the curtain goes up without the
+    // archive, and the wall animates itself in when it does arrive — which is
+    // the old behaviour, kept for the one case that actually needs it.
+    const held = Promise.race([shelves, new Promise(r => setTimeout(r, 4000))]);
+    await Promise.all([held, notes, stuck]);
+    if (q !== seqO) return;
+    // Banner titles follow the UI language, which needs the collections entry;
+    // it is here now, so restate them before anything is shown.
     await refreshPremieres();
-    await refreshUnresolved();
     bootDone();
-    refreshCollections().then(refreshPremieres);
+    refreshLedger();   // right rail only; a no-op while the room is collapsed
   } catch (e) {
     if (q !== seqO) return;
     // Toast once per outage, then hold a persistent indicator in the header —
@@ -2362,8 +3851,19 @@ async function refreshCollections() {
     const d = await (await fetch("/api/collections")).json();
     if (q !== seqC) return;
     collections = d;
+    // The two requests are in flight together, so this one can win the race.
+    // The grid is drawn from both, and render() paints all of it the moment
+    // the overview lands — painting half a grid here would only mean drawing
+    // it twice.
+    if (!state) return;
     renderFilters();   // may retarget activeType if its tab vanished
     renderCards();
+    // The archive, the census and the 48h board are all built from
+    // collections, so they fill in with this response rather than waiting for
+    // the next poll.
+    renderSpineWall(false);
+    renderUpcoming();
+    renderCensus();
   } catch (e) { /* transient */ }
 }
 
@@ -2670,9 +4170,372 @@ async function pullLogs() {
       }
     }
     el.textContent = lines.join("\n");
-    if (stick) el.scrollTop = el.scrollHeight;
+    // scrollTop clamps to the maximum on its own, so pinning to the bottom
+    // costs no layout read. Reading el.scrollHeight straight after writing the
+    // text would force a synchronous layout on every five-second pass.
+    if (stick) el.scrollTop = 1e9;
   } catch (e) { /* transient */ }
 }
+
+/* ---------------------------------------------------------------------------
+   THE ROOM
+
+   Two rails of furniture that exist only past 1800px: the archive along the
+   left wall, the duty desk along the right. Everything on them is built from
+   data the centre column already fetched — the single extra call is the
+   ledger, which reads the append-only log the daemon writes.
+
+   Every builder returns early while the room is collapsed, so a laptop never
+   pays to render markup it cannot see.
+--------------------------------------------------------------------------- */
+const roomMedia = window.matchMedia("(min-width: 1800px)");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const roomOn = () => roomMedia.matches;
+
+// ?sort=score joins ?lang/?theme/?tab as a per-visit override, so a deep link
+// or a screenshot can pin how the archive is shelved without touching storage.
+let spineSort = pick(QS.get("sort") || localStorage.getItem("spineSort") || "season",
+  ["season", "score", "year"], "season");
+let ledger = null;
+let seqL = 0;
+let spineFirst = true;
+
+// ----- the archive -----
+
+// Season keeps the 看过 tab's own order (newest cour, most recently marked
+// first). Score and year ignore the cour entirely and re-shelve the whole
+// wall, which is the point of switching.
+const SPINE_SORTS = {
+  season: byDone,
+  score: (a, b) => (+b.score || -1) - (+a.score || -1),
+  year: (a, b) => (Date.parse(a.date || "") || Infinity) - (Date.parse(b.date || "") || Infinity),
+};
+
+// A volume seen edge-on: same cloth, foil and furniture the wall binds it
+// with, so a show is recognisably the same book on either side of the room.
+// Width and height are hashed too — a shelf of identical spines reads as a
+// texture, not as books.
+function spineHtml(s) {
+  const b = bookStyle(s.bgm_id);
+  const h = bookHash(s.bgm_id);
+  // Widths grow with --ui because the title is set down the spine: a 17px CJK
+  // glyph needs a board wide enough to carry it, or the wall goes back to being
+  // a texture with unreadable smudges on it. Every board is wide enough for the
+  // glyph plus the foil rules either side of it, and no board is the same width
+  // as its neighbour — a shelf of identical boards reads as a fence.
+  const ui = UI_SCALES[uiScale] || 1;
+  const w = Math.round((34 + ((h >>> 23) % 15)) * ui);
+  const ht = Math.round((142 + ((h >>> 26) % 66)) * b.tall * ui);
+  const title = displayTitle(s);
+  const hue = s.score ? `--hue:${scoreHue(+s.score)};--hueop:.9;` : "";
+  const tip = s.season ? `${title} · ${s.season}` : title;
+  return `<button class="spine" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})"
+      style="--cloth:${b.cloth};--foil:${b.foil};--svw:${w}px;--svh:${ht}px;${hue}"
+      title="${esc(tip)}" aria-label="${esc(title)}">
+    <span class="svol">${spineFurniture(b)}<span class="stxt">${esc(title)}</span></span>
+  </button>`;
+}
+
+function renderSpineWall(animate) {
+  if (!roomOn() || !collections) return;
+  const shows = (collections.groups.done || []).slice();
+  shows.sort(SPINE_SORTS[spineSort] || byDone);
+  const wall = $("spinewall");
+  // The opening replay belongs to bootDone(), which starts the grid and the
+  // archive off one shared offset. Claiming it here would run the wall's
+  // stagger under the curtain and finish it before anyone saw it.
+  wall.classList.toggle("anim",
+    !!(animate || (spineFirst && document.body.classList.contains("booted"))));
+  spineFirst = false;
+  setHTML(wall, shows.map(spineHtml).join(""));
+  // Stagger rank is the shelf a volume ended up on, not its position in the
+  // run. Volumes on one shelf all carry the same rank and rise together.
+  stampShelves(wall.children);
+  $("archive-n").textContent = t("volumes", shows.length);
+  $("spinesort").querySelectorAll("button").forEach(el =>
+    el.setAttribute("aria-pressed", String(el.dataset.v === spineSort)));
+  markOpenUnit();
+}
+
+function setSpineSort(k) {
+  spineSort = k;
+  localStorage.setItem("spineSort", k);
+  renderSpineWall(true);
+}
+
+// ----- the duty desk -----
+
+// The schedule is kept in Tokyo and watched here, so the desk carries both
+// faces rather than making anyone do the arithmetic.
+// A desk clock, not a widget: a brass bezel with a lit inner ring, an ivory
+// dial, sixty minute divisions with the hours cut longer, blued steel hands.
+const clockFace = (id, zoneKey) => {
+  let ticks = "";
+  for (let i = 0; i < 60; i++) {
+    const a = i * 6 * Math.PI / 180;
+    const hour = i % 5 === 0;
+    const r = hour ? 33 : 38;
+    ticks += `<line class="tick${hour ? " h" : ""}" x1="${(50 + r * Math.sin(a)).toFixed(1)}" y1="${(50 - r * Math.cos(a)).toFixed(1)}"
+      x2="${(50 + 41 * Math.sin(a)).toFixed(1)}" y2="${(50 - 41 * Math.cos(a)).toFixed(1)}"/>`;
+  }
+  return `<div class="clock">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="face" cx="50" cy="50" r="47"/>
+      <circle class="bezel" cx="50" cy="50" r="46.5"/>
+      <circle class="bezel-hi" cx="50" cy="50" r="43.5"/>${ticks}
+      <line class="hh" id="${id}-h" x1="50" y1="53" x2="50" y2="28"/>
+      <line class="mh" id="${id}-m" x1="50" y1="55" x2="50" y2="17"/>
+      <line class="sh" id="${id}-s" x1="50" y1="59" x2="50" y2="14"/>
+      <circle class="pin" cx="50" cy="50" r="2.6"/>
+    </svg>
+    <div class="cl" id="${id}-t">—</div>
+    <div class="cz">${esc(t(zoneKey))}</div>
+  </div>`;
+};
+
+function renderClocks() {
+  if (!roomOn()) return;
+  setHTML($("clocks"), clockFace("cl-local", "tzLocal") + clockFace("cl-jst", "tzTokyo"));
+  tickClocks();
+}
+
+// Tokyo without pulling in a timezone library: ask Intl for the parts and read
+// them back. hourCycle: "h23" rather than hour12: false — it is the explicit
+// spelling, and it rules out the h24 variant that returns hour 24 at midnight.
+function tokyoNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo", hourCycle: "h23",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date());
+  const g = k => +((parts.find(p => p.type === k) || {}).value || 0);
+  return { h: g("hour") % 24, m: g("minute"), s: g("second") };
+}
+
+function setClock(id, h, m, s) {
+  const hand = k => $(`${id}-${k}`);
+  if (!hand("h")) return;
+  hand("h").setAttribute("transform", `rotate(${(h % 12) * 30 + m * 0.5} 50 50)`);
+  hand("m").setAttribute("transform", `rotate(${m * 6 + s * 0.1} 50 50)`);
+  hand("s").setAttribute("transform", `rotate(${s * 6} 50 50)`);
+  hand("t").textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function tickClocks() {
+  if (!roomOn()) return;
+  const now = new Date();
+  setClock("cl-local", now.getHours(), now.getMinutes(), now.getSeconds());
+  const jp = tokyoNow();
+  setClock("cl-jst", jp.h, jp.m, jp.s);
+}
+
+// The next broadcast, as a timestamp. airing_at is episode 1's slot, so for a
+// show already on the air it sits in the past — the slot repeats weekly, so
+// the next one is that timestamp walked forward. Only a show the backend still
+// calls airing may be walked: projecting a finished show's old slot forward
+// would invent a broadcast that is never going to happen.
+const WEEK_MS = 7 * 86400e3;
+function nextSlot(s) {
+  if (!s.airing_at) return null;             // date-only shows can't be promised to the hour
+  let ms = s.airing_at * 1000;
+  if (ms >= Date.now()) return ms;           // premiere still ahead of us
+  if (!s.airing) return null;
+  ms += Math.ceil((Date.now() - ms) / WEEK_MS) * WEEK_MS;
+  return ms;
+}
+
+function renderUpcoming() {
+  if (!roomOn() || !collections) return;
+  const now = Date.now(), end = now + 48 * 3600e3;
+  const pool = [...(collections.groups.watching || []), ...(collections.groups.want || [])];
+  const soon = pool
+    .map(s => [nextSlot(s), s])
+    .filter(([ms]) => ms !== null && ms >= now && ms <= end)
+    .sort((a, b) => a[0] - b[0]).slice(0, 12);
+  const html = soon.map(([slot, s]) => {
+    const left = slot - now;
+    const hrs = Math.floor(left / 3600e3);
+    const mins = Math.floor((left % 3600e3) / 60000);
+    const d = new Date(slot);
+    const when = `${t("daysShort")[(d.getDay() + 6) % 7]} ${
+      String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return `<button class="up${hrs < 6 ? " soon" : ""}" onclick="openCard(${s.bgm_id})">
+      <span class="uw">${esc(when)}</span>
+      <span class="un">${esc(displayTitle(s))}</span>
+      <span class="ucd">${hrs}h${String(mins).padStart(2, "0")}</span>
+    </button>`;
+  }).join("");
+  setHTML($("upcoming"), html || `<div class="none">${esc(t("upNone"))}</div>`);
+}
+
+// The ledger is the daemon's own record — it is read, never written here.
+const GROUP_RE = /^\[([^\]]{1,24})\]/;
+
+async function refreshLedger() {
+  if (!roomOn()) return;
+  const q = ++seqL;
+  try {
+    const d = await (await fetch("/api/events?limit=200")).json();
+    if (q !== seqL) return;
+    ledger = d.events || [];
+    renderLedger();
+  } catch (e) { /* transient */ }
+}
+
+function renderLedger() {
+  if (!roomOn() || !ledger) return;
+  const today = new Date().toDateString();
+  const rows = ledger.filter(e => e.kind === "episode.landed").slice(-16).reverse();
+  const html = rows.map(e => {
+    const d = new Date((e.ts || 0) * 1000);
+    const p = e.params || {};
+    const g = GROUP_RE.exec(p.file || "");
+    const stamped = d.toDateString() === today ? " today" : "";
+    // Each stamp lands at its own angle, from the entry's own sequence number —
+    // a hand-pressed stamp is never square, and two in a row are never alike.
+    const rot = ((e.seq || 0) % 7) - 3;
+    return `<div class="lrow${stamped}">
+      <span class="ld">${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}</span>
+      <span class="ln" title="${esc(p.show || "")}">${esc(p.show || "—")}${
+        g ? `<span class="lg"> ${esc(g[1])}</span>` : ""}</span>
+      <span class="le" style="--rot:${rot}deg">${p.ep != null ? "#" + p.ep : "—"}</span>
+    </div>`;
+  }).join("");
+  setHTML($("ledger"), html || `<div class="none">${esc(t("ledgerNone"))}</div>`);
+}
+
+function renderMachine() {
+  if (!roomOn() || !state) return;
+  const shows = state.shows;
+  // /api/overview sends each torrent as {progress} and nothing else, so all
+  // that can be said about the queue is how much of it has finished. That is
+  // one number, and it is stated as one number in the rows below. It used to
+  // also be drawn as a rack of one anonymous square per episode, which said
+  // nothing the number did not and could not be read at all.
+  let held = 0, ready = 0;
+  for (const s of shows) {
+    for (const tr of (s.torrents || [])) { held++; if (tr.progress >= 1) ready++; }
+  }
+  const count = st => shows.filter(s => s.status === st).length;
+  const row = (cls, label, value) =>
+    `<div class="mrow"><span class="dot ${cls}"></span>${esc(label)}<span class="mv">${esc(value)}</span></div>`;
+  let html = row(state.qb_ok === false ? "bad" : "", t("mQb"),
+    t(state.qb_ok === false ? "mQbDown" : "mQbUp"));
+  html += row(state.sync_running ? "warn" : "", t("mSync"),
+    state.sync_running ? t("mSyncing") : fmtStamp(state.last_sync));
+  html += row("", t("mSubs"), String(count("subscribed")));
+  html += row(ready < held ? "warn" : "", t("mReady"), `${ready}/${held}`);
+  if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
+  if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
+  setHTML($("machine"), html);
+}
+
+// ----- the census: the shape of the archive, by year -----
+//
+// The one thing the desk never said out loud. Everything else here answers
+// "what is about to happen" or "did it work"; nothing answered "what is on
+// these shelves". Both rails now describe the same collection — the left one
+// stands it up volume by volume, this one plots it as a run of years, so a
+// long gap or a heavy season is visible without counting spines.
+//
+// Premiere year, not the year it was marked watched: the archive is shelved by
+// when a show was made, and so is this.
+function censusYear(s) {
+  const m = /^(\d{4})/.exec(s.premiere_date || s.date || "");
+  return m ? +m[1] : null;
+}
+
+function renderCensus() {
+  if (!roomOn() || !collections) return;
+  const shows = (collections.groups.done || []);
+  const years = new Map();
+  let scored = 0, total = 0;
+  for (const s of shows) {
+    const y = censusYear(s);
+    if (y) years.set(y, (years.get(y) || 0) + 1);
+    if (s.score) { scored++; total += +s.score; }
+  }
+  const el = $("census");
+  if (!years.size) {
+    setHTML(el, `<div class="none">${esc(t("censusNone"))}</div>`);
+    return;
+  }
+  const lo = Math.min(...years.keys()), hi = Math.max(...years.keys());
+  const peak = Math.max(...years.values());
+  const fig = (v, label) => `<div class="cfig"><b>${esc(v)}</b><span>${esc(label)}</span></div>`;
+  let html = `<div class="cfigs">${
+    fig(String(shows.length), t("censusVols"))}${
+    fig(`${lo}–${hi}`, t("censusSpan"))}${
+    fig(scored ? (total / scored).toFixed(1) : "—", t("censusMean"))}</div>`;
+  // One column per year across the whole span, gaps included — a year nothing
+  // was finished in is part of the shape, and skipping it would draw a denser
+  // shelf than the one that exists.
+  let bars = "";
+  for (let y = lo; y <= hi; y++) {
+    const n = years.get(y) || 0;
+    // Columns are keyed to the tallest year, with a floor so a single volume
+    // still shows as a mark rather than as nothing.
+    const pct = n ? Math.max(9, Math.round((n / peak) * 100)) : 0;
+    bars += `<button class="cbar${n === peak ? " top" : ""}${n ? "" : " nil"}"
+      style="--h:${pct}%" data-y="${y}" data-n="${n}" onclick="censusPick(${y})"
+      title="${esc(t("censusBar", { y, n }))}" aria-label="${esc(t("censusBar", { y, n }))}"></button>`;
+  }
+  html += `<div class="cchart">${bars}</div>`;
+  html += `<div class="caxis"><span>${lo}</span><span>${hi}</span></div>`;
+  setHTML(el, html);
+}
+
+// Clicking a year re-shelves the archive by date and lights that year's
+// volumes for a moment, so the two rails answer each other.
+let censusFlash = null;
+function censusPick(y) {
+  if (spineSort !== "year") setSpineSort("year");
+  clearTimeout(censusFlash);
+  const wall = $("spinewall");
+  if (!wall) return;
+  const ids = new Set((collections.groups.done || [])
+    .filter(s => censusYear(s) === y).map(s => String(s.bgm_id)));
+  wall.querySelectorAll(".spine").forEach(el =>
+    el.classList.toggle("lit", ids.has(el.dataset.bgm)));
+  censusFlash = setTimeout(() =>
+    wall.querySelectorAll(".spine.lit").forEach(el => el.classList.remove("lit")), 2400);
+}
+
+function renderRoom() {
+  if (!roomOn()) return;
+  renderClocks();
+  renderUpcoming();
+  renderSpineWall(false);
+  renderMachine();
+  renderCensus();
+  renderLedger();
+}
+
+// Crossing the breakpoint builds the room for the first time. Collapsing it
+// also drops any parallax offset: the scroll handler stops updating while the
+// rails are gone, and a stale offset would be waiting the next time they open.
+roomMedia.addEventListener("change", () => {
+  if (!roomOn()) { document.documentElement.style.removeProperty("--par"); return; }
+  renderRoom();
+  refreshLedger();
+});
+
+// Depth: the rails drift down at a fraction of the page's scroll, so the room
+// keeps a back wall instead of sliding away as one sheet. One rAF-coalesced
+// write of a custom property — the transform itself never leaves the
+// compositor. Reduced motion opts out entirely; unanchored drift is exactly
+// what it asks to be spared.
+let parQueued = false;
+window.addEventListener("scroll", () => {
+  if (parQueued || !roomOn() || reduceMotion.matches) return;
+  parQueued = true;
+  requestAnimationFrame(() => {
+    parQueued = false;
+    const y = Math.min(window.scrollY * 0.08, 220);
+    document.documentElement.style.setProperty("--par", `${y.toFixed(1)}px`);
+  });
+}, { passive: true });
+
+setInterval(tickClocks, 1000);
 
 // live countdowns
 setInterval(() => {
@@ -2690,6 +4553,7 @@ setInterval(() => {
 }, 1000);
 
 applyTheme();    // set data-theme first so the initial paint uses the right palette
+applyUiScale();  // …and --ui, so nothing is laid out at the wrong size and reflowed
 setLang(lang);   // apply static labels + <html lang> on first paint
 refresh();
 setInterval(refresh, 30000);

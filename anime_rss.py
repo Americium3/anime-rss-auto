@@ -1316,8 +1316,28 @@ def cmd_plan(args):
     print("# Review/edit 'name' and 'subgroup'/'mustContain', then run: apply")
 
 
-def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool) -> None:
+def _subscribed_event_keys() -> set[tuple]:
+    """(bgm_id, group) pairs that already have a show.subscribed event on file.
+
+    The events log itself is the dedup window (~30 days / last 500 entries, see
+    _prune_events): a rebuild of the same rule — qB hiccup, a mistaken teardown —
+    must not repeat the card, while a genuine re-subscribe after the log rolls
+    over may fire again."""
+    keys = set()
+    for ev in load_events().get("events", []):
+        if ev.get("kind") != "show.subscribed":
+            continue
+        p = ev.get("params") or {}
+        if p.get("bgm_id"):
+            keys.add((p["bgm_id"], p.get("group")))
+    return keys
+
+
+def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool,
+                  *, ctx: "SyncContext | None" = None) -> None:
     print(f"applying {len(to_add)} rules...")
+    seen_subs = _subscribed_event_keys() if not dry_run else set()
+    promoted = ctx.promoted_this_run if ctx else set()
     for e in to_add:
         name = e["name"]
         season = e["season"]
@@ -1349,13 +1369,24 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool) -> None
                 {"ruleName": name, "ruleDef": json.dumps(rule_def)},
             )
             print(f"  ok  {name} -> {rule_def['savePath']}")
-            # 规则真正落到 qB 才算订阅成功。build_plan 只把「还没有规则」的番
-            # 交到这里，所以这里天然只对新订阅发事件，不会给已有番重复发。
-            add_event("show.subscribed", {
-                "title": name,
-                "bgm_id": e.get("bgm_id"),
-                "group": e.get("subgroup_name"),
-            })
+            if ctx:
+                ctx.created_this_run.add(name)
+            # 规则真正落到 qB 才算订阅成功。此外两道闸：premiere 本轮促升的番，
+            # 开播卡已带「已自动订阅」字样，不再另发一张订阅卡；events 里已有同
+            # (bgm_id, 组) 的订阅事件（如误删规则后重建）也不重发。
+            bid = e.get("bgm_id")
+            if bid and int(bid) in promoted:
+                print(f"     ~ premiere card already says auto-subscribed — no separate event")
+            elif bid and (bid, e.get("subgroup_name")) in seen_subs:
+                print(f"     ~ subscribed event already on file (bgm {bid}) — not repeating")
+            else:
+                add_event("show.subscribed", {
+                    "title": name,
+                    "bgm_id": bid,
+                    "group": e.get("subgroup_name"),
+                })
+                if bid:
+                    seen_subs.add((bid, e.get("subgroup_name")))
         except Exception as ex:  # noqa: BLE001
             print(f"  ! setRule {name}: {ex}")
         if cookie:
@@ -1376,6 +1407,15 @@ def cmd_apply(args):
         print("nothing to add (no included entries with a feed)")
         return
     apply_entries(to_add, mikan_cookie(args), args.dry_run)
+
+
+def rule_mikan_id(rdef: dict) -> int | None:
+    """The mikan bangumiId a rule's feed points at (None for a non-mikan rule)."""
+    for f in rdef.get("affectedFeeds", []):
+        m = re.search(r"bangumiId=(\d+)", f)
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def rule_bgm_id(rdef: dict, cache: dict[int, int | None]) -> int | None:
@@ -1490,6 +1530,13 @@ def reconcile_removed(
     season_cache = ctx.season
     span_cache = ctx.span
     for rname, rdef in rules.items():
+        if rname in ctx.created_this_run:
+            # A rule THIS pass's apply just created is never a teardown candidate: the
+            # reverse map can still answer with a sibling cour's bgm id in the same
+            # round it was seeded, and acting on that would delete what we just built
+            # (then next round rebuilds it and re-fires the subscribed event — a loop).
+            print(f"     {rname}: 本轮新建 -> keep")
+            continue
         bgm_id = ctx.rule_bgm_id_of(rdef)
         if not bgm_id:
             print(f"  ?  {rname}: could not resolve bgm id (skip)")
@@ -1518,14 +1565,21 @@ def reconcile_removed(
             continue
         if ctype == 3:
             print(f"     {rname}: 在看 -> keep")
-        elif ctype in (2, 5):
-            label = "看过" if ctype == 2 else "抛弃"
-            rule_only.append((rname, rdef))
-            print(f"  -  {rname}: {label} -> 删 qB 规则，保留 mikan 订阅 + 本地文件")
-        elif ctype is None:
-            purge.append((rname, rdef))
-            act = "unsubscribe mikan + DELETE files" if purge_dropped else "unsubscribe mikan (files kept)"
-            print(f"  X  {rname}: 未收藏 -> {act}")
+        elif ctype in (2, 5) or ctype is None:
+            # Teardown verdicts must clear the split-cour guard first: the reverse
+            # lookup may have landed on the finished half of a split cour while the
+            # airing half — same mikan entry, different bgm subject — is 在看.
+            sib = ctx.watching_sibling_of(rdef, bgm_id)
+            if sib is not None:
+                print(f"     {rname}: 分割季同源条目 bgm={sib} 在看 -> keep")
+            elif ctype in (2, 5):
+                label = "看过" if ctype == 2 else "抛弃"
+                rule_only.append((rname, rdef))
+                print(f"  -  {rname}: {label} -> 删 qB 规则，保留 mikan 订阅 + 本地文件")
+            else:
+                purge.append((rname, rdef))
+                act = "unsubscribe mikan + DELETE files" if purge_dropped else "unsubscribe mikan (files kept)"
+                print(f"  X  {rname}: 未收藏 -> {act}")
         else:  # 1 想看, 4 搁置
             label = {1: "想看", 4: "搁置"}.get(ctype, str(ctype))
             print(f"     {rname}: {label} -> keep (may resume)")
@@ -2709,6 +2763,9 @@ def premiere_watch_pass(user: str, token: str | None = None, *,
                 bgm_set_collection_type(token, s["bgm_id"], 3)
                 promoted = True
                 ctx.record_write(s["bgm_id"], 3)  # make 在看 visible to this pass's build_plan
+                # The premiere card carries "auto-subscribed" — tell this pass's apply
+                # not to also fire a show.subscribed card for the same act.
+                ctx.promoted_this_run.add(int(s["bgm_id"]))
                 print(f"   [premiere] ✓ 已标在看: {title} (bgm {s['bgm_id']})")
             except Exception as ex:  # noqa: BLE001
                 print(f"   [premiere] ! 标在看失败 {title}: {ex}")
@@ -3234,6 +3291,17 @@ class SyncContext:
         self.resolve_memo: dict[int, dict] = {}        # bgm_id -> resolved dict
         self.eps: dict[int, dict[int, int]] = {}
         self.rule_bgmid: dict[int, int | None] = {}    # mikan_id -> bgm_id
+        # mikan_id -> EVERY known bgm_id. Split cours share one mikan entry across
+        # several bgm subjects, so this map is one-to-many by design — the scalar
+        # rule_bgmid above can only hold one winner, and teardown verdicts must be
+        # able to consult the whole family (see watching_sibling_of).
+        self.mikan_bgm_ids: dict[int, set[int]] = {}
+        for skey, v in self.resolve_disk.items():
+            mid = v.get("mikan_id")
+            if mid:
+                self.mikan_bgm_ids.setdefault(int(mid), set()).add(int(skey))
+        self.created_this_run: set[str] = set()   # rule names apply_entries added this pass
+        self.promoted_this_run: set[int] = set()  # bgm_ids premiere flipped 想看->在看 this pass
         self._rules: dict | None = None
         self._feed_paths: dict | None = None
         self._feed_by_mikan: dict[int, dict] | None = None
@@ -3308,6 +3376,30 @@ class SyncContext:
         self.override_type[bid] = ctype
         self._ctype_memo[bid] = ctype
 
+    def is_watching(self, bgm_id: int) -> bool:
+        """True iff the subject is 在看 per in-run state only (write overlay first, then
+        the cached 在看 list) — never pays a per-subject bgm fetch, so it is safe to ask
+        about every sibling candidate."""
+        bid = int(bgm_id)
+        if bid in self.override_type:
+            return self.override_type[bid] == 3
+        return any(int(s["bgm_id"]) == bid for s in self.collection(3))
+
+    def watching_sibling_of(self, rdef: dict, bgm_id: int | None) -> int | None:
+        """Another bgm subject mapping to this rule's mikan entry that is 在看, if any.
+
+        Split cours: mikan keeps ONE entry per show while bgm splits cours into separate
+        subjects, so the mikan_id->bgm_id reverse lookup is genuinely one-to-many and can
+        answer with the finished half (看过) while the airing half is 在看. Any teardown
+        verdict must clear this check first or it will tear down the airing half's rule."""
+        mid = rule_mikan_id(rdef)
+        if not mid:
+            return None
+        for cand in sorted(self.mikan_bgm_ids.get(mid, ())):
+            if cand != bgm_id and self.is_watching(cand):
+                return cand
+        return None
+
     # ---- resolution (the 73s -> ~0 win) ----
     def rule_bgm_id_of(self, rdef: dict) -> int | None:
         """bgm_id for a rule, network-free when the reverse map is already seeded
@@ -3336,6 +3428,10 @@ class SyncContext:
             "resolved_at": time.time(),
             "source": "search",
         }
+        if mikan_id:
+            # Same-run visibility: a show resolved THIS pass (e.g. premiere promotion)
+            # must already count as this mikan entry's sibling by reconcile time.
+            self.mikan_bgm_ids.setdefault(int(mikan_id), set()).add(int(skey))
         self.dirty = True
 
     def resolve(self, show: dict, *, force_search: bool = False) -> dict:
@@ -3435,6 +3531,7 @@ class SyncContext:
             if not bgid:
                 continue
             self.rule_bgmid[mid] = bgid
+            self.mikan_bgm_ids.setdefault(mid, set()).add(int(bgid))
             self.resolve_disk.setdefault(str(bgid), {
                 "mikan_id": mid,
                 "available_subgroups": info["subgroups"],
@@ -3503,7 +3600,7 @@ def run_sync_once(user, cookie, season, purge, token=None):
     plan = build_plan(user, season, ctx=ctx)
     to_add = [e for e in plan if e["include"] and e.get("feed") and e.get("name")]
     if to_add:
-        apply_entries(to_add, cookie, dry_run=False)
+        apply_entries(to_add, cookie, dry_run=False, ctx=ctx)
         ctx.invalidate_rules()   # rules changed this pass -> later passes see them fresh
     else:
         print("# no new shows to add")

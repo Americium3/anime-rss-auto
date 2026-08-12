@@ -562,6 +562,10 @@ def api_overview():
             "pinned": pinned,
             "cour_kind": kind,
             "long_current": airing and bool(season) and season < cur_season,
+            # Whether the show still has a weekly slot. airing_at is episode
+            # 1's timestamp, so only a still-airing show may have that slot
+            # projected forward into an upcoming broadcast.
+            "airing": airing,
             "image": s["image"],
             "score": s.get("score"),
             "status": "unresolved",
@@ -669,6 +673,7 @@ def api_collections():
                 "pinned": s["bgm_id"] in core.PIN_CURRENT_BGM_IDS,
                 "cour_kind": kind,
                 "long_current": airing and bool(season) and season < cur_season,
+                "airing": airing,   # see /api/overview — gates slot projection
                 "image": s.get("image", ""),
                 "score": s.get("score"),
                 "updated_at": s.get("updated_at"),
