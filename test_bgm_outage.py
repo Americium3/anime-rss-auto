@@ -198,6 +198,10 @@ class StubCtx:
     collection_type_of = core.SyncContext.collection_type_of
     watching_sibling_of = core.SyncContext.watching_sibling_of
 
+    def is_watching(self, bgm_id):
+        # only reached if a test seeds mikan_bgm_ids (sibling-guard scenarios)
+        return bgm_id in self._watching
+
     def collection(self, ctype):
         assert ctype == 3
         return [{"bgm_id": b} for b in self._watching]

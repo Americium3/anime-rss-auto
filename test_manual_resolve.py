@@ -273,6 +273,68 @@ class TestManualResolveOrchestration(unittest.TestCase):
                 core.manual_resolve("942942", 643828, "https://netflix.com/x")
         hg.assert_not_called()
 
+    def test_base32_magnet_key_normalised_to_hex(self):
+        # qB reports 40-char hex; a base32 ledger key would never match it.
+        import base64
+        b32 = base64.b32encode(bytes.fromhex(EP_HASH)).decode()
+        self.assertEqual(len(b32), 32)
+        with mock.patch.object(core, "http_get", return_value=self.subject), \
+             mock.patch.object(core, "bgm_english_alias", return_value=""), \
+             mock.patch.object(core, "qb_add_magnet"), \
+             mock.patch.object(core, "bgm_collection_type", return_value=3):
+            r = core.manual_resolve(
+                "942942", 643828, f"magnet:?xt=urn:btih:{b32}&dn=x")
+        self.assertTrue(r["imported"])
+        self.assertEqual(list(core.load_manual_imports()), [EP_HASH])
+
+    def test_duplicate_torrent_still_claimed_in_ledger(self):
+        # qB answers "Fails." for a torrent it already has; the ledger claim —
+        # the whole point of the import — must still be written.
+        with mock.patch.object(core, "http_get", side_effect=[
+                self.subject, EPISODE_HTML_ONESHOT.encode()]), \
+             mock.patch.object(core, "bgm_english_alias", return_value=""), \
+             mock.patch.object(core, "qb_add_magnet",
+                               side_effect=RuntimeError("'Fails.'")), \
+             mock.patch.object(core, "qb_get_json",
+                               return_value=[{"hash": EP_HASH}]), \
+             mock.patch.object(core, "bgm_collection_type", return_value=3):
+            r = core.manual_resolve(
+                "942942", 643828, f"https://mikanani.me/Home/Episode/{EP_HASH}")
+        self.assertTrue(r["ok"] and r["imported"])
+        self.assertEqual(core.load_manual_imports()[EP_HASH]["bgm_id"], 643828)
+        self.assertTrue(any("already in qB" in n for n in r["notes"]))
+
+    def test_add_failure_with_no_such_torrent_stays_fatal(self):
+        with mock.patch.object(core, "http_get", side_effect=[
+                self.subject, EPISODE_HTML_ONESHOT.encode()]), \
+             mock.patch.object(core, "bgm_english_alias", return_value=""), \
+             mock.patch.object(core, "qb_add_magnet",
+                               side_effect=RuntimeError("'Fails.'")), \
+             mock.patch.object(core, "qb_get_json", return_value=[]):
+            with self.assertRaises(RuntimeError):
+                core.manual_resolve(
+                    "942942", 643828, f"https://mikanani.me/Home/Episode/{EP_HASH}")
+        self.assertEqual(core.load_manual_imports(), {})   # nothing claimed
+
+    def test_existing_rule_still_counts_as_resolved(self):
+        # Pasting a bangumi link when the rule already exists: the override IS
+        # the answer — ok, banner cleared, honest "nothing to subscribe" note.
+        with mock.patch.object(core, "http_get", return_value=self.subject), \
+             mock.patch.object(core, "bgm_english_alias", return_value=""), \
+             mock.patch.object(core, "mikan_bangumi_info", return_value={
+                 "bgm_id": 643828, "subgroups": [583], "title": "Mikan - 缎带"}), \
+             mock.patch.object(core, "existing_rules", return_value={"缎带英雄": {}}), \
+             mock.patch.object(core, "apply_entries") as apl, \
+             mock.patch.object(core, "bgm_collection_type", return_value=3):
+            r = core.manual_resolve(
+                "942942", 643828, "https://mikanani.me/Home/Bangumi/3644")
+        self.assertTrue(r["ok"])
+        self.assertFalse(r["subscribed"])
+        apl.assert_not_called()
+        self.assertEqual(core.load_mikan_overrides(), {643828: 3644})
+        self.assertEqual(core.load_unresolved(), [])       # banner cleared
+        self.assertTrue(any("already exists" in n for n in r["notes"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

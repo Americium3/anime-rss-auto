@@ -1575,9 +1575,19 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
             notes.append("episode page has no bangumi backlink — one-shot import only")
     else:
         magnet = val
-        ep_hash = _MAGNET_RE.match(val).group(1).lower()
+        ep_hash = _MAGNET_RE.match(val).group(1)
+        if len(ep_hash) == 32:
+            # Base32 infohash: qB reports hashes as 40-char hex, and the ledger
+            # is keyed by what qB reports — store the same alphabet or the
+            # claim-back lookup never matches.
+            try:
+                ep_hash = base64.b32decode(ep_hash.upper()).hex()
+            except Exception:  # noqa: BLE001 — malformed base32: keep verbatim
+                pass
+        ep_hash = ep_hash.lower()
 
     subscribed = False
+    bound = False
     group_name = None
     if mikan_id is not None:
         info = mikan_bangumi_info(mikan_id)
@@ -1586,6 +1596,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
             # Same posture as the override tier in resolve_show: warn, obey.
             notes.append(f"mikan page links bgm {linked}, not {bgm_id} — proceeding as told")
         save_mikan_override(bgm_id, mikan_id)
+        bound = True
         subgroup = pick_subgroup(info["subgroups"])
         rules = existing_rules()
         ruled_feeds = {
@@ -1624,7 +1635,21 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
     imported = False
     if magnet:
         save_fs = f"{BANGUMI_LIBRARY}\\{season}\\{name}".replace("\\", "/")
-        qb_add_magnet(magnet, save_fs, season)
+        try:
+            qb_add_magnet(magnet, save_fs, season)
+        except Exception as ex:  # noqa: BLE001
+            # qB answers "Fails." for a torrent it already has (the user added it
+            # by hand earlier). Their intent — track THIS torrent as THIS show —
+            # still stands, so claim it in the ledger anyway; anything else
+            # (qB down, bad magnet) stays fatal.
+            already = []
+            try:
+                already = qb_get_json(f"/api/v2/torrents/info?hashes={ep_hash}")
+            except Exception:  # noqa: BLE001
+                pass
+            if not already:
+                raise
+            notes.append(f"torrent already in qB — claimed it for this show ({ex})")
         imports = load_manual_imports()
         imports[(ep_hash or "").lower()] = {
             "bgm_id": bgm_id,
@@ -1637,9 +1662,13 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
         add_event("show.imported", {"title": name, "bgm_id": bgm_id, "hash": ep_hash})
         imported = True
 
+    # An override on file IS a resolution even when there was nothing left to
+    # subscribe (rule already there) — the banner's whole question is answered.
+    resolved = subscribed or imported or bound
+
     # 想看 -> 在看, same promotion premiere-watch does: the show is under
     # management now, so the watching pipeline (and autocomplete) owns it.
-    if (subscribed or imported) and token:
+    if resolved and token:
         try:
             if bgm_collection_type(user, bgm_id) == 1:
                 bgm_set_collection_type(token, bgm_id, 3)
@@ -1649,12 +1678,12 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
 
     # Clear the banner entry immediately — scan_unresolved would only do it on
     # the daemon's next pass (<=5 min), and the user is looking at the panel now.
-    if subscribed or imported:
+    if resolved:
         remaining = [e for e in load_unresolved() if e.get("bgm_id") != bgm_id]
         save_unresolved(remaining)
 
     return {
-        "ok": subscribed or imported,
+        "ok": resolved,
         "subscribed": subscribed,
         "imported": imported,
         "group": group_name,
@@ -2842,9 +2871,11 @@ def load_unresolved() -> list[dict]:
 
 
 def save_unresolved(items: list[dict]) -> None:
-    UNRESOLVED_PATH.write_text(
-        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Atomic: both the daemon's scan and the panel's manual resolve write this
+    # file from separate processes — a torn write must never be readable.
+    tmp = UNRESOLVED_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, UNRESOLVED_PATH)
 
 
 def scan_unresolved(user: str, *, ctx: "SyncContext | None" = None) -> list[dict]:
