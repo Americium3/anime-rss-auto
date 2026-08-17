@@ -2897,6 +2897,10 @@ def scan_unresolved(user: str, *, ctx: "SyncContext | None" = None) -> list[dict
     today = datetime.date.today().isoformat()
     span_cache = ctx.span
     air_cache = ctx.span   # show_premiere_date now reads the span cache
+    # Hand-resolved one-shots (manual_resolve imports) map to NO mikan bangumi —
+    # there is nothing left to find, so warning about them forever is noise.
+    manual_ids = {int(v["bgm_id"]) for v in load_manual_imports().values()
+                  if v.get("bgm_id")}
     seen_ids: set[str] = set()
     out: list[dict] = []
     shows: list[tuple[int, dict]] = []
@@ -2910,6 +2914,8 @@ def scan_unresolved(user: str, *, ctx: "SyncContext | None" = None) -> list[dict
         if gkey in seen_ids:
             continue
         seen_ids.add(gkey)
+        if s["bgm_id"] in manual_ids:
+            continue  # 已手动导入认领 -> 不再上榜
         still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
         if is_manual_old_show(s["date"], s["bgm_id"], still):
             continue

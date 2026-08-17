@@ -336,5 +336,31 @@ class TestManualResolveOrchestration(unittest.TestCase):
         self.assertTrue(any("already exists" in n for n in r["notes"]))
 
 
+class TestScanUnresolvedSkipsManualImports(unittest.TestCase):
+    """A hand-imported one-shot maps to NO mikan bangumi — the scan must stop
+    re-surfacing its banner every pass (live regression: the daemon re-listed
+    the show minutes after the panel resolved it)."""
+
+    class Ctx:
+        span: dict = {}
+
+        def collection(self, ctype):
+            return [{"bgm_id": 643828, "name": "THE RIBBON HERO",
+                     "name_cn": "缎带英雄", "date": "2026-08-08"}] if ctype == 3 else []
+
+        def resolve(self, s):
+            raise AssertionError("resolve must not run for a manual import")
+
+    def test_manual_import_never_resurfaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(core, "UNRESOLVED_PATH", root / "unres.json"), \
+                 mock.patch.object(core, "MANUAL_IMPORTS_PATH", root / "imp.json"):
+                core.save_manual_imports({EP_HASH: {"bgm_id": 643828}})
+                out = core.scan_unresolved("942942", ctx=self.Ctx())
+                self.assertEqual(out, [])
+                self.assertEqual(core.load_unresolved(), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
