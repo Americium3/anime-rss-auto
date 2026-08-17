@@ -65,6 +65,9 @@ PREMIERE_TIMES_PATH = Path(__file__).with_name("premiere_times.json")
 MIKAN_OVERRIDES_PATH = Path(__file__).with_name("mikan_overrides.json")
 # 面板「未匹配 mikan」横幅的状态镜像：每轮 sync 覆盖写当前所有 UNRESOLVED 的番
 UNRESOLVED_PATH = Path(__file__).with_name("unresolved.json")
+# 面板手动解析的一次性导入台账：infohash -> {bgm_id, name, season, …}。这类种子没有
+# qB 规则可反查，mark-watched/jfhook 靠这本台账把种子认领回 bgm subject。
+MANUAL_IMPORTS_PATH = Path(__file__).with_name("manual_imports.json")
 # 性能缓存（都可安全删除，下轮自动重建）：
 #   * episode_span_cache.json —— 与 webui.py 共用同一份逐集放送日程缓存（同目录同格式）。
 #   * mikan_resolve_cache.json —— bgm_id -> mikan 解析结果，避免每轮重搜（见 SyncContext）。
@@ -409,6 +412,43 @@ def qb_ensure_rss_folder(item_path: str) -> None:
             qb_post("/api/v2/rss/addFolder", {"path": folder})
         except Exception:  # noqa: BLE001 — already-exists is the expected/benign case
             pass
+
+
+def qb_add_magnet(magnet: str, save_path: str, season: str) -> None:
+    """Add one magnet to qB under the library conventions the RSS rules use.
+
+    POST /api/v2/torrents/add wants multipart/form-data (qb_post's urlencoded
+    body is not accepted for this endpoint on all qB builds). Fields mirror
+    make_rule_def's torrentParams: same save_path, tags=[season], no category,
+    auto-TMM off, not paused. qB answers 200 "Ok." on success and 200 "Fails."
+    on a rejected/duplicate add — the body, not the status, is the verdict.
+    """
+    fields = {
+        "urls": magnet,
+        "savepath": save_path,
+        "tags": season,
+        "category": "",
+        "autoTMM": "false",
+    }
+    boundary = f"----anime-rss-{int(time.time() * 1000)}"
+    parts = []
+    for k, v in fields.items():
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+        )
+    body = ("".join(parts) + f"--{boundary}--\r\n").encode("utf-8")
+    req = urllib.request.Request(
+        f"{QB}/api/v2/torrents/add",
+        data=body,
+        headers={
+            "User-Agent": UA,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        text = r.read().decode("utf-8", "replace").strip()
+    if text and text.lower() != "ok.":
+        raise RuntimeError(f"qB torrents/add rejected the magnet: {text!r}")
 
 
 def qb_get_json(path: str):
@@ -904,9 +944,28 @@ def load_mikan_overrides() -> dict[int, int]:
         return {}
     try:
         raw = json.loads(MIKAN_OVERRIDES_PATH.read_text(encoding="utf-8"))
-        return {int(k): int(v) for k, v in raw.items()}
+        return {int(k): int(v) for k, v in raw.items() if not str(k).startswith("_")}
     except Exception:  # noqa: BLE001
         return {}
+
+
+def save_mikan_override(bgm_id: int, mikan_id: int) -> None:
+    """Merge one bgm_id -> mikan bangumiId entry into mikan_overrides.json.
+
+    Preserves every existing entry (including "_"-prefixed comment keys) and
+    writes atomically — resolve_show re-reads this file from disk on every pass,
+    so a torn write would break resolution for the whole roster.
+    """
+    raw: dict = {}
+    if MIKAN_OVERRIDES_PATH.exists():
+        try:
+            raw = json.loads(MIKAN_OVERRIDES_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            raw = {}
+    raw[str(bgm_id)] = int(mikan_id)
+    tmp = MIKAN_OVERRIDES_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, MIKAN_OVERRIDES_PATH)
 
 
 # --------------------------------------------------------------------------- #
@@ -960,6 +1019,32 @@ def mikan_bangumi_info(bangumi_id: int) -> dict:
     t = re.search(r"<title>(.*?)</title>", html_txt, re.S)
     title = html.unescape(t.group(1).strip()) if t else f"Mikan Project - {bangumi_id}"
     return {"bgm_id": bgm_id, "subgroups": subs, "title": title}
+
+
+def mikan_episode_info(ep_hash: str) -> dict:
+    """Return {'magnet', 'mikan_id', 'title'} for a mikan episode page.
+
+    /Home/Episode/<40-hex-infohash> is a single release. Its page carries a
+    magnet link and — for shows mikan tracks — a /Home/Bangumi/<id> backlink.
+    One-shot releases (e.g. 冷番补完 movies/specials) have NO backlink: they
+    belong to no mikan bangumi and can never match an RSS rule, so mikan_id
+    comes back None and the caller must treat the magnet as a one-off import.
+    The magnet is rebuilt from the URL hash if the page markup ever changes:
+    mikan episode ids ARE the torrent infohash.
+    """
+    html_txt = http_get(f"{MIKAN}/Home/Episode/{ep_hash}").decode("utf-8", "replace")
+    m = re.search(r'href="(magnet:\?xt=urn:btih:[^"]+)"', html_txt)
+    magnet = html.unescape(m.group(1)) if m else f"magnet:?xt=urn:btih:{ep_hash}"
+    b = re.search(r'href="/Home/Bangumi/(\d+)"', html_txt)
+    t = re.search(r'<p class="episode-title">(.*?)(?:\s*\[[\d.]+\s*[GMK]B\])?</p>',
+                  html_txt, re.S)
+    if t is None:
+        t = re.search(r"<title>(.*?)(?:\s*-\s*Mikan Project)?</title>", html_txt, re.S)
+    return {
+        "magnet": magnet,
+        "mikan_id": int(b.group(1)) if b else None,
+        "title": html.unescape(t.group(1).strip()) if t else ep_hash,
+    }
 
 
 def pick_subgroup(available: list[int]) -> int | None:
@@ -1398,6 +1483,189 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool,
                 print(f"     ! mikan subscribe failed (cookie expired?): {ex}")
 
 
+# --------------------------------------------------------------------------- #
+# Manual resolve: panel pastes a mikan link on an unmatched show's banner
+# --------------------------------------------------------------------------- #
+def load_manual_imports() -> dict[str, dict]:
+    """infohash(lower) -> {bgm_id, name, season, url, added_at}, {} if absent."""
+    if not MANUAL_IMPORTS_PATH.exists():
+        return {}
+    try:
+        return json.loads(MANUAL_IMPORTS_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_manual_imports(items: dict[str, dict]) -> None:
+    tmp = MANUAL_IMPORTS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, MANUAL_IMPORTS_PATH)
+
+
+_EPISODE_URL_RE = re.compile(r"mikanani\.me/Home/Episode/([0-9a-fA-F]{40})")
+_BANGUMI_URL_RE = re.compile(r"mikanani\.me/Home/Bangumi/(\d+)")
+_MAGNET_RE = re.compile(r"^magnet:\?xt=urn:btih:([0-9a-zA-Z]{32,40})", re.I)
+
+
+def parse_manual_url(url: str) -> tuple[str, str]:
+    """Classify a pasted link -> ('episode', infohash) | ('bangumi', id) | ('magnet', uri).
+
+    Raises ValueError for anything else — the caller turns that into a 400 the
+    panel can phrase, so a stray Netflix link never reaches qB.
+    """
+    url = url.strip()
+    m = _EPISODE_URL_RE.search(url)
+    if m:
+        return "episode", m.group(1).lower()
+    m = _BANGUMI_URL_RE.search(url)
+    if m:
+        return "bangumi", m.group(1)
+    if _MAGNET_RE.match(url):
+        return "magnet", url
+    raise ValueError("not a mikan Episode/Bangumi link or magnet URI")
+
+
+def manual_resolve(user: str, bgm_id: int, url: str, *,
+                   token: str | None = None, cookie: str | None = None) -> dict:
+    """Resolve one unmatched show from a pasted link — the banner's escape hatch.
+
+    Two legs, both ending in the SAME downstream treatment a normal new-season
+    show gets (folder conventions, Jellyfin mirror, pause->mark-watched,
+    autocomplete):
+
+      * link (or its episode page's backlink) names a mikan bangumi
+          -> persist the bgm->mikan override, then subscribe through the normal
+             pipeline (feed + rule + mikan sub + show.subscribed event);
+      * episode page has NO bangumi backlink (one-shot release: 冷番补完-style
+          movie/special) -> feed the magnet straight to qB under the rule-style
+          save path and record it in manual_imports.json so mark-watched/jfhook
+          can claim it back to this bgm subject without a rule.
+
+    A pasted Episode link always adds its own magnet even when a subscription is
+    also created: the user picked that exact release, and the rule's group
+    filter may never match it.
+    """
+    kind, val = parse_manual_url(url)
+    d = json.loads(
+        http_get(f"{BGM_API}/v0/subjects/{bgm_id}", retries=2).decode("utf-8", "replace")
+    )
+    show = {
+        "bgm_id": bgm_id,
+        "name": d.get("name") or "",
+        "name_cn": d.get("name_cn") or "",
+        "date": d.get("date") or "",
+    }
+    season = season_of(show["date"]) or current_season()
+    # Same folder naming build_plan proposes, so a manual rule/import and a later
+    # normal sync agree on the name and never fork a second folder or rule.
+    name = clean_name(bgm_english_alias(bgm_id) or show["name_cn"] or show["name"])
+    notes: list[str] = []
+
+    mikan_id: int | None = None
+    magnet: str | None = None
+    ep_hash: str | None = None
+    if kind == "bangumi":
+        mikan_id = int(val)
+    elif kind == "episode":
+        ep_hash = val
+        info = mikan_episode_info(val)
+        magnet = info["magnet"]
+        mikan_id = info["mikan_id"]
+        if mikan_id is None:
+            notes.append("episode page has no bangumi backlink — one-shot import only")
+    else:
+        magnet = val
+        ep_hash = _MAGNET_RE.match(val).group(1).lower()
+
+    subscribed = False
+    group_name = None
+    if mikan_id is not None:
+        info = mikan_bangumi_info(mikan_id)
+        linked = info["bgm_id"]
+        if linked and linked != bgm_id:
+            # Same posture as the override tier in resolve_show: warn, obey.
+            notes.append(f"mikan page links bgm {linked}, not {bgm_id} — proceeding as told")
+        save_mikan_override(bgm_id, mikan_id)
+        subgroup = pick_subgroup(info["subgroups"])
+        rules = existing_rules()
+        ruled_feeds = {
+            int(m.group(1))
+            for rdef in rules.values()
+            for f in rdef.get("affectedFeeds", [])
+            if (m := re.search(r"bangumiId=(\d+)", f))
+        }
+        if mikan_id in ruled_feeds or name.strip().lower() in {
+            rn.strip().lower() for rn in rules
+        }:
+            notes.append("rule already exists — override saved, nothing to subscribe")
+        elif subgroup is None:
+            notes.append("mikan page lists no subgroups — override saved, next sync retries")
+        else:
+            entry = {
+                "name": name,
+                "season": season,
+                "bgm_id": bgm_id,
+                "mikan_id": mikan_id,
+                "subgroup": subgroup,
+                "subgroup_name": GROUP_NAME.get(subgroup, f"subgroup {subgroup}"),
+                "mustContain": GROUP_FILTER.get(subgroup) or CJK_SUB_REQUIRED,
+                "feed_path": f"{season}\\{info['title']}",
+            }
+            apply_entries([entry], cookie, False)
+            subscribed = True
+            group_name = entry["subgroup_name"]
+
+    imported = False
+    if magnet:
+        save_fs = f"{BANGUMI_LIBRARY}\\{season}\\{name}".replace("\\", "/")
+        qb_add_magnet(magnet, save_fs, season)
+        imports = load_manual_imports()
+        imports[(ep_hash or "").lower()] = {
+            "bgm_id": bgm_id,
+            "name": name,
+            "season": season,
+            "url": url,
+            "added_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+        save_manual_imports(imports)
+        add_event("show.imported", {"title": name, "bgm_id": bgm_id, "hash": ep_hash})
+        imported = True
+
+    # 想看 -> 在看, same promotion premiere-watch does: the show is under
+    # management now, so the watching pipeline (and autocomplete) owns it.
+    if (subscribed or imported) and token:
+        try:
+            if bgm_collection_type(user, bgm_id) == 1:
+                bgm_set_collection_type(token, bgm_id, 3)
+                notes.append("promoted 想看 -> 在看")
+        except Exception as ex:  # noqa: BLE001
+            notes.append(f"promote failed: {ex}")
+
+    # Clear the banner entry immediately — scan_unresolved would only do it on
+    # the daemon's next pass (<=5 min), and the user is looking at the panel now.
+    if subscribed or imported:
+        remaining = [e for e in load_unresolved() if e.get("bgm_id") != bgm_id]
+        save_unresolved(remaining)
+
+    return {
+        "ok": subscribed or imported,
+        "subscribed": subscribed,
+        "imported": imported,
+        "group": group_name,
+        "title": show["name_cn"] or show["name"],
+        "season": season,
+        "notes": notes,
+    }
+
+
+def cmd_resolve(args):
+    r = manual_resolve(args.user, args.bgm_id, args.url,
+                       token=bgm_token(args), cookie=mikan_cookie(args))
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    if not r["ok"]:
+        sys.exit(1)
+
+
 def cmd_apply(args):
     if not PLAN_PATH.exists():
         sys.exit("no plan.json — run `plan` first")
@@ -1658,8 +1926,14 @@ def resolve_torrent_target(
     sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
     rdef = rule_by_path.get(sp)
     if rdef is None:
-        return None, None, "无对应 qB 规则（非自动下载的种子）"
-    bgm_id = rule_bgm_id(rdef, mikan_cache)
+        # Panel-imported one-shots (manual_resolve) have no rule to answer for
+        # them — the import ledger claims the hash back to its bgm subject.
+        mi = load_manual_imports().get((t.get("hash") or "").lower())
+        if not (mi and mi.get("bgm_id")):
+            return None, None, "无对应 qB 规则（非自动下载的种子）"
+        bgm_id = int(mi["bgm_id"])
+    else:
+        bgm_id = rule_bgm_id(rdef, mikan_cache)
     if not bgm_id:
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
@@ -1670,9 +1944,14 @@ def resolve_torrent_target(
             and not cour_still_airing(bgm_id, sea, span_cache if span_cache is not None else {})):
         return None, None, f"旧番 {sea} < {SKIP_BEFORE_SEASON}（手动管理）"
     ep = parse_episode(t.get("name", ""))
-    if ep is None:
-        return None, None, "集数解析失败"
     eps = bgm_subject_episodes(bgm_id, ep_cache)
+    if ep is None:
+        # Movie/special names carry no episode number, but a subject with exactly
+        # one main-story episode is unambiguous — that episode is the torrent.
+        uniq = set(eps.values())
+        if len(uniq) == 1:
+            return bgm_id, uniq.pop(), "ok"
+        return None, None, "集数解析失败"
     eid = eps.get(ep)
     if not eid:
         return None, None, f"集数 {ep} 在 subject {bgm_id} 找不到对应集(ep/sort 都无)"
@@ -3850,6 +4129,14 @@ def main():
     pm.add_argument("--dry-run", action="store_true",
                     help="report resolution for all stopped torrents; no bgm write, no baseline update")
     pm.set_defaults(func=cmd_mark)
+
+    prs = sub.add_parser("resolve", help="manual resolve: bind an unmatched show to a pasted mikan link")
+    add_user(prs)
+    add_cookie(prs)
+    add_token(prs)
+    prs.add_argument("--bgm-id", type=int, required=True, help="bgm subject id (the unmatched show)")
+    prs.add_argument("--url", required=True, help="mikan Episode/Bangumi link or magnet URI")
+    prs.set_defaults(func=cmd_resolve)
 
     pdd = sub.add_parser("dedup", help="同组同集多版本取舍：补规则黑名单 + 只留最优版本（源/语言）")
     pdd.add_argument("--dry-run", action="store_true",

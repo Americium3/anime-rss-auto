@@ -8,6 +8,7 @@ anime_rss.py directly. Read-mostly; the only mutating actions are:
   POST /api/sync            run one sync pass in a background thread
   POST /api/grace/expire    end a show's ANi grace period early (lock next pass)
   POST /api/rule/switch     re-point an existing qB rule at another subgroup
+  POST /api/unresolved/resolve  bind an unmatched show to a pasted mikan link
 
 Run:  python webui.py          (default http://127.0.0.1:8767)
 Config keys (config.local.json): webui_port, webui_host.
@@ -786,6 +787,32 @@ def api_unresolved_dismiss(body: UnresolvedDismiss):
             it["dismissed"] = True
     core.save_unresolved(items)
     return {"ok": True}
+
+
+class UnresolvedResolve(BaseModel):
+    bgm_id: int
+    url: str
+
+
+@app.post("/api/unresolved/resolve")
+def api_unresolved_resolve(body: UnresolvedResolve):
+    """Resolve an unmatched show from a pasted mikan link (see core.manual_resolve):
+    a Bangumi link (or an Episode page with a bangumi backlink) subscribes through
+    the normal pipeline; a backlink-less Episode page or raw magnet becomes a
+    one-shot import that still lands in the show's library folder."""
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(400, {"code": "bad_link"})
+    try:
+        r = core.manual_resolve(
+            str(core.CONFIG.get("bgm_user")), body.bgm_id, url,
+            token=core.bgm_token(None), cookie=core.CONFIG.get("mikan_cookie"),
+        )
+    except ValueError:
+        raise HTTPException(400, {"code": "bad_link"})
+    except Exception as ex:  # noqa: BLE001
+        raise HTTPException(502, {"code": "resolve_failed", "message": str(ex)})
+    return r
 
 
 # --- mutating actions ------------------------------------------------------ #

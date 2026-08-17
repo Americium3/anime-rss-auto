@@ -854,6 +854,16 @@
   html[data-theme="light"] .grouprow select {
     background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%235d4a33" stroke-width="1.5" stroke-linecap="round"/></svg>');
   }
+  /* Manual-resolve paste box on the unresolved banner: grouprow skin, but a
+     text input and no max-width — mikan links are long. */
+  .murl { margin-top: 7px; }
+  .murl input {
+    background: var(--input-bg); color: var(--text);
+    border: 1px solid var(--panel-border); border-radius: 3px;
+    padding: 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
+    flex: 1; min-width: 0;
+  }
+  .murl input::placeholder { color: var(--text-faint); }
   .gracebar { font-size: calc(.86rem * var(--ui)); color: var(--warn); display: flex; align-items: center; gap: 10px; }
   .gracebar .cd { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); }
 
@@ -2085,6 +2095,7 @@
   @media (pointer: coarse) {
     .btn.small, .fchip, .seg button, .drawer-close, .up { min-height: 44px; }
     .grouprow select { font-size: 16px; min-height: 44px; }
+    .murl input { font-size: 16px; min-height: 44px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -2585,7 +2596,15 @@ const I18N = {
     gotIt: "Got it",
     dismissAll: "Dismiss all",
     unresolvedTag: "NO MIKAN MATCH",
-    unresolvedHint: "Aired, but no mikan feed matched — map it in mikan_overrides.json",
+    unresolvedHint: "Aired, but no mikan feed matched — paste its mikan link below to resolve by hand",
+    resolvePh: "mikanani.me episode / bangumi link, or magnet…",
+    resolveGo: "Resolve",
+    resolving: "Resolving…",
+    resolvedSubscribed: g => g ? `Subscribed — rule follows ${g}` : "Subscribed",
+    resolvedImported: "Magnet handed to qB — downloading",
+    resolveFail: e => `Resolve failed: ${e}`,
+    bad_link: "Not a mikan episode/bangumi link or a magnet",
+    resolve_failed: "Backend couldn't resolve it",
     searchPh: "Search titles…",
     noMatch: "No matching shows",
     scoreHint: "bangumi rating",
@@ -2670,7 +2689,15 @@ const I18N = {
     gotIt: "知道了",
     dismissAll: "全部知道了",
     unresolvedTag: "未匹配 mikan",
-    unresolvedHint: "已开播但没匹配到 mikan feed — 可在 mikan_overrides.json 手动映射",
+    unresolvedHint: "已开播但没匹配到 mikan feed — 把 mikan 链接粘到下面手动解析",
+    resolvePh: "mikanani.me 剧集/番组页链接，或磁力链…",
+    resolveGo: "解析",
+    resolving: "解析中…",
+    resolvedSubscribed: g => g ? `已订阅 — 规则跟随 ${g}` : "已订阅",
+    resolvedImported: "磁力已交给 qB — 开始下载",
+    resolveFail: e => `解析失败：${e}`,
+    bad_link: "不是 mikan 剧集/番组链接，也不是磁力链",
+    resolve_failed: "后端解析失败",
     searchPh: "搜索番名…",
     noMatch: "没有匹配的番剧",
     scoreHint: "bangumi 评分",
@@ -3972,6 +3999,11 @@ async function refreshUnresolved() {
         <div class="pbody">
           <div class="ptitle"><span class="bemo">⚠</span> <span class="ptag">${t("unresolvedTag")}</span>${bgmLink(u.bgm_id, esc(title))}${showLinks(src)}</div>
           <div class="psub" title="${sub}">${sub}</div>
+          <div class="grouprow murl">
+            <input id="murl-${u.bgm_id}" type="text" placeholder="${esc(t("resolvePh"))}"
+                   spellcheck="false" onkeydown="if(event.key==='Enter')resolveByUrl(${u.bgm_id})">
+            <button class="btn small" id="murlgo-${u.bgm_id}" onclick="resolveByUrl(${u.bgm_id})">${t("resolveGo")}</button>
+          </div>
         </div>
         <button class="btn ghost small" onclick="dismissUnresolved(${u.bgm_id})">${t("gotIt")}</button>
       </div>`;
@@ -3981,7 +4013,17 @@ async function refreshUnresolved() {
         <button class="btn ghost small" onclick="dismissAllUnresolved()">${t("dismissAll")}</button>
       </div>`);
     }
+    // A poll must never eat a half-typed link: snapshot the paste boxes before
+    // the innerHTML swap, put text (and focus) back after. setHTML skipping
+    // identical markup covers most polls; this covers the rest.
+    const keep = [...document.querySelectorAll('input[id^="murl-"]')]
+      .filter(i => i.value)
+      .map(i => [i.id, i.value, document.activeElement === i]);
     setHTML($("unresolveds"), banners.join(""));
+    for (const [id, val, focused] of keep) {
+      const inp = $(id);
+      if (inp && !inp.value) { inp.value = val; if (focused) inp.focus(); }
+    }
     [...$("unresolveds").children].forEach((el, i) => el.style.setProperty("--i", i));
   } catch (e) { /* transient */ }
 }
@@ -4010,6 +4052,40 @@ async function dismissAllUnresolved() {
     toast(t("failed", e.message));
   }
   refreshUnresolved();
+}
+
+// Hand a pasted mikan link (or magnet) to the backend: it binds the show via
+// mikan_overrides.json + subscribes, or one-shot-imports the magnet — either
+// way the banner clears itself on success (the backend drops the entry).
+async function resolveByUrl(bgmId) {
+  const inp = $("murl-" + bgmId);
+  const url = inp ? inp.value.trim() : "";
+  if (!url) { toast(t("resolvePh")); return; }
+  const btn = $("murlgo-" + bgmId);
+  if (btn && btn.disabled) return; // double-click / Enter+click guard
+  if (btn) { btn.disabled = true; btn.textContent = t("resolving"); }
+  try {
+    const r = await fetch("/api/unresolved/resolve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bgm_id: bgmId, url }),
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) {
+      const bits = [];
+      if (d.subscribed) bits.push(t("resolvedSubscribed", d.group));
+      if (d.imported) bits.push(t("resolvedImported"));
+      if (d.notes && d.notes.length) bits.push(d.notes.join(" · "));
+      toast(bits.join(" · "));
+      refreshUnresolved();
+      refresh();
+    } else {
+      toast(t("resolveFail", d && d.notes && d.notes.length ? d.notes.join(" · ") : errText(d, r)));
+      if (btn) { btn.disabled = false; btn.textContent = t("resolveGo"); }
+    }
+  } catch (e) {
+    toast(t("resolveFail", e.message));
+    if (btn) { btn.disabled = false; btn.textContent = t("resolveGo"); }
+  }
 }
 
 // One shared fast poll drives the sync button lifecycle — used both by the
