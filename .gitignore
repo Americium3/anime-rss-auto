@@ -9,6 +9,7 @@ premiere_times.json
 events.json
 mikan_overrides.json
 unresolved.json
+manual_imports.json
 airing_cache.json
 episode_span_cache.json
 mikan_resolve_cache.json

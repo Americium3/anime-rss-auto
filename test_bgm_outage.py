@@ -180,6 +180,10 @@ class StubCtx:
         self._ctype_memo: dict = {}
         self.override_type: dict = {}
         self.user = "u"
+        # PR#45 additions reconcile_removed reads: nothing was created this pass,
+        # and an empty reverse map means the sibling guard finds no sibling.
+        self.created_this_run: set = set()
+        self.mikan_bgm_ids: dict = {}
 
     def rules(self):
         return self._rules
@@ -192,6 +196,11 @@ class StubCtx:
 
     # verbatim from SyncContext, so the memo guard is under test too
     collection_type_of = core.SyncContext.collection_type_of
+    watching_sibling_of = core.SyncContext.watching_sibling_of
+
+    def is_watching(self, bgm_id):
+        # only reached if a test seeds mikan_bgm_ids (sibling-guard scenarios)
+        return bgm_id in self._watching
 
     def collection(self, ctype):
         assert ctype == 3
