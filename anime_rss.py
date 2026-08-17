@@ -1612,8 +1612,14 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 "feed_path": f"{season}\\{info['title']}",
             }
             apply_entries([entry], cookie, False)
-            subscribed = True
-            group_name = entry["subgroup_name"]
+            # apply_entries reports failures by printing, not raising (addFeed
+            # trouble skips the rule on purpose) — so confirm the rule actually
+            # landed before telling the panel "subscribed".
+            if name in existing_rules():
+                subscribed = True
+                group_name = entry["subgroup_name"]
+            else:
+                notes.append("rule did not land (qB feed trouble?) — next sync retries")
 
     imported = False
     if magnet:

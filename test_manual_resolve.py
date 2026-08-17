@@ -232,7 +232,8 @@ class TestManualResolveOrchestration(unittest.TestCase):
              mock.patch.object(core, "bgm_english_alias", return_value=""), \
              mock.patch.object(core, "mikan_bangumi_info", return_value={
                  "bgm_id": 643828, "subgroups": [583], "title": "Mikan - 缎带"}), \
-             mock.patch.object(core, "existing_rules", return_value={}), \
+             mock.patch.object(core, "existing_rules",
+                               side_effect=[{}, {"缎带英雄": {}}]), \
              mock.patch.object(core, "pick_subgroup", return_value=583), \
              mock.patch.object(core, "qb_add_magnet"), \
              mock.patch.object(core, "apply_entries") as apl, \
@@ -254,7 +255,8 @@ class TestManualResolveOrchestration(unittest.TestCase):
              mock.patch.object(core, "bgm_english_alias", return_value=""), \
              mock.patch.object(core, "mikan_bangumi_info", return_value={
                  "bgm_id": 999, "subgroups": [583], "title": "Mikan - 缎带"}), \
-             mock.patch.object(core, "existing_rules", return_value={}), \
+             mock.patch.object(core, "existing_rules",
+                               side_effect=[{}, {"缎带英雄": {}}]), \
              mock.patch.object(core, "qb_add_magnet") as qadd, \
              mock.patch.object(core, "apply_entries"), \
              mock.patch.object(core, "bgm_collection_type", return_value=3):
