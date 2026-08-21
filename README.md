@@ -113,6 +113,14 @@ auto-refresh — create an app at https://bgm.tv/dev/app, fill
   (a missing season folder makes it 409, leaving a rule with no feed behind).
 - One subtitle group per show — the mikan RSS URL itself is group-scoped.
 - Cours: 01 / 04 / 07 / 10; a cour string sorts lexicographically (`2026.04 < 2026.07`).
+- A show premiering within `cour_rollover_days` (default 14) of the next cour's
+  first day is filed under that next cour, not the calendar quarter its date falls
+  in — an end-of-September premiere is an autumn show that got a head start, and
+  all but one of its episodes air in the autumn cour. Set to 0 for plain calendar
+  quarters. `python test_season.py` covers the rule. The `skip_before_season`
+  cutoff below deliberately does NOT see this rollover: it compares the plain
+  calendar cour, so which old shows are hands-off never changes with a display
+  rule.
 - Destructive actions (deleting files/rules) only ever apply to shows from
   `skip_before_season` onward; older shows are strictly read-only to the tool.
   Two exceptions still count as "current": a bgm id in `pin_current_bgm_ids`

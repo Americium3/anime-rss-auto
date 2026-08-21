@@ -9,6 +9,7 @@
   "pin_current_bgm_ids": [],
   "cross_season_half_min_weeks": 20,
   "cross_season_year_min_weeks": 40,
+  "cour_rollover_days": 14,
   "purge_dropped_files": true,
   "ani_grace_hours": 3,
   "resolve_ttl_seconds": 86400,

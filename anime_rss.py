@@ -194,6 +194,17 @@ CROSS_SEASON_YEAR_MIN_WEEKS = float(CONFIG.get("cross_season_year_min_weeks", 40
 _COUR_MONTH = {1: 1, 2: 1, 3: 1, 4: 4, 5: 4, 6: 4,
                7: 7, 8: 7, 9: 7, 10: 10, 11: 10, 12: 10}
 
+# ...except at the very end of a cour. A show premiering in the last days of
+# March/June/September/December is a spring/summer/autumn/winter show that got a
+# 先行 head start, not a show of the cour it technically falls in: it airs one or
+# two episodes in the old cour and the whole rest of its run in the next one
+# (JOJO SBR 2nd&3rd: premiere 2026-09-25, finale 2026-12-04 — an autumn show by
+# every listing, one episode of which lands in September). So a premiere within
+# COUR_ROLLOVER_DAYS of the next cour's first day is counted as the next cour.
+# Days-to-next-cour, not a day-of-month cutoff, so the window is the same length
+# in a 30- and a 31-day month. 0 disables the rule (pure calendar quarters).
+COUR_ROLLOVER_DAYS = int(CONFIG.get("cour_rollover_days", 14))
+
 # --- 首选组宽限期（ANi 保险丝）------------------------------------------- #
 # 一部新番在 mikan 上首次解析成功时，如果首选组（GROUP_PRIORITY[0]，即 ANi）
 # 还没出现在可用字幕组里，先不锁定规则，等 ani_grace_hours 小时；期间 ANi
@@ -251,12 +262,72 @@ def year_of(date_str: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def season_of(date_str: str) -> str | None:
-    """Map an air date ('YYYY-MM-DD') to its cour string 'YYYY.MM'."""
-    m = re.match(r"\s*(\d{4})\D+(\d{1,2})", date_str or "")
+def _next_cour_start(year: int, month: int) -> datetime.date:
+    """First day of the cour AFTER the one calendar month `month` belongs to."""
+    m = _COUR_MONTH[month] + 3
+    return datetime.date(year + 1, 1, 1) if m > 12 else datetime.date(year, m, 1)
+
+
+def cour_of_date(d: datetime.date) -> str:
+    """Cour string 'YYYY.MM' for a date, with the end-of-cour rollover applied
+    (see COUR_ROLLOVER_DAYS): a premiere in the last days of a cour belongs to
+    the next one."""
+    nxt = _next_cour_start(d.year, d.month)
+    if COUR_ROLLOVER_DAYS > 0 and (nxt - d).days <= COUR_ROLLOVER_DAYS:
+        return f"{nxt.year}.{nxt.month:02d}"
+    return f"{d.year}.{_COUR_MONTH[d.month]:02d}"
+
+
+def _parse_air_date(date_str: str) -> tuple[int, int, int | None] | None:
+    """(year, month, day|None) from a bgm date, or None if there isn't one."""
+    m = re.match(r"\s*(\d{4})\D+(\d{1,2})(?:\D+(\d{1,2}))?", date_str or "")
     if not m:
         return None
-    return f"{int(m.group(1))}.{_COUR_MONTH[int(m.group(2))]:02d}"
+    year, month = int(m.group(1)), int(m.group(2))
+    if month not in _COUR_MONTH:
+        return None
+    return year, month, int(m.group(3)) if m.group(3) else None
+
+
+def season_of(date_str: str) -> str | None:
+    """Map an air date ('YYYY-MM-DD') to the cour the show is listed under —
+    'YYYY.MM', with the end-of-cour rollover applied. This is the cour the user
+    sees (badge, timetable) and the one a NEW subscription is filed under (save
+    path + tag).
+
+    A month-only date ('2026-09') has no day to test, so it keeps the plain
+    calendar-quarter mapping.
+    """
+    p = _parse_air_date(date_str)
+    if p is None:
+        return None
+    year, month, day = p
+    if day is None:
+        return f"{year}.{_COUR_MONTH[month]:02d}"
+    try:
+        d = datetime.date(year, month, day)
+    except ValueError:
+        return f"{year}.{_COUR_MONTH[month]:02d}"
+    return cour_of_date(d)
+
+
+def calendar_season_of(date_str: str) -> str | None:
+    """The plain calendar-quarter cour, with NO rollover — the cour side of every
+    SKIP_BEFORE_SEASON comparison.
+
+    The hands-off cutoff is a promise about which shows this tool may delete files
+    for, and that promise must not move because the display rule changed: a
+    2026-03-19 premiere reads as 2026.04 on the panel, but if the cutoff saw that
+    too, a show that has been hands-off since the day it was downloaded would
+    suddenly become eligible for teardown. The rollover only ever moves a cour
+    FORWARD, so using the calendar cour here keeps the protected set exactly as it
+    was — and equally keeps a still-airing old-cour long-runner exempt (its cour
+    must stay below the cutoff for cour_still_airing to even look it up).
+    """
+    p = _parse_air_date(date_str)
+    if p is None:
+        return None
+    return f"{p[0]}.{_COUR_MONTH[p[1]]:02d}"
 
 
 def _broadcast_weeks(first: str | None, last: str | None) -> float | None:
@@ -313,7 +384,7 @@ def is_manual_old_show(date_str: str, bgm_id: int | None = None,
         return False
     if still_airing:
         return False
-    s = season_of(date_str)
+    s = calendar_season_of(date_str)   # cutoff never sees the rollover
     return s is not None and s < SKIP_BEFORE_SEASON
 
 
@@ -627,7 +698,10 @@ def bgm_collection_type(user: str, subject_id: int):
 
 
 def bgm_subject_season(subject_id: int, cache: dict[int, str | None]):
-    """Cour string 'YYYY.MM' for a bgm subject's air date, or:
+    """Calendar cour 'YYYY.MM' for a bgm subject's air date, or:
+
+    (Calendar, not display: every caller feeds this straight into the
+    SKIP_BEFORE_SEASON comparison — see calendar_season_of.)
 
       * None       — bgm answered and has no usable date for it (an undated brand-new
                      subject, or no such subject). Cached forever, like any cour: an
@@ -652,7 +726,7 @@ def bgm_subject_season(subject_id: int, cache: dict[int, str | None]):
         if not _bgm_said_no(ex):
             return _NO_ANSWER
         d = {}  # 404 = no such subject, which is an answer and worth remembering
-    cache[subject_id] = season_of(d.get("date", ""))
+    cache[subject_id] = calendar_season_of(d.get("date", ""))
     return cache[subject_id]
 
 
@@ -1171,8 +1245,12 @@ def resolve_show(show: dict) -> dict:
 # qBittorrent helpers
 # --------------------------------------------------------------------------- #
 def current_season(today: datetime.date | None = None) -> str:
-    d = today or datetime.date.today()
-    return f"{d.year}.{_COUR_MONTH[d.month]:02d}"
+    """The cour new shows premiering today belong to — same rollover as season_of,
+    so during the last days of a cour "current" already means the incoming one and
+    an early-premiering show is not filed under (or hidden from) the outgoing cour.
+    Shows from the outgoing cour that are still airing stay visible through the
+    long_current/still-airing paths, which key off the broadcast schedule."""
+    return cour_of_date(today or datetime.date.today())
 
 
 def feed_url(mikan_id: int, subgroup: int) -> str:
@@ -1290,9 +1368,9 @@ def build_plan(user: str, season: str, *, ctx: "SyncContext | None" = None,
     plan = []
     span_cache = ctx.span
     for s in shows:
-        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        still = cour_still_airing(s["bgm_id"], calendar_season_of(s["date"]), span_cache)
         if is_manual_old_show(s["date"], s["bgm_id"], still):
-            sea = season_of(s["date"])
+            sea = calendar_season_of(s["date"])
             flag = f"skip (旧番 {sea} < {SKIP_BEFORE_SEASON}, 手动管理)"
             plan.append({
                 "include": False,
@@ -2916,7 +2994,7 @@ def scan_unresolved(user: str, *, ctx: "SyncContext | None" = None) -> list[dict
         seen_ids.add(gkey)
         if s["bgm_id"] in manual_ids:
             continue  # 已手动导入认领 -> 不再上榜
-        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        still = cour_still_airing(s["bgm_id"], calendar_season_of(s["date"]), span_cache)
         if is_manual_old_show(s["date"], s["bgm_id"], still):
             continue
         # 只报「已开播却解析不到」的真故障——未开播的想看番 mikan 本就没条目，
@@ -3056,7 +3134,7 @@ def premiere_watch_pass(user: str, token: str | None = None, *,
     fired = 0
     for s in wishlist:
         gkey = str(s["bgm_id"])
-        still = cour_still_airing(s["bgm_id"], season_of(s["date"]), span_cache)
+        still = cour_still_airing(s["bgm_id"], calendar_season_of(s["date"]), span_cache)
         if gkey in seen or is_manual_old_show(s["date"], s["bgm_id"], still):
             continue
         # 防线A：未到开播日绝不标在看（不记 seen，下轮再看）
@@ -3141,7 +3219,7 @@ def autocomplete_watched_pass(user: str, token: str | None = None, *,
     done = 0
     for s in watching:
         bgm_id = s["bgm_id"]
-        sea = season_of(s["date"])
+        sea = calendar_season_of(s["date"])
         if is_manual_old_show(s["date"], bgm_id,
                               cour_still_airing(bgm_id, sea, span_cache)):
             continue
