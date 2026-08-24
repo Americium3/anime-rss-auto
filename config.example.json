@@ -56,6 +56,12 @@
   "jellyfin_heal_empty_enabled": true,
   "jellyfin_tools_dir": "",
 
+  "intro_skip_analyze_enabled": true,
+  "analyze_skip_before_season": "2026.07",
+  "intro_skip_min_gap_minutes": 30,
+  "intro_skip_refresh_wait_seconds": 600,
+  "intro_skip_plugin_id": "c83d86bba1e04c35a113e2101cf4ee6b",
+
   "jfhook_port": 8766,
   "watch_interval_seconds": 300,
 

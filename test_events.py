@@ -154,9 +154,13 @@ class MirrorCase(EventLogCase):
             p = mock.patch.object(core, target, value)
             p.start()
             self.addCleanup(p.stop)
-        p = mock.patch.object(core, "_jellyfin_refresh", lambda: None)
-        p.start()
-        self.addCleanup(p.stop)
+        # Both of these talk to a real Jellyfin. The analysis trigger is only
+        # rate-limited by an on-disk stamp, so without this stub a run outside
+        # the throttle window would start a real scan on the developer's server.
+        for target in ("_jellyfin_refresh", "intro_skipper_analyze_async"):
+            p = mock.patch.object(core, target, lambda: None)
+            p.start()
+            self.addCleanup(p.stop)
 
     def episode(self, cour: str, show: str, name: str) -> Path:
         d = self.src / cour / show
