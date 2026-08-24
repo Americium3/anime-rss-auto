@@ -256,6 +256,33 @@ MIRROR_VIDEO_EXT = (".mkv", ".mp4")
 MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu"}
 _COUR_DIR_RE = re.compile(r"^\d{4}\.\d{2}$")
 
+# --- Intro Skipper: analyse newly landed episodes --------------------------- #
+# A third, independent cour cutoff, deliberately not reusing either of the two
+# above: SKIP_BEFORE_SEASON is the destructive red line (drop rules, delete
+# files, stop seeding) and MIRROR_SKIP_BEFORE_SEASON decides what gets
+# hardlinked at all, while this one only decides how much of the library Intro
+# Skipper spends CPU fingerprinting. Folding them together would tie "never
+# delete my old shows" to "never analyse my old shows", which are unrelated.
+ANALYZE_SKIP_BEFORE_SEASON = str(CONFIG.get("analyze_skip_before_season", "2026.07"))
+INTRO_SKIP_ENABLED = bool(CONFIG.get("intro_skip_analyze_enabled", True))
+INTRO_SKIP_PLUGIN_ID = str(CONFIG.get(
+    "intro_skip_plugin_id", "c83d86bba1e04c35a113e2101cf4ee6b"))
+# Minimum gap between two analysis triggers. The watcher wakes every 5 minutes
+# and a busy evening lands episodes for several shows in a row, each of which
+# would otherwise kick the task again while it is still chewing the last batch.
+INTRO_SKIP_MIN_GAP = int(CONFIG.get("intro_skip_min_gap_minutes", 30)) * 60
+# How long to wait for the library scan to finish before giving up for this round.
+INTRO_SKIP_REFRESH_WAIT = int(CONFIG.get("intro_skip_refresh_wait_seconds", 600))
+# How long the library scan gets to come up Running before we take "Idle" at
+# face value (measured at ~2s on the reference setup; a scan with nothing to do
+# can finish between our POST and our first poll).
+INTRO_SKIP_START_GRACE = 30
+INTRO_SKIP_STATE_PATH = Path(__file__).with_name("intro_skip_state.json")
+# Scheduled tasks are matched on Key, never on Name: Name is localized by the
+# server, so on a Chinese Jellyfin it is neither stable nor safely printable.
+INTRO_SKIP_TASK_KEY = "IntroSkipperDetectSegmentsTask"
+JF_REFRESH_TASK_KEY = "RefreshLibrary"
+
 
 def year_of(date_str: str) -> int | None:
     m = re.match(r"\s*(\d{4})", date_str or "")
@@ -2460,6 +2487,9 @@ def mirror_sync_pass() -> int:
     if linked:
         print(f"# mirror: 新建 {linked} 个硬链接 -> Jellyfin")
         _jellyfin_refresh()
+        # New files are in the library: analyse them for intro/credits segments
+        # once the scan above settles. Off-thread — see the function's docstring.
+        intro_skipper_analyze_async()
     return linked
 
 
@@ -2572,6 +2602,11 @@ def jellyfin_ensure_libraries() -> int:
         return 0
     have = {v["Name"] for v in (vfs or [])}
     folders = sorted(d.name for d in dst_root.iterdir() if d.is_dir())
+    # Same cour-folder listing drives both the libraries and what Intro Skipper
+    # is allowed to analyse, so the two are maintained from one place. Ahead of
+    # the early return below: the exclusion list has to track a new cour even on
+    # a pass where every library already exists.
+    intro_skipper_sync_exclusions()
     missing = [n for n in folders if n not in have]
     if not missing:
         return 0
@@ -2608,6 +2643,224 @@ def jellyfin_ensure_libraries() -> int:
     _jellyfin_refresh()
     print(f"# jellyfin: 自动新增 {len(created)} 个分类库：{', '.join(created)}")
     return len(created)
+
+
+# --- Intro Skipper: analyse an episode as soon as it lands ------------------ #
+# The plugin only fingerprints when its scheduled task runs, which by default is
+# a nightly sweep — so an episode that lands at 21:00 has no skip button until
+# the next morning. Hardlinking a new file into the mirror is the authoritative
+# "there is something new to analyse" moment, so we kick the task from there.
+#
+# Cost is bounded by the plugin itself: ReanalyzeSettledSeasons gates re-running
+# finished seasons, and a season whose config hash still matches is marked
+# already-analysed and skipped, so a triggered run only does the new episodes.
+
+def _jf_task_by_key(key: str) -> dict | None:
+    """Look up a Jellyfin scheduled task by its stable Key (never its Name)."""
+    _, tasks = _jf_req("GET", "/ScheduledTasks")
+    for t in (tasks or []):
+        if (t.get("Key") or "") == key:
+            return t
+    return None
+
+
+def _norm_path(p: str) -> str:
+    """Fold a path for comparison the way Intro Skipper folds its own entries."""
+    return p.replace("\\", "/").rstrip("/").lower()
+
+
+def analyze_excluded_dirs() -> list[str]:
+    """Mirror folders Intro Skipper should not waste CPU fingerprinting.
+
+    A blacklist, so it is the cours BEFORE the cutoff that are listed and any
+    cour created later is analysed by default without needing maintenance here.
+    Non-cour folders (Ancient) are excluded too: they are the user's manual
+    archive and are never part of what this script keeps current.
+    """
+    root = Path(JELLYFIN_MIRROR)
+    if not root.exists():
+        return []
+    out = []
+    for name in sorted(d.name for d in root.iterdir() if d.is_dir()):
+        if not _COUR_DIR_RE.match(name) or name < ANALYZE_SKIP_BEFORE_SEASON:
+            out.append(str(root / name))
+    return out
+
+
+def intro_skipper_sync_exclusions(*, dry_run: bool = False) -> bool:
+    """Keep the plugin's PathExclusions in step with the mirror's cour folders.
+
+    PathExclusions is a list of path roots: the plugin normalizes separators and
+    excludes an item when its path equals a root or sits under `root + '/'`, so
+    listing a cour folder takes its whole subtree out of analysis.
+
+    Only entries under our own mirror are managed — anything the user added
+    elsewhere is left exactly as it is. Writes only when the set actually
+    changes, so the common case is one cheap GET and no POST.
+    """
+    if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
+        return False
+    root = _norm_path(str(Path(JELLYFIN_MIRROR)))
+    try:
+        _, conf = _jf_req("GET", f"/Plugins/{INTRO_SKIP_PLUGIN_ID}/Configuration")
+    except Exception as ex:  # noqa: BLE001
+        print(f"# intro-skip: 读插件配置失败（不影响）：{ex}")
+        return False
+    if not isinstance(conf, dict):
+        return False
+    current = [str(p) for p in (conf.get("PathExclusions") or [])]
+    foreign = [p for p in current
+               if not (_norm_path(p) == root or _norm_path(p).startswith(root + "/"))]
+    wanted = foreign + analyze_excluded_dirs()
+    if sorted(map(_norm_path, current)) == sorted(map(_norm_path, wanted)):
+        print(f"# intro-skip: 排除列表已是最新（{len(current)} 项）")
+        return False
+    if dry_run:
+        added = [p for p in wanted if _norm_path(p) not in set(map(_norm_path, current))]
+        dropped = [p for p in current if _norm_path(p) not in set(map(_norm_path, wanted))]
+        print(f"# intro-skip [dry-run]: 会写入 {len(wanted)} 项排除"
+              f"（+{len(added)} / -{len(dropped)}），保留 {len(foreign)} 项非本脚本管理的")
+        for p in added:
+            print(f"     + {p}")
+        for p in dropped:
+            print(f"     - {p}")
+        return False
+    conf["PathExclusions"] = wanted
+    try:
+        _jf_req("POST", f"/Plugins/{INTRO_SKIP_PLUGIN_ID}/Configuration", body=conf)
+    except Exception as ex:  # noqa: BLE001
+        print(f"# intro-skip: 写排除列表失败（不影响）：{ex}")
+        return False
+    print(f"# intro-skip: 排除列表已更新（{len(wanted)} 项，只分析 "
+          f">= {ANALYZE_SKIP_BEFORE_SEASON} 的季度）")
+    return True
+
+
+def _jf_wait_refresh_idle(timeout: int) -> bool:
+    """Block until the library scan finishes, bounded by `timeout` seconds.
+
+    Analysing before the scan settles is the whole trap this guards: the refresh
+    kicked off by _jellyfin_refresh() is asynchronous, so triggering straight
+    after it would fingerprint a library that does not contain the new episode
+    yet — a long run that does nothing. The scan is also not instantaneous to
+    start, so we first give it a moment to come up Running, then wait it out.
+    Returns True when the library is idle, False on timeout/error.
+    """
+    t0 = time.time()
+    deadline = t0 + max(0, timeout)
+    started = False
+    while time.time() < deadline:
+        try:
+            task = _jf_task_by_key(JF_REFRESH_TASK_KEY)
+        except Exception as ex:  # noqa: BLE001
+            print(f"# intro-skip: 查库扫描状态失败（不影响）：{ex}")
+            return False
+        if task is None:
+            return True  # no such task on this server: nothing to wait for
+        if (task.get("State") or "") != "Idle":
+            started = True
+        elif started or time.time() - t0 > INTRO_SKIP_START_GRACE:
+            # Idle after we watched it run, or it never came up Running within
+            # the grace window (a scan with nothing to do can finish between
+            # our POST and our first poll).
+            return True
+        time.sleep(3)
+    print(f"# intro-skip: 等库扫描超时（{timeout}s），本轮不触发分析")
+    return False
+
+
+def intro_skipper_trigger_analysis(*, dry_run: bool = False) -> bool:
+    """Run the Intro Skipper detection task once the library scan has settled."""
+    if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
+        print("# intro-skip: 未启用或缺 Jellyfin api key，跳过")
+        return False
+    state = {}
+    if INTRO_SKIP_STATE_PATH.exists():
+        try:
+            state = json.loads(INTRO_SKIP_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            state = {}
+    last = float(state.get("last_trigger") or 0)
+    waited = time.time() - last
+    throttled = waited < INTRO_SKIP_MIN_GAP
+    if throttled:
+        print(f"# intro-skip{' [dry-run]' if dry_run else ''}: 距上次触发 "
+              f"{waited / 60:.0f} 分钟 (< {INTRO_SKIP_MIN_GAP // 60})，本轮跳过")
+        # A dry run writes nothing, so it reports the rest of the picture anyway
+        # rather than stopping here and telling the user almost nothing.
+        if not dry_run:
+            return False
+    # Refresh the exclusion list first: a brand-new cour folder must be analysed
+    # from its first episode, and the list is what decides that.
+    intro_skipper_sync_exclusions(dry_run=dry_run)
+    if not dry_run and not _jf_wait_refresh_idle(INTRO_SKIP_REFRESH_WAIT):
+        return False
+    try:
+        task = _jf_task_by_key(INTRO_SKIP_TASK_KEY)
+    except Exception as ex:  # noqa: BLE001
+        print(f"# intro-skip: 查任务失败（不影响）：{ex}")
+        return False
+    if task is None:
+        print(f"# intro-skip: 未找到任务 {INTRO_SKIP_TASK_KEY}（插件未装？），跳过")
+        return False
+    if (task.get("State") or "") != "Idle":
+        print(f"# intro-skip: 分析任务正在跑（{task.get('State')}），不重复触发")
+        return False
+    if dry_run:
+        refresh = _jf_task_by_key(JF_REFRESH_TASK_KEY)
+        print(f"# intro-skip [dry-run]: 会等库扫描（现 "
+              f"{(refresh or {}).get('State', 'n/a')}）后触发 {INTRO_SKIP_TASK_KEY} "
+              f"id={task['Id']}")
+        return False
+    try:
+        _jf_req("POST", f"/ScheduledTasks/Running/{task['Id']}")
+    except Exception as ex:  # noqa: BLE001
+        print(f"# intro-skip: 触发分析失败（不影响）：{ex}")
+        return False
+    state["last_trigger"] = time.time()
+    try:
+        INTRO_SKIP_STATE_PATH.write_text(
+            json.dumps(state, indent=0), encoding="utf-8")
+    except Exception as ex:  # noqa: BLE001
+        # Losing the stamp only costs an extra trigger next round, never data.
+        print(f"# intro-skip: 写节流台账失败（不影响）：{ex}")
+    print("# intro-skip: 已触发片头/片尾分析")
+    return True
+
+
+_INTRO_SKIP_LOCK = threading.Lock()
+_INTRO_SKIP_INFLIGHT = False
+
+
+def intro_skipper_analyze_async() -> None:
+    """Kick off the trigger on a worker thread so the sync pass never stalls.
+
+    The wait for the library scan can run into minutes, and the rest of the pass
+    (prune, autolib, unresolved-scan) still has to happen this round — so this
+    must not be inline. One flight at a time: a second pass that lands while the
+    first is still waiting would only queue a duplicate trigger.
+    """
+    global _INTRO_SKIP_INFLIGHT
+    if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
+        return
+    with _INTRO_SKIP_LOCK:
+        if _INTRO_SKIP_INFLIGHT:
+            print("# intro-skip: 上一次触发还在等库扫描，本轮不再排队")
+            return
+        _INTRO_SKIP_INFLIGHT = True
+
+    def _run() -> None:
+        global _INTRO_SKIP_INFLIGHT
+        try:
+            intro_skipper_trigger_analysis()
+        except Exception:  # noqa: BLE001
+            print("# intro-skip: 触发线程出错（不影响 sync）：")
+            traceback.print_exc()
+        finally:
+            with _INTRO_SKIP_LOCK:
+                _INTRO_SKIP_INFLIGHT = False
+
+    threading.Thread(target=_run, name="intro-skip", daemon=True).start()
 
 
 def _dir_has_video(path: str) -> bool:
@@ -4107,6 +4360,14 @@ def cmd_autocomplete(args):
     autocomplete_watched_pass(args.user, bgm_token(args), dry_run=args.dry_run)
 
 
+def cmd_analyze(args):
+    """Standalone Intro Skipper pass: sync exclusions + trigger detection.
+
+    --dry-run reports what would be written/triggered and touches nothing.
+    """
+    intro_skipper_trigger_analysis(dry_run=args.dry_run)
+
+
 def cmd_auth(args):
     """One-time OAuth setup so the bgm token auto-renews (no yearly reissue).
 
@@ -4277,6 +4538,11 @@ def main():
     pac.add_argument("--dry-run", action="store_true",
                      help="report what would fire; no bgm write, no panel banner")
     pac.set_defaults(func=cmd_autocomplete)
+
+    pan = sub.add_parser("analyze", help="Intro Skipper: 同步排除列表 + 触发片头/片尾分析")
+    pan.add_argument("--dry-run", action="store_true",
+                     help="report the exclusion diff and the task it would run; writes nothing")
+    pan.set_defaults(func=cmd_analyze)
 
     pau = sub.add_parser("auth", help="one-time OAuth setup so bgm token auto-renews")
     pau.add_argument("--code", default=None, help="callback ?code= from the authorize redirect")
