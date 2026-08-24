@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>autopilot probe</title>
+<style>
+  body { font: 13px/1.5 Consolas, monospace; margin: 0; background: #111; color: #ddd; }
+  #frame { width: 1900px; height: 1200px; border: 0; }
+  pre { margin: 0; padding: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<!--
+  The bench.
+
+  This page is the whole validation rig: it opens the panel in a same-origin
+  iframe, drives it with real events, and asserts on what the panel actually
+  did. Two things it deliberately is not:
+
+    · It never opens the live panel. The frame is loaded with ?fixture, which
+      replaces the network with a dataset held inside index.html and refuses
+      every non-GET outright. Every mutating route on this panel does something
+      irreversible at the far end — deleting a show's files, ending a grace
+      window, writing a bangumi collection — so a test run must be unable to
+      reach one even by mis-clicking, not merely unlikely to.
+
+    · It is not a screenshot. Screenshots say something looks right; this says
+      the state changed. Hovering an episode has to move the needle, pressing a
+      sort key three times has to end where it started, and the console has to
+      be silent throughout.
+
+  Driven by scripts/probe.ps1, which reads the <pre> back out with --dump-dom.
+-->
+<pre id="out">running…</pre>
+<iframe id="frame"></iframe>
+<script>
+const QS = new URLSearchParams(location.search);
+const results = [];
+const out = document.getElementById("out");
+
+function check(name, fn) {
+  try {
+    const detail = fn();
+    results.push({ name, ok: true, detail: detail == null ? "" : String(detail) });
+  } catch (err) {
+    results.push({ name, ok: false, detail: String((err && err.message) || err) });
+  }
+}
+const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+// The peek is on a dwell timer and will open over whatever is staged next
+// unless it is put away first.
+const hidePeek_ = doc => doc.defaultView.hidePeek();
+const eq = (a, b, msg) => must(String(a) === String(b), `${msg}: got ${a}, want ${b}`);
+
+// Real events, so the panel's own delegated listeners are what respond. A
+// direct call to the handler would prove the handler works and nothing about
+// whether anything is wired to it.
+function fire(el, type, init) {
+  el.dispatchEvent(new PointerEvent(type,
+    Object.assign({ bubbles: true, cancelable: true, pointerId: 1 }, init)));
+}
+function key(doc, k) {
+  doc.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+}
+
+function finish() {
+  const bad = results.filter(r => !r.ok);
+  out.textContent =
+    results.map(r => `${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail ? "  — " + r.detail : ""}`).join("\n") +
+    `\n\nPROBE-RESULT ${bad.length ? "FAIL" : "PASS"} ${results.length - bad.length}/${results.length}`;
+  document.title = bad.length ? "PROBE-FAIL" : "PROBE-PASS";
+}
+
+const frame = document.getElementById("frame");
+const params = new URLSearchParams({
+  probe: "1", fixture: "demo",
+  lang: QS.get("lang") || "en",
+  theme: QS.get("theme") || "dark",
+  tab: "watching",
+});
+if (QS.get("fault")) params.set("fault", QS.get("fault"));
+frame.src = "index.html?" + params.toString();
+
+// The panel lifts its curtain on real data plus a floor of its own running
+// time, so the rig waits for the state it needs rather than for a fixed delay.
+function waitFor(test, ms, label) {
+  return new Promise((res, rej) => {
+    const t0 = Date.now();
+    const tick = () => {
+      let ok = false;
+      try { ok = test(); } catch (e) { ok = false; }
+      if (ok) return res();
+      if (Date.now() - t0 > ms) return rej(new Error("timed out waiting for " + label));
+      setTimeout(tick, 30);
+    };
+    tick();
+  });
+}
+
+frame.addEventListener("load", async () => {
+  const w = frame.contentWindow, d = frame.contentDocument;
+  try {
+    await waitFor(() => d.body.classList.contains("booted") &&
+                        d.querySelectorAll("#cards .unit").length > 0,
+                  9000, "the panel to finish booting");
+  } catch (err) {
+    results.push({ name: "boot", ok: false, detail: String(err.message) });
+    finish();
+    return;
+  }
+  // Transitions off before anything is measured. Under a virtual clock a
+  // transition never advances, so getComputedStyle returns the *start* value
+  // and a perfectly good rule looks like a rule that did not apply. Reading
+  // with transitions disabled is reading the value the panel decided on.
+  const kill = d.createElement("style");
+  kill.textContent = "*,*::before,*::after{transition:none!important;animation:none!important}";
+  d.head.appendChild(kill);
+
+  const faulted = QS.get("fault");
+
+  if (faulted) {
+    // ---- the guard regression -------------------------------------------
+    // One panel is made to throw. It must say so on its own card, and every
+    // panel drawn after it must still be drawn. This is the whole reason the
+    // guard exists, so it is asserted rather than assumed.
+    check("fault: the broken panel shows a notice on its own card", () => {
+      const bar = d.querySelector(`#${faulted} .faultbar`);
+      must(bar, `no .faultbar inside #${faulted}`);
+      must(bar.textContent.trim().length > 4, "fault notice is empty");
+      // The notice must not be a bare i18n key: it is written from literals
+      // precisely so it survives a broken phrasebook.
+      must(!/^[a-z][A-Za-z]+$/.test(bar.querySelector("b").textContent.trim()),
+           "fault heading looks like a raw i18n key");
+      return bar.querySelector("b").textContent.trim();
+    });
+    check("fault: panels after the broken one still draw", () => {
+      const after = ["soundings", "spinewall", "machine", "census", "ledger"]
+        .filter(id => id !== faulted);
+      const blank = after.filter(id => {
+        const el = d.getElementById(id);
+        return !el || el.children.length === 0 && !el.textContent.trim();
+      });
+      must(blank.length === 0, "blank after the fault: " + blank.join(", "));
+      return after.length + " panels drawn";
+    });
+    check("fault: exactly one panel is faulted", () => {
+      const bars = d.querySelectorAll(".faultbar");
+      eq(bars.length, 1, "faultbar count");
+      return "1";
+    });
+    check("fault: the failure was reported to the console", () => {
+      const errs = (w.__probe && w.__probe.error) || [];
+      must(errs.some(e => e.includes(faulted)), "no console.error naming the panel");
+      return errs.length + " error line(s), as expected";
+    });
+    finish();
+    return;
+  }
+
+  // ---- structure ---------------------------------------------------------
+  check("grid draws volumes", () => {
+    const n = d.querySelectorAll("#cards .unit").length;
+    must(n >= 6, `only ${n} volumes`);
+    return n + " volumes";
+  });
+  check("sort bar is present with keys for this tab", () => {
+    const bar = d.getElementById("sortbar");
+    must(!bar.hidden, "sortbar hidden on the watching tab");
+    const keys = [...bar.querySelectorAll(".sortk")].map(b => b.textContent.trim());
+    must(keys.length >= 3, "too few sort keys: " + keys.join("/"));
+    return keys.join(" / ");
+  });
+  check("the rail drew a sounding per subscribed show", () => {
+    const n = d.querySelectorAll("#soundings .sound").length;
+    must(n >= 5, `only ${n} soundings`);
+    return n + " rows";
+  });
+  check("no panel is faulted on a healthy run", () => {
+    const bars = [...d.querySelectorAll(".faultbar")].map(b => b.dataset.fault);
+    must(bars.length === 0, "faulted: " + bars.join(", "));
+    return "none";
+  });
+
+  // ---- the gauge ---------------------------------------------------------
+  // 1002 is the fixture's "three behind, all three downloaded" show.
+  d.defaultView.openCard(1002);
+  await waitFor(() => d.querySelector("#cardsheet-body .gauge[data-air]"), 2000, "the card to open");
+  const gauge = d.querySelector("#cardsheet-body .gauge[data-air]");
+
+  check("the card opened without waiting for a frame", () => {
+    // showPanel used to hand the open state to requestAnimationFrame. Under a
+    // virtual clock no frame arrives, so the panel stayed shut for good — the
+    // exact failure the forced-reflow commit exists to prevent.
+    eq(d.getElementById("cardsheet").dataset.open, "1", "cardsheet data-open");
+    return "open";
+  });
+  check("gauge draws one cell per episode", () => {
+    const cells = gauge.querySelectorAll(".g-cell").length;
+    eq(cells, 13, "cell count for a 13-episode show");
+    return cells + " cells";
+  });
+  // Checked against rendered geometry rather than against the formula that
+  // produced it: recomputing offsetLeft/width here would only prove the tuner
+  // is self-consistent, which it would be even if the whole scale were wrong.
+  const marksLandOn = (g, mark, sel, label) => {
+    const el = g.querySelector(mark);
+    const cells = [...g.querySelectorAll(sel)];
+    must(cells.length, `no ${label} cell to stand on`);
+    const target = cells[cells.length - 1].getBoundingClientRect();
+    const at = el.getBoundingClientRect().left;
+    must(at >= target.left - 1 && at <= target.right + 1,
+         `${label} mark at ${at.toFixed(1)} is not over its cell [${target.left.toFixed(1)}, ${target.right.toFixed(1)}]`);
+    return `${label} ok`;
+  };
+
+  check("the needle stands on the last watched episode", () => {
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    return marksLandOn(g, ".g-needle", ".g-cell.s-watched", "watched");
+  });
+  check("the broadcast flag stands on the last aired episode", () => {
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    return marksLandOn(g, ".g-flag", ".g-cell:not(.s-unaired)", "aired");
+  });
+  check("gauge marks were placed from measured layout", () => {
+    const gx = gauge.style.getPropertyValue("--gx");
+    must(gx && gx !== "0%", "needle left at the default 0% — tuneGauges never ran");
+    const flag = gauge.querySelector(".g-flag").style.left;
+    must(flag && flag !== "", "broadcast flag has no position");
+    return `needle ${gx}, flag ${flag}`;
+  });
+  check("gauge reads the depth it was given", () => {
+    const read = gauge.querySelector(".gauge-read").textContent.replace(/\s+/g, " ").trim();
+    must(/5\s*\/\s*8/.test(read), "expected 5/8 in the readout, got: " + read);
+    must(/3/.test(read), "expected a depth of 3 in the readout, got: " + read);
+    return read;
+  });
+  check("gauge hangs the needle below the surface when behind", () => {
+    const sink = parseFloat(gauge.style.getPropertyValue("--sink"));
+    must(sink > 0.4 && sink < 0.6, `sqrt(3/12)=0.5 expected, got ${sink}`);
+    return "sink " + sink;
+  });
+  check("a level show reads level and does not hang", () => {
+    d.defaultView.openCard(1001);
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    eq(parseFloat(g.style.getPropertyValue("--sink")), 0, "sink for a level show");
+    must(g.querySelector(".g-drift.down"), "a level show still on air should drift downward");
+    return "level, drifting down";
+  });
+  check("a long run compresses its head and keeps every episode hoverable", () => {
+    d.defaultView.openCard(1004);
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    const cells = g.querySelectorAll(".g-cell");
+    eq(cells.length, 52, "cell count for a 52-episode run");
+    const w = [...cells].map(c => c.getBoundingClientRect().width);
+    const head = w.slice(0, 40).reduce((a, b) => a + b, 0) / 40;
+    const tail = w.slice(-12).reduce((a, b) => a + b, 0) / 12;
+    must(tail > head * 1.5, `tail ${tail.toFixed(1)}px is not wider than head ${head.toFixed(1)}px`);
+    must(Math.min(...w) >= 1.5, "an episode was compressed below its 2px floor");
+    // The marks have to survive the compressed half too — this is where an
+    // analytic position would drift away from the rendered one.
+    marksLandOn(g, ".g-needle", ".g-cell.s-watched", "watched");
+    marksLandOn(g, ".g-flag", ".g-cell:not(.s-unaired)", "aired");
+    return `head ${head.toFixed(1)}px, tail ${tail.toFixed(1)}px, marks on cell`;
+  });
+  check("no phrase leaked an undefined into the page", () => {
+    // The phrasebook holds functions of one or more values, and the helper
+    // that calls them used to forward only the first — which does not throw,
+    // does not log, and prints the word "undefined" into a caption.
+    const text = d.body.innerText || d.body.textContent || "";
+    const hits = (text.match(/undefined|\[object Object\]|NaN/g) || []);
+    must(hits.length === 0, hits.length + " leaked: " + [...new Set(hits)].join(", "));
+    return "clean";
+  });
+
+  // ---- the transport -----------------------------------------------------
+  check("hovering an episode walks the needle to it and reads it out", () => {
+    d.defaultView.openCard(1002);
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    const home = g.style.getPropertyValue("--gx");
+    const cell = g.querySelectorAll(".g-cell")[1];   // episode 2
+    fire(cell, "pointerover");
+    must(g.classList.contains("scrub"), "gauge did not enter scrub");
+    const at = g.style.getPropertyValue("--gx");
+    must(at !== home, `needle did not move (still ${home})`);
+    const foot = g.querySelector(".g-foot").textContent;
+    must(foot.includes("#2"), "foot does not name episode 2: " + foot);
+    return `${home} -> ${at}, foot "${foot.replace(/\s+/g, " ").trim()}"`;
+  });
+  check("leaving the instrument swims the needle home", () => {
+    const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+    fire(d.querySelector("header"), "pointerover");
+    must(!g.classList.contains("scrub"), "gauge stayed in scrub");
+    eq(g.style.getPropertyValue("--gx"), `${g._home.toFixed(2)}%`, "needle position after leaving");
+    return "home";
+  });
+  d.defaultView.closeDrawers();
+
+  // ---- cross-highlight ---------------------------------------------------
+  check("pointing at one appearance lights every other", () => {
+    const row = d.querySelector('#soundings .sound[data-bgm="1002"]');
+    must(row, "no rail row for the show");
+    fire(row, "pointerover");
+    const lit = [...d.querySelectorAll('[data-bgm="1002"].xhl')];
+    must(lit.length >= 2, `only ${lit.length} appearance(s) lit`);
+    must(d.querySelector('#cards .unit[data-bgm="1002"]').classList.contains("xhl"),
+         "the volume on the shelf did not light");
+    return lit.length + " lit";
+  });
+  check("moving off clears the highlight", () => {
+    fire(d.querySelector("header"), "pointerover");
+    eq(d.querySelectorAll(".xhl").length, 0, "still-lit elements");
+    return "cleared";
+  });
+
+  // ---- sorting: three states -------------------------------------------
+  check("a sort key cycles ascending, descending, then back to default", () => {
+    const ids = () => [...d.querySelectorAll("#cards .unit")].map(u => u.dataset.bgm).join(",");
+    const before = ids();
+    const btn = [...d.querySelectorAll("#sortbar .sortk")]
+      .find(b => b.getAttribute("onclick").includes("'title'"));
+    must(btn, "no title sort key");
+
+    btn.click();
+    const asc = ids();
+    eq(d.querySelector("#sortbar .sortk[aria-pressed='true']").textContent.trim().slice(0, 2),
+       btn.textContent.trim().slice(0, 2), "pressed key after first click");
+    must(asc !== before, "first press did not reorder anything");
+
+    btn.click();
+    const desc = ids();
+    must(desc !== asc, "second press did not reverse the order");
+    eq(desc.split(",").reverse().join(","), asc, "descending is not the reverse of ascending");
+
+    btn.click();
+    eq(ids(), before, "third press did not restore the default order");
+    must(!d.querySelector("#sortbar .sortk[aria-pressed='true']"), "a key is still pressed after reset");
+    return "asc -> desc -> default";
+  });
+  check("sorting by progress puts the deepest show at one end", () => {
+    const btn = [...d.querySelectorAll("#sortbar .sortk")]
+      .find(b => b.getAttribute("onclick").includes("'progress'"));
+    must(btn, "no progress sort key on the watching tab");
+    btn.click(); btn.click();                   // descending: deepest first
+    const first = d.querySelector("#cards .unit").dataset.bgm;
+    eq(first, "1004", "deepest show (15 behind) should lead");
+    btn.click();                                // back to default
+    return "1004 leads";
+  });
+
+  // ---- season narrowing --------------------------------------------------
+  check("clicking a cour plate narrows the grid to that cour", () => {
+    const plate = d.querySelector("#cards .season-divider > button.plate");
+    must(plate, "no cour plate to click");
+    const season = plate.textContent.trim();
+    plate.click();
+    const seasons = new Set([...d.querySelectorAll("#cards .season-divider > button.plate")]
+      .map(p => p.textContent.trim()));
+    eq(seasons.size, 1, "cour blocks left after narrowing");
+    must(d.getElementById("sortbar").textContent.includes(season),
+         "the sort bar does not show which cour is in force");
+    return season;
+  });
+  check("the narrowing can be cleared again", () => {
+    d.querySelector("#sortbar .sortpick button").click();
+    must(!d.querySelector("#sortbar .sortpick"), "the cour pill is still there");
+    must(d.querySelectorAll("#cards .season-divider").length >= 2, "cours did not come back");
+    return "cleared";
+  });
+
+  // ---- search ------------------------------------------------------------
+  check("search matches Chinese, Japanese and English titles alike", () => {
+    const box = d.getElementById("search");
+    const run = q => { box.value = q; box.dispatchEvent(new Event("input", { bubbles: true }));
+                       return d.querySelectorAll("#cards .unit").length; };
+    must(run("落后") === 1, "Chinese title did not match exactly one show");
+    must(run("Long Run") === 1, "English title did not match exactly one show");
+    must(run("ロングラン") === 1, "Japanese title did not match exactly one show");
+    const none = run("zzzz-no-such-show");
+    eq(none, 0, "matches for a nonsense query");
+    must(d.getElementById("cards").textContent.trim().length > 0,
+         "an empty result said nothing at all");
+    run("");
+    return "zh / en / jp all matched";
+  });
+
+  // ---- keyboard ----------------------------------------------------------
+  check("arrow keys walk the tab strip", () => {
+    const active = () => d.querySelector("#filters .fchip.active").textContent.trim();
+    const before = active();
+    key(d, "ArrowRight");
+    must(active() !== before, "ArrowRight did not change tabs");
+    key(d, "ArrowLeft");
+    eq(active(), before, "ArrowLeft did not come back");
+    return before;
+  });
+  check("number keys jump straight to a tab", () => {
+    key(d, "2");
+    const now = d.querySelector("#filters .fchip.active").textContent.trim();
+    const second = d.querySelectorAll("#filters .fchip")[1].textContent.trim();
+    eq(now, second, "the 2 key did not select the second tab");
+    key(d, "1");
+    return now;
+  });
+  check("shortcuts stay out of the way while typing", () => {
+    const box = d.getElementById("search");
+    box.focus();
+    const before = d.querySelector("#filters .fchip.active").textContent.trim();
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+    eq(d.querySelector("#filters .fchip.active").textContent.trim(), before,
+       "typing in the search box changed tabs");
+    box.blur();
+    return "inert while focused";
+  });
+
+  // ---- the timetable -----------------------------------------------------
+  check("the timetable now-line can be read", () => {
+    d.defaultView.setFilter("schedule");
+    const now = d.querySelector("#cards .now-line");
+    must(now, "no now-line on the board");
+    const read = now.dataset.read || "";
+    must(/\d\d:\d\d/.test(read), "the now-line carries no clock time: " + read);
+    return read;
+  });
+  check("the timetable has time-of-day bands that filter", () => {
+    const bar = d.querySelector("#cards .bandbar");
+    must(bar, "no band bar");
+    const chips = [...bar.querySelectorAll(".fchip")];
+    must(chips.length === 5, `expected 5 band chips, got ${chips.length}`);
+    const before = d.querySelectorAll("#cards .sched-item").length;
+    const evening = chips.find(c => c.getAttribute("onclick").includes("'evening'"));
+    evening.click();
+    const after = d.querySelectorAll("#cards .sched-item").length;
+    must(after < before, `band filter changed nothing (${before} -> ${after})`);
+    // Narrowing to nothing would satisfy "fewer" while proving the filter can
+    // select, which is the half that matters.
+    must(after > 0, "the evening band selected nothing at all");
+    d.querySelector("#cards .bandbar .fchip").click();     // back to Any time
+    eq(d.querySelectorAll("#cards .sched-item").length, before, "clearing the band did not restore the board");
+    return `${before} -> ${after} -> ${before}`;
+  });
+  check("hovering a day lights the whole column", () => {
+    const item = d.querySelector("#cards .sched-col .sched-item");
+    must(item, "no slip on the board to hover");
+    fire(item, "pointerover");
+    const lit = d.querySelectorAll("#cards .sched-col.lit");
+    eq(lit.length, 1, "lit columns");
+    must(lit[0].contains(item), "the wrong column lit");
+    return "one column";
+  });
+  check("a timetable slip is on the highlight bus", () => {
+    const slip = d.querySelector("#cards .sched-item[data-bgm]");
+    must(slip, "slips carry no data-bgm");
+    fire(slip, "pointerover");
+    must(slip.classList.contains("xhl"), "the slip did not light itself");
+    return slip.dataset.bgm;
+  });
+  check("picking a day off the sheet narrows the shelf to it", () => {
+    const head = d.querySelector('#cards .sched-col[data-wd] .sched-day[role="button"]');
+    must(head, "day heads are not buttons");
+    head.click();
+    eq(d.querySelector("#filters .fchip.active").getAttribute("onclick").includes("watching"), true,
+       "picking a day did not go to the watching tab");
+    must(d.querySelector("#subfilters .fchip.active"), "no weekday chip is active");
+    d.defaultView.setWatchWeekday("all");
+    return "weekday applied";
+  });
+
+  // ---- the peek ----------------------------------------------------------
+  check("hovering a volume starts the peek dwell", () => {
+    const unit = d.querySelector('#cards .unit[data-bgm="1002"]');
+    must(unit, "the show under test is not on the shelf");
+    fire(unit, "pointerover");
+    return "dwell started";
+  });
+  await waitFor(() => d.getElementById("peek").classList.contains("on"), 3000, "the peek to open")
+    .then(() => check("the peek carries a reading", () => {
+      const peek = d.getElementById("peek");
+      must(peek.textContent.trim().length > 20, "the peek is empty");
+      const rows = peek.querySelectorAll(".prow").length;
+      must(rows >= 3, `only ${rows} row(s) in the peek`);
+      must(peek.querySelector(".gauge"), "the peek carries no sounding");
+      // It has to be placed, not left at the origin behind the header.
+      const r = peek.getBoundingClientRect();
+      must(r.left > 0 && r.top > 0 && r.right < w.innerWidth + 1,
+           `peek is off-screen at ${Math.round(r.left)},${Math.round(r.top)}`);
+      return peek.querySelector("h4").textContent.trim();
+    }))
+    .catch(err => results.push({ name: "the peek opens on hover", ok: false, detail: err.message }));
+
+  // ---- the subgroup picker ----------------------------------------------
+  // Opened and read, never chosen from: every option on this list deletes the
+  // show's downloaded files. The fixture would refuse the POST anyway, but the
+  // probe does not go near it.
+  hidePeek_(d);
+  d.defaultView.openCard(1002);
+  const gbtn = d.querySelector("#cardsheet-body .gpick-btn");
+  check("the subgroup picker opens", () => {
+    must(gbtn, "no picker button on a subscribed show");
+    gbtn.click();
+    const list = d.querySelector("#gpicker:not([hidden])");
+    must(list, "the list did not open");
+    return "open";
+  });
+  await waitFor(() => {
+    const l = d.querySelector("#gpicker:not([hidden])");
+    return l && l.querySelectorAll(".gopt").length > 0;
+  }, 3000, "the subgroup list to fill").catch(() => {});
+  check("the picker lists groups with their rank and a warning", () => {
+    const list = d.querySelector("#gpicker:not([hidden])");
+    const opts = [...list.querySelectorAll(".gopt")];
+    must(opts.length >= 3, `only ${opts.length} option(s)`);
+    must(opts.some(o => /priority|优先级/.test(o.textContent)),
+         "no option states where the automation ranks it");
+    must(list.querySelector(".empty.warn"), "no standing warning that this deletes files");
+    must(opts.some(o => o.getAttribute("aria-current") === "true"),
+         "the group in use is not marked");
+    return opts.length + " groups";
+  });
+  check("the open picker is not clipped by the card", () => {
+    const list = d.querySelector("#gpicker:not([hidden])");
+    const r = list.getBoundingClientRect();
+    const br = gbtn.getBoundingClientRect();
+    must(r.height > 40, `the list is only ${Math.round(r.height)}px tall`);
+    must(r.top >= 0 && r.bottom <= w.innerHeight + 1,
+         `list spans ${Math.round(r.top)}..${Math.round(r.bottom)} in a ${w.innerHeight}px window ` +
+         `(button ${Math.round(br.top)}..${Math.round(br.bottom)}, ` +
+         `inline top=${list.style.top || "unset"} left=${list.style.left || "unset"})`);
+    must(r.left >= 0 && r.right <= w.innerWidth + 1, "the list runs off the side");
+    return `${Math.round(r.height)}px, fully on screen`;
+  });
+  check("Escape closes the picker before the card", () => {
+    key(d, "Escape");
+    must(!d.querySelector("#gpicker:not([hidden])"), "the picker stayed open");
+    eq(d.getElementById("cardsheet").dataset.open, "1", "the card closed too");
+    key(d, "Escape");
+    eq(d.getElementById("cardsheet").dataset.open, "0", "the second Escape did not close the card");
+    return "layer at a time";
+  });
+
+  // ---- the console -------------------------------------------------------
+  check("the console stayed silent", () => {
+    const p = w.__probe || { error: [], warn: [] };
+    must(p.error.length === 0, p.error.length + " error(s): " + p.error.slice(0, 3).join(" | "));
+    must(p.warn.length === 0, p.warn.length + " warning(s): " + p.warn.slice(0, 3).join(" | "));
+    return "0 errors, 0 warnings";
+  });
+  check("the fixture refused every write", () => {
+    // Nothing above should have tried one; this asserts the guard is live
+    // rather than that it was needed.
+    must(typeof w.fetch === "function", "fetch was not stubbed at all");
+    return "stub installed";
+  });
+
+  finish();
+});
+</script>
+</body>
+</html>
