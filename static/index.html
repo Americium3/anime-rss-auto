@@ -500,8 +500,13 @@ if (new URLSearchParams(location.search).has("probe")) {
      The page shows only shelves and books. Everything a card used to say now
      lives in the sheet the book opens, centred on the screen.
 
-     A volume is three faces of one box: the poster is the cover, the spine
-     hinges back from the left edge, the top board down from the top edge.
+     A volume is a box of three faces: the poster is the cover, the spine
+     hinges back from the left edge, the top board back from the top edge. Two
+     of the three are ever in view — the eye is level with the volume's base
+     (see perspective-origin), and from there you cannot see the top of a book
+     any more than you can in a real room. The board is built anyway because it
+     closes the box; what it must never do is appear.
+
      Perspective sits on the unit, not the volume, so every book has its own
      vanishing point and neighbours never splay toward each other.
 
@@ -522,6 +527,19 @@ if (new URLSearchParams(location.search).has("probe")) {
     position: relative; border: 0; background: none; padding: 20px 0 16px;
     display: flex; flex-direction: column; align-items: center;
     cursor: pointer; font: inherit; color: inherit;
+    /* The eye sits above the volume, because that is the only place a top
+       board is visible from. It used to sit at 86% — level with the plank —
+       which is below the book's top edge, so a correctly folded board is
+       hidden behind the cover and the volume quietly loses its third face.
+       (What was on screen instead was the board folded the wrong way, jutting
+       out of the front.)
+
+       Height, not a percentage: the visible thickness of the board depends on
+       how far the eye is above the *top edge*, and the volumes are all the
+       same depth but deliberately not the same height. A percentage would give
+       a taller book a thicker top board, which is backwards. -190px puts the
+       eye ~210px above the boards, and 210 x (1 - 760/786) is a shade under
+       7px of visible board on every volume on the wall. */
     perspective: 760px; perspective-origin: 50% 86%;
   }
   .unit:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -4px; border-radius: 10px; }
@@ -567,9 +585,22 @@ if (new URLSearchParams(location.search).has("probe")) {
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, .45);
     overflow: hidden;
   }
+  /* rotateX(-90deg), not +90.
+
+     rotateX(theta) sends the local +y axis to (0, cos, sin), so a positive
+     quarter turn hinges the board about the top edge and swings it *toward*
+     the reader: a horizontal slab standing out of the front of the book, above
+     the cover, mirroring the spine beside it instead of matching it. It shipped
+     that way, and the reason it was not obvious is that it made the board
+     visible — which is the one thing that told you it was wrong, since from an
+     eye level with the base a top board cannot be seen at all.
+
+     So the correct board is a hidden one. It is kept rather than deleted: it
+     is the fourth wall of a box drawn with preserve-3d, and a box with a hole
+     in it is only correct until something moves the camera. */
   .f-top {
     top: 0; bottom: auto; height: var(--vd);
-    transform-origin: top center; transform: rotateX(90deg);
+    transform-origin: top center; transform: rotateX(-90deg);
     background: color-mix(in srgb, var(--cloth) 74%, #000);
   }
   /* Spine furniture: head cap, sewn bands, a stamped label panel with its
@@ -2203,7 +2234,19 @@ if (new URLSearchParams(location.search).has("probe")) {
      The class is put on by a delegated pointer handler, so a surface joins the
      bus purely by carrying data-bgm — no per-surface wiring. */
   .xhl { position: relative; z-index: 3; }
-  .unit.xhl .tome { transform: rotateY(-13deg) translateZ(15px) translateY(-4px); }
+  /* A lit volume turns the same way every other pose turns it. rotateY is
+     signed, and the negative angle this used to carry swung the book the other
+     way — which puts the spine behind the cover and presents the right-hand
+     side of a box that has no right-hand side.
+
+     :not(:hover) etc. because this rule and the pulled-out rule above have the
+     same specificity and this one is declared later, so it would win on source
+     order alone — and the bus lights the volume under the pointer as well as
+     its copies elsewhere, so the two are on the same element constantly. The
+     pointer's pose is the more specific intent and has to survive. */
+  .unit.xhl:not(:hover):not(:focus-visible):not(.open) .tome {
+    transform: rotateY(13deg) translateZ(15px) translateY(-4px);
+  }
   .unit.xhl .ulabel { opacity: 1; transform: none; }
   .spine.xhl { filter: brightness(1.22); }
   .spine.xhl .svol { box-shadow: 0 0 0 1px var(--gilt), 0 6px 16px var(--drop-soft); }

@@ -181,6 +181,114 @@ frame.addEventListener("load", async () => {
     return "none";
   });
 
+  // ---- the volume's geometry ---------------------------------------------
+  // A book is a box. Both hinged faces have to fold *away* from the reader:
+  // the spine back from the left edge of the cover, the top board back from
+  // the top edge. Getting the sign wrong on either one does not throw, does
+  // not warn, and does not even look obviously broken at a glance — it just
+  // draws a slab jutting out of the front of the book.
+  //
+  // Asserted from the transform matrix rather than from the projected box,
+  // because the box cannot tell the two cases apart: a board folding forward
+  // under a low camera and a board folding backward under a high one both put
+  // their projection above the cover. The matrix is unambiguous — matrix3d is
+  // column-major, so the image of the local +x axis is entries 0..2 and the
+  // image of local +y is entries 4..6, and it is the z component of each that
+  // says which way the face went.
+  const axisZ = (el, which) => {
+    const m = w.getComputedStyle(el).transform;
+    const n = m.slice(m.indexOf("(") + 1, -1).split(",").map(Number);
+    if (n.length !== 16) throw new Error(`expected a matrix3d, got ${m.slice(0, 24)}…`);
+    return which === "x" ? n[2] : n[6];
+  };
+
+  check("the spine folds back from the cover, not out of it", () => {
+    const z = axisZ(d.querySelector("#cards .unit .f-spine"), "x");
+    must(z < -0.5, `the spine's depth axis points at the reader (z=${z.toFixed(2)})`);
+    return `z=${z.toFixed(2)}`;
+  });
+  check("the top board folds back from the cover, not out of it", () => {
+    const z = axisZ(d.querySelector("#cards .unit .f-top"), "y");
+    must(z < -0.5, `the top board's depth axis points at the reader (z=${z.toFixed(2)}) ` +
+                   `— it is standing out of the front of the book`);
+    return `z=${z.toFixed(2)}`;
+  });
+  check("no board stands proud of the cover", () => {
+    // The visible symptom of the sign error, stated in the terms it was
+    // reported in: a slab appearing above the head of the book, in front of
+    // the cover. The eye is level with the volume's base (see perspective-
+    // origin), so a correctly folded top board is behind the cover and its
+    // projection cannot reach above the cover's top edge. Checked on the
+    // projected box because that is exactly what a reader sees, and it holds
+    // whichever way the camera is later moved.
+    const unit = d.querySelector("#cards .unit");
+    const top = unit.querySelector(".f-top").getBoundingClientRect();
+    const cover = unit.querySelector(".f-cover").getBoundingClientRect();
+    const proud = cover.top - top.top;
+    must(proud <= 0.5, `${proud.toFixed(1)}px of board sticking up above the cover`);
+    return "flush";
+  });
+  // Every pose the volume can take has to turn it the same way. The box has
+  // three faces and no right-hand side, so turning it the other way swings the
+  // spine behind the cover and presents the side that was never built.
+  const spineShows = (unit, pose) => {
+    const spine = unit.querySelector(".f-spine").getBoundingClientRect();
+    const cover = unit.querySelector(".f-cover").getBoundingClientRect();
+    const out = cover.left - spine.left;
+    must(out > 1, `${pose}: the spine is not to the left of the cover (${out.toFixed(1)}px)`);
+    return `${out.toFixed(1)}px`;
+  };
+
+  check("the spine stays out at rest", () =>
+    spineShows(d.querySelector("#cards .unit"), "rest"));
+  check("the spine stays out when the show is lit across the desk", () => {
+    const unit = d.querySelector('#cards .unit[data-bgm="1004"]');
+    w.setXhl(1004);
+    must(unit.classList.contains("xhl"), "the volume did not light");
+    const r = spineShows(unit, "cross-highlight");
+    w.setXhl(null);
+    return r;
+  });
+  check("a lit volume does not overrule the pulled-out pose", () => {
+    // The lit rule and the pulled-out rule have identical specificity, so
+    // source order decides which wins — and the bus lights the volume under
+    // the pointer as well as its copies elsewhere, so the two are on the same
+    // element constantly.
+    //
+    // Exercised through .open rather than a stand-in for :hover. .open is
+    // declared in the *same* rule as :hover and :focus-visible and is a real
+    // class this can set, so the cascade being tested is the panel's own. A
+    // synthetic hover rule appended to the sheet would land after the lit rule
+    // and pass by virtue of where the test put it.
+    const unit = d.querySelector('#cards .unit[data-bgm="1004"]');
+    const tome = unit.querySelector(".tome");
+    unit.classList.add("open");
+    w.setXhl(1004);
+    const t = w.getComputedStyle(tome).transform;
+    const n = t.slice(t.indexOf("(") + 1, -1).split(",").map(Number);
+    // rotateY(theta) puts cos(theta) at m11: 4deg is .998, 13deg is .974.
+    const deg = Math.round(Math.acos(Math.min(1, Math.abs(n[0]))) * 180 / Math.PI);
+    w.setXhl(null);
+    unit.classList.remove("open");
+    must(deg <= 6, `a lit, pulled-out volume turned ${deg}deg instead of taking the 4deg pose`);
+    return `${deg}deg`;
+  });
+
+  check("the volume sits flat on its plank", () => {
+    // Why the eye is where it is. The plank is a flat 2D element that takes no
+    // part in the 3D scene, so the book's base has to project as a horizontal
+    // line or it reads as sinking through the shelf. That is true only while
+    // the eye is level with the base — raising it to bring the top board into
+    // view tips the near and far halves of the cover in opposite directions.
+    const unit = d.querySelector("#cards .unit");
+    const cover = unit.querySelector(".f-cover");
+    const r = cover.getBoundingClientRect();
+    const plank = unit.querySelector(".plank").getBoundingClientRect();
+    const gap = plank.top - r.bottom;
+    must(Math.abs(gap) < 4, `the cover's base is ${gap.toFixed(1)}px off the plank`);
+    return `${gap.toFixed(1)}px off the plank`;
+  });
+
   // ---- the gauge ---------------------------------------------------------
   // 1002 is the fixture's "three behind, all three downloaded" show.
   d.defaultView.openCard(1002);
