@@ -2489,6 +2489,9 @@ def mirror_sync_pass() -> int:
         _jellyfin_refresh()
         # New files are in the library: analyse them for intro/credits segments
         # once the scan above settles. Off-thread — see the function's docstring.
+        # The flag goes down first so that a trigger the throttle refuses is
+        # retried later instead of being dropped on the floor.
+        intro_skipper_mark_pending()
         intro_skipper_analyze_async()
     return linked
 
@@ -2769,23 +2772,90 @@ def _jf_wait_refresh_idle(timeout: int) -> bool:
     return False
 
 
+_INTRO_SKIP_STATE_LOCK = threading.Lock()
+
+
+def _intro_skip_state_read() -> dict:
+    """Read the throttle/pending ledger. A corrupt file reads as empty."""
+    with _INTRO_SKIP_STATE_LOCK:
+        if not INTRO_SKIP_STATE_PATH.exists():
+            return {}
+        try:
+            return json.loads(INTRO_SKIP_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+
+
+def _intro_skip_state_update(**fields) -> None:
+    """Read-modify-write the ledger under a lock.
+
+    The mirror pass writes `pending` from the sync thread while the trigger
+    writes `last_trigger` from its worker thread, so an unguarded
+    read-modify-write here would lose one of the two.
+    """
+    with _INTRO_SKIP_STATE_LOCK:
+        state = {}
+        if INTRO_SKIP_STATE_PATH.exists():
+            try:
+                state = json.loads(INTRO_SKIP_STATE_PATH.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                state = {}
+        state.update(fields)
+        try:
+            INTRO_SKIP_STATE_PATH.write_text(json.dumps(state, indent=0),
+                                             encoding="utf-8")
+        except Exception as ex:  # noqa: BLE001
+            # Losing the stamp costs an extra trigger next round, never data.
+            print(f"# intro-skip: 写节流台账失败（不影响）：{ex}")
+
+
+def intro_skipper_mark_pending() -> None:
+    """Record that there is something new that still needs analysing.
+
+    Set the moment episodes land, cleared only once a trigger is actually
+    delivered — so an attempt lost to the throttle, to a scan that never
+    settled, or to a task that was already running is retried on a later pass
+    instead of waiting for the plugin's own daily sweep at midnight.
+    """
+    if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
+        return
+    _intro_skip_state_update(pending=True)
+
+
+def intro_skipper_retry_pending() -> None:
+    """Deliver a trigger an earlier pass could not, once the window allows it.
+
+    The trigger otherwise only ever fires from the mirror pass, and only on a
+    pass that linked something new. On an evening where several shows update
+    inside one throttle window that means the first show gets analysed and the
+    rest wait for midnight — exactly the delay this feature exists to remove.
+    Cheap on quiet passes: one small local read, no network.
+    """
+    if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
+        return
+    state = _intro_skip_state_read()
+    if not state.get("pending"):
+        return
+    waited = time.time() - float(state.get("last_trigger") or 0)
+    if waited < INTRO_SKIP_MIN_GAP:
+        return  # still inside the window; a later pass will look again
+    print(f"# intro-skip: 有待分析的剧集（上次触发 {waited / 60:.0f} 分钟前），补触发")
+    intro_skipper_analyze_async()
+
+
 def intro_skipper_trigger_analysis(*, dry_run: bool = False) -> bool:
     """Run the Intro Skipper detection task once the library scan has settled."""
     if not (INTRO_SKIP_ENABLED and JELLYFIN_API_KEY):
         print("# intro-skip: 未启用或缺 Jellyfin api key，跳过")
         return False
-    state = {}
-    if INTRO_SKIP_STATE_PATH.exists():
-        try:
-            state = json.loads(INTRO_SKIP_STATE_PATH.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            state = {}
+    state = _intro_skip_state_read()
     last = float(state.get("last_trigger") or 0)
     waited = time.time() - last
     throttled = waited < INTRO_SKIP_MIN_GAP
     if throttled:
         print(f"# intro-skip{' [dry-run]' if dry_run else ''}: 距上次触发 "
-              f"{waited / 60:.0f} 分钟 (< {INTRO_SKIP_MIN_GAP // 60})，本轮跳过")
+              f"{waited / 60:.0f} 分钟 (< {INTRO_SKIP_MIN_GAP // 60})，"
+              f"本轮跳过（已挂起，等窗口过了补跑）")
         # A dry run writes nothing, so it reports the rest of the picture anyway
         # rather than stopping here and telling the user almost nothing.
         if not dry_run:
@@ -2817,13 +2887,9 @@ def intro_skipper_trigger_analysis(*, dry_run: bool = False) -> bool:
     except Exception as ex:  # noqa: BLE001
         print(f"# intro-skip: 触发分析失败（不影响）：{ex}")
         return False
-    state["last_trigger"] = time.time()
-    try:
-        INTRO_SKIP_STATE_PATH.write_text(
-            json.dumps(state, indent=0), encoding="utf-8")
-    except Exception as ex:  # noqa: BLE001
-        # Losing the stamp only costs an extra trigger next round, never data.
-        print(f"# intro-skip: 写节流台账失败（不影响）：{ex}")
+    # Only a delivered trigger clears the flag: every early return above leaves
+    # it set so a later pass picks the work back up.
+    _intro_skip_state_update(last_trigger=time.time(), pending=False)
     print("# intro-skip: 已触发片头/片尾分析")
     return True
 
@@ -4300,6 +4366,13 @@ def run_sync_once(user, cookie, season, purge, token=None):
         except Exception:  # noqa: BLE001
             print("!!! mirror-sync 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    # Unconditional, not gated on this pass having linked anything: the whole
+    # point is to pick up work an earlier pass could not deliver.
+    try:
+        intro_skipper_retry_pending()
+    except Exception:  # noqa: BLE001
+        print("!!! intro-skip-retry 出错（不影响本轮 sync）：")
+        traceback.print_exc()
     if CONFIG.get("jellyfin_mirror_delete_enabled", True):
         try:
             jellyfin_prune_deleted()      # 季度文件夹级

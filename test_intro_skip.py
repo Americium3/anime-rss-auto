@@ -325,6 +325,140 @@ class TriggerCase(unittest.TestCase):
         self.assertFalse(self.state.exists())
 
 
+class PendingRetryCase(unittest.TestCase):
+    """A trigger the throttle refuses must be delivered later, not dropped.
+
+    The regression this guards: the trigger only fires from the mirror pass, and
+    only when that pass linked something. On an evening where several shows
+    update inside one throttle window, the second show's episode was silently
+    left for the plugin's own midnight sweep.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name) / "intro_skip_state.json"
+        for target, value in (("INTRO_SKIP_STATE_PATH", self.state),
+                              ("INTRO_SKIP_ENABLED", True),
+                              ("JELLYFIN_API_KEY", "k"),
+                              ("INTRO_SKIP_MIN_GAP", 1800)):
+            p = mock.patch.object(core, target, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.kicks = []
+        p = mock.patch.object(core, "intro_skipper_analyze_async",
+                              lambda: self.kicks.append(1))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def state_now(self) -> dict:
+        return json.loads(self.state.read_text(encoding="utf-8"))
+
+    def test_landing_episodes_raises_the_flag(self):
+        core.intro_skipper_mark_pending()
+        self.assertTrue(self.state_now()["pending"])
+
+    def test_a_delivered_trigger_lowers_it(self):
+        core.intro_skipper_mark_pending()
+        with mock.patch.object(core, "intro_skipper_sync_exclusions", lambda **k: False), \
+             mock.patch.object(core, "_jf_wait_refresh_idle", lambda t: True), \
+             mock.patch.object(core, "_jf_task_by_key",
+                               lambda k: {"State": "Idle", "Id": "tid"}), \
+             mock.patch.object(core, "_jf_req", lambda *a, **k: (204, None)):
+            self.assertTrue(core.intro_skipper_trigger_analysis())
+        self.assertFalse(self.state_now()["pending"])
+
+    def test_the_second_show_in_the_window_is_not_lost(self):
+        """The exact scenario: show A at 21:00, show B at 21:10."""
+        core.intro_skipper_mark_pending()
+        core._intro_skip_state_update(last_trigger=core.time.time(), pending=False)
+        # Show B lands ten minutes later.
+        core.intro_skipper_mark_pending()
+        with mock.patch.object(core, "intro_skipper_sync_exclusions", lambda **k: False):
+            self.assertFalse(core.intro_skipper_trigger_analysis())   # throttled
+        self.assertTrue(self.state_now()["pending"], "flag must survive the throttle")
+        # A quiet pass inside the window: still too early, nothing kicked.
+        core.intro_skipper_retry_pending()
+        self.assertEqual(self.kicks, [])
+        # A quiet pass after the window: picked back up with no new episode.
+        core._intro_skip_state_update(last_trigger=core.time.time() - 1801)
+        core.intro_skipper_retry_pending()
+        self.assertEqual(len(self.kicks), 1)
+
+    def test_a_scan_that_never_settles_keeps_the_flag(self):
+        core.intro_skipper_mark_pending()
+        with mock.patch.object(core, "intro_skipper_sync_exclusions", lambda **k: False), \
+             mock.patch.object(core, "_jf_wait_refresh_idle", lambda t: False):
+            self.assertFalse(core.intro_skipper_trigger_analysis())
+        self.assertTrue(self.state_now()["pending"])
+
+    def test_a_busy_task_keeps_the_flag(self):
+        core.intro_skipper_mark_pending()
+        with mock.patch.object(core, "intro_skipper_sync_exclusions", lambda **k: False), \
+             mock.patch.object(core, "_jf_wait_refresh_idle", lambda t: True), \
+             mock.patch.object(core, "_jf_task_by_key",
+                               lambda k: {"State": "Running", "Id": "tid"}):
+            self.assertFalse(core.intro_skipper_trigger_analysis())
+        self.assertTrue(self.state_now()["pending"])
+
+    def test_a_failed_post_keeps_the_flag(self):
+        core.intro_skipper_mark_pending()
+        with mock.patch.object(core, "intro_skipper_sync_exclusions", lambda **k: False), \
+             mock.patch.object(core, "_jf_wait_refresh_idle", lambda t: True), \
+             mock.patch.object(core, "_jf_task_by_key",
+                               lambda k: {"State": "Idle", "Id": "tid"}), \
+             mock.patch.object(core, "_jf_req", side_effect=OSError("down")):
+            self.assertFalse(core.intro_skipper_trigger_analysis())
+        self.assertTrue(self.state_now()["pending"])
+
+    def test_a_quiet_pass_with_nothing_pending_does_nothing(self):
+        """Must stay free on the overwhelming majority of passes."""
+        core.intro_skipper_retry_pending()
+        self.assertEqual(self.kicks, [])
+
+    def test_retry_is_a_no_op_when_disabled(self):
+        core.intro_skipper_mark_pending()
+        core._intro_skip_state_update(last_trigger=0)
+        with mock.patch.object(core, "INTRO_SKIP_ENABLED", False):
+            core.intro_skipper_retry_pending()
+        self.assertEqual(self.kicks, [])
+
+    def test_marking_is_a_no_op_when_disabled(self):
+        with mock.patch.object(core, "INTRO_SKIP_ENABLED", False):
+            core.intro_skipper_mark_pending()
+        self.assertFalse(self.state.exists())
+
+    def test_the_two_writers_do_not_clobber_each_other(self):
+        """mark_pending runs on the sync thread, the stamp on the worker."""
+        core._intro_skip_state_update(last_trigger=12345.0, pending=False)
+        core.intro_skipper_mark_pending()
+        got = self.state_now()
+        self.assertEqual(got["last_trigger"], 12345.0)
+        self.assertTrue(got["pending"])
+
+    def test_concurrent_updates_all_survive(self):
+        import threading
+        core._intro_skip_state_update(last_trigger=1.0, pending=False)
+        threads = [threading.Thread(target=core.intro_skipper_mark_pending)
+                   for _ in range(20)]
+        threads += [threading.Thread(
+            target=core._intro_skip_state_update, kwargs={"last_trigger": 2.0})
+            for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        got = self.state_now()          # readable JSON, not a torn write
+        self.assertIn("last_trigger", got)
+        self.assertIn("pending", got)
+
+    def test_a_corrupt_ledger_reads_as_empty(self):
+        self.state.write_text("{not json", encoding="utf-8")
+        self.assertEqual(core._intro_skip_state_read(), {})
+        core.intro_skipper_mark_pending()
+        self.assertTrue(self.state_now()["pending"])
+
+
 class AsyncKickCase(unittest.TestCase):
     """The sync pass must never block on the scan wait."""
 

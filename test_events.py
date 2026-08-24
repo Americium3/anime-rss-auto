@@ -154,10 +154,13 @@ class MirrorCase(EventLogCase):
             p = mock.patch.object(core, target, value)
             p.start()
             self.addCleanup(p.stop)
-        # Both of these talk to a real Jellyfin. The analysis trigger is only
+        # These reach outside the temp tree. The analysis trigger is only
         # rate-limited by an on-disk stamp, so without this stub a run outside
-        # the throttle window would start a real scan on the developer's server.
-        for target in ("_jellyfin_refresh", "intro_skipper_analyze_async"):
+        # the throttle window would start a real scan on the developer's server;
+        # mark_pending writes the real ledger, which would leave the developer's
+        # watcher believing there was work waiting.
+        for target in ("_jellyfin_refresh", "intro_skipper_analyze_async",
+                       "intro_skipper_mark_pending"):
             p = mock.patch.object(core, target, lambda: None)
             p.start()
             self.addCleanup(p.stop)
