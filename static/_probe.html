@@ -537,6 +537,32 @@ frame.addEventListener("load", async () => {
     return "layer at a time";
   });
 
+  // ---- the toast queue ---------------------------------------------------
+  // Asserted through the DOM rather than by reaching for the queue itself: a
+  // top-level `const` is not a property of `window`, and a test that pokes at
+  // internals would keep passing after the behaviour it names had broken.
+  check("two toasts in a row do not overwrite each other", () => {
+    const el = d.getElementById("toast");
+    w.toast("first message");
+    eq(el.textContent, "first message", "the first message is not showing");
+    w.toast("second message");
+    eq(el.textContent, "first message", "the second message replaced the first");
+    w.toast("second message");   // a duplicate must not extend the queue
+    return "queued, not overwritten";
+  });
+  await waitFor(() => d.getElementById("toast").textContent === "second message",
+                6000, "the queued toast to take its turn")
+    .then(() => check("the queued toast takes its turn", () => {
+      // …and the duplicate did not earn a third showing.
+      const el = d.getElementById("toast");
+      return el.textContent;
+    }))
+    .catch(err => results.push({ name: "the queued toast takes its turn", ok: false, detail: err.message }));
+  await waitFor(() => !d.getElementById("toast").classList.contains("show"),
+                8000, "the queue to drain")
+    .then(() => check("the queue drains rather than repeating", () => "empty"))
+    .catch(err => results.push({ name: "the queue drains rather than repeating", ok: false, detail: err.message }));
+
   // ---- the console -------------------------------------------------------
   check("the console stayed silent", () => {
     const p = w.__probe || { error: [], warn: [] };

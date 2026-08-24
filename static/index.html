@@ -153,6 +153,12 @@ if (new URLSearchParams(location.search).has("probe")) {
     --stamp-ink: rgba(228,146,110,.80);
     --ledger-rule: rgba(255,235,200,.09);
     --ledger-margin: rgba(214,102,88,.52);
+    /* What a thing lifted off the desk casts. Black at night; by daylight the
+       shadow of an object on oak is brown, and the same literal that reads as
+       depth in the dark reads as soot on parchment. Two stops so a small mark
+       and a whole floating panel are not given the same weight. */
+    --drop: rgba(0,0,0,.42);
+    --drop-soft: rgba(0,0,0,.34);
 
     /* One face for prose, one for figures. There is no sans anywhere on the
        page: the room is a desk, so it sets its words in a book face and its
@@ -229,6 +235,8 @@ if (new URLSearchParams(location.search).has("probe")) {
     --stamp-ink: rgba(150,58,44,.70);
     --ledger-rule: rgba(92,60,24,.14);
     --ledger-margin: rgba(178,72,58,.52);
+    --drop: rgba(92,60,24,.30);
+    --drop-soft: rgba(92,60,24,.20);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -2198,7 +2206,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .unit.xhl .tome { transform: rotateY(-13deg) translateZ(15px) translateY(-4px); }
   .unit.xhl .ulabel { opacity: 1; transform: none; }
   .spine.xhl { filter: brightness(1.22); }
-  .spine.xhl .svol { box-shadow: 0 0 0 1px var(--gilt), 0 6px 16px rgba(0,0,0,.34); }
+  .spine.xhl .svol { box-shadow: 0 0 0 1px var(--gilt), 0 6px 16px var(--drop-soft); }
   .sched-item.xhl, .up.xhl, .premiere.xhl {
     outline: 1px solid var(--gilt);
     outline-offset: 2px;
@@ -2415,7 +2423,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     transform: translate(-50%, -50%);
     border-radius: 50%;
     background: var(--key-a);
-    box-shadow: 0 0 0 1px var(--brass-lo), 0 2px 6px rgba(0,0,0,.35);
+    box-shadow: 0 0 0 1px var(--brass-lo), 0 2px 6px var(--drop-soft);
     transition: top .34s cubic-bezier(.22,.61,.36,1);
   }
   .gauge.scrub .g-needle { transition-duration: .16s; }
@@ -2519,7 +2527,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     padding: 11px 13px 12px;
     border: 1px solid var(--gilt-soft); border-radius: 5px;
     background: var(--drawer-bg);
-    box-shadow: 0 18px 44px rgba(0,0,0,.42), 0 0 0 1px var(--panel-border);
+    box-shadow: 0 18px 44px var(--drop), 0 0 0 1px var(--panel-border);
     color: var(--text);
     opacity: 0; transform: translateY(6px);
     transition: opacity .16s ease-out, transform .16s ease-out;
@@ -2574,7 +2582,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     min-width: 250px; max-height: 260px; overflow-y: auto;
     padding: 4px; border: 1px solid var(--gilt-soft); border-radius: 4px;
     background: var(--drawer-bg);
-    box-shadow: 0 14px 34px rgba(0,0,0,.4);
+    box-shadow: 0 14px 34px var(--drop);
   }
   .gpick-list[hidden] { display: none; }
   .gopt {
@@ -2631,7 +2639,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     padding: 8px 12px; border-radius: 4px;
     border: 1px solid var(--gilt); background: var(--toast-bg);
     color: var(--text); font-size: calc(.85rem * var(--ui));
-    box-shadow: 0 12px 30px rgba(0,0,0,.4);
+    box-shadow: 0 12px 30px var(--drop);
   }
   .stale[hidden] { display: none; }
 
@@ -3950,12 +3958,53 @@ function applyStatic() {
   syncBtnUI();
 }
 
+/* A queue, not a slot.
+
+   Two messages that land close together — a sync finishing while a subgroup
+   switch reports back, which is the ordinary case since the switch triggers a
+   refresh — used to overwrite one another, and the one you lost was as likely
+   to be the failure as the success. They now wait their turn: the running one
+   is allowed to finish, the next slides in behind it, and the same message
+   arriving while it is still up refreshes its dwell rather than queueing a
+   duplicate. */
+const toastQ = [];
+let toastBusy = false;
+
 function toast(msg) {
   const el = $("toast");
-  el.textContent = msg;
-  el.classList.add("show");
+  if (toastBusy && el.textContent === msg) {   // said again while still on screen
+    clearTimeout(el._h);
+    el._h = setTimeout(nextToast, 3500);
+    return;
+  }
+  if (toastQ[toastQ.length - 1] === msg) return;
+  toastQ.push(msg);
+  if (!toastBusy) nextToast();
+}
+
+function nextToast() {
+  const el = $("toast");
   clearTimeout(el._h);
-  el._h = setTimeout(() => el.classList.remove("show"), 3500);
+  const msg = toastQ.shift();
+  if (msg === undefined) {
+    toastBusy = false;
+    el.classList.remove("show");
+    return;
+  }
+  toastBusy = true;
+  const show = () => {
+    el.textContent = msg;
+    el.classList.add("show");
+    el._h = setTimeout(nextToast, 3500);
+  };
+  // Swap the text while the card is down, so one message is never seen turning
+  // into another. 260ms clears the .25s fade the stylesheet gives it.
+  if (el.classList.contains("show")) {
+    el.classList.remove("show");
+    el._h = setTimeout(show, 260);
+  } else {
+    show();
+  }
 }
 
 const STATUS_KEY = {
