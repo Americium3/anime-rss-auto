@@ -3040,7 +3040,7 @@ if (new URLSearchParams(location.search).has("probe")) {
          anything. The full instrument lives on the card; this is the same
          reading taken in one line. -->
     <section class="deskpanel">
-      <h3 data-i18n="soundHead">Soundings</h3>
+      <h3 data-i18n="soundHead">Progress</h3>
       <div id="soundings"></div>
     </section>
     <section class="deskpanel">
@@ -3251,8 +3251,11 @@ const I18N = {
     schedFootRight: n => `${n} slots this week`,
     dayEmpty: "nothing scheduled",
     // --- the sounding ---
-    soundHead: "Soundings", soundNone: "Nothing being tracked",
-    gaugeHead: "Sounding",
+    // The panel is a sounding by construction (see the gauge), but it is
+    // labelled in the plainest words that describe what it answers. The
+    // internal vocabulary stays; only what the reader is shown changed.
+    soundHead: "Progress", soundNone: "Nothing being tracked",
+    gaugeHead: "Progress",
     gaugeLevel: "level with the broadcast",
     gaugeDepth: n => `${n} episode${n === 1 ? "" : "s"} behind`,
     gaugeCold: "reading the ledger…",
@@ -3393,8 +3396,8 @@ const I18N = {
     schedFootRight: n => `本周共 ${n} 场`,
     dayEmpty: "本日无放送",
     // --- 测深 ---
-    soundHead: "测深盘", soundNone: "暂无追番",
-    gaugeHead: "追番测深",
+    soundHead: "进度表", soundNone: "暂无追番",
+    gaugeHead: "追番进度",
     gaugeLevel: "与放送持平",
     gaugeDepth: n => `落后 ${n} 集`,
     gaugeCold: "正在读取分集账…",

@@ -2385,6 +2385,28 @@ def _jf_resolve_event(payload: dict) -> tuple[dict, int, int] | None:
     return t, bgm_id, eid
 
 
+def _jf_log_ignored(payload: dict, why: str) -> None:
+    """Say that an event arrived and was not acted on, and say what it was.
+
+    Every *failure* path below already logs. The three paths that decided an
+    event was simply not for us did not, and that turns out to be the difference
+    between a diagnosable report and an unfalsifiable one: when episodes stop
+    reaching bangumi, "there is no line in the log" is equally consistent with
+    "Jellyfin never sent anything" and with "Jellyfin sent something this
+    classifier does not recognise", and there is no way to tell which from here.
+    A webhook that is enabled for two notification types on one library is a few
+    events an hour, so logging the ones we drop costs nothing and is the only
+    record that the other explanation was ever ruled out.
+    """
+    print(f"   [jfhook] 忽略（{why}）: "
+          f"type={payload.get('NotificationType')!r} "
+          f"reason={payload.get('SaveReason')!r} "
+          f"played={payload.get('Played')!r} "
+          f"complete={payload.get('PlayedToCompletion')!r} "
+          f"item={payload.get('ItemType')!r} "
+          f"name={(payload.get('SeriesName') or payload.get('ItemId') or '?')}")
+
+
 def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = False) -> None:
     """处理一个 Jellyfin webhook 事件。
 
@@ -2396,11 +2418,14 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
     watched = _jf_is_watched_event(payload)
     undo = not watched and _jf_is_unwatched_event(payload)
     if not (watched or undo):
+        _jf_log_ignored(payload, "既不是看完也不是取消看过")
         return
     if undo and not JFHOOK_REVERSE_ENABLED:
+        _jf_log_ignored(payload, "取消看过已在配置里关闭")
         return
     item_type = (payload.get("ItemType") or "").strip()
     if item_type and item_type != "Episode":
+        _jf_log_ignored(payload, f"不是剧集（ItemType={item_type}）")
         return  # 只处理剧集，电影/合集等忽略
     # The brake is checked before the lookups so a Series-wide cascade is cheap
     # to shed, and only against the undo direction — the forward one is unchanged.
