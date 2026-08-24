@@ -870,9 +870,12 @@ def bgm_subject_episodes(subject_id: int, cache: dict[int, dict[int, int]]) -> d
     return out
 
 
-def bgm_mark_episode_watched(token: str, episode_id: int) -> None:
-    """PUT a single episode's collection status to 看过 (type 2). 204 on success."""
-    body = json.dumps({"type": 2}).encode()
+def _bgm_put_episode_type(token: str, episode_id: int, ctype: int) -> None:
+    """PUT a single episode's collection status. 204 on success.
+
+    ctype: 0=未收藏 1=想看 2=看过 3=抛弃.
+    """
+    body = json.dumps({"type": ctype}).encode()
     req = urllib.request.Request(
         f"{BGM_API}/v0/users/-/collections/-/episodes/{episode_id}",
         data=body,
@@ -886,6 +889,20 @@ def bgm_mark_episode_watched(token: str, episode_id: int) -> None:
     with urllib.request.urlopen(req, timeout=15) as r:
         if r.status not in (200, 202, 204):
             raise RuntimeError(f"bgm PUT episode {episode_id} -> HTTP {r.status}")
+
+
+def bgm_mark_episode_watched(token: str, episode_id: int) -> None:
+    """PUT a single episode's collection status to 看过 (type 2). 204 on success."""
+    _bgm_put_episode_type(token, episode_id, 2)
+
+
+def bgm_unmark_episode_watched(token: str, episode_id: int) -> None:
+    """Undo the above: put the episode back to 未收藏 (type 0).
+
+    Not 想看: an episode of a show you are watching has no "planned" state worth
+    inventing, and 0 is what bgm itself leaves an untouched episode at.
+    """
+    _bgm_put_episode_type(token, episode_id, 0)
 
 
 def bgm_set_collection_type(token: str, subject_id: int, ctype: int) -> None:
@@ -2174,11 +2191,23 @@ def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
 
 # --------------------------------------------------------------------------- #
 # jfhook: Jellyfin「看完一集」-> ① 停该集做种  ② bgm 标该集看过
+#         Jellyfin「取消看过」-> ① 恢复该集做种  ② bgm 撤销该集看过
 # --------------------------------------------------------------------------- #
 # 与 mark-watched 互补、反向：mark 由「用户在 qB 手动暂停」驱动，jfhook 由
 # 「Jellyfin 播完/勾选看过」驱动。两者经同一 resolve_torrent_target 收口，
 # 因此旧番(< SKIP_BEFORE_SEASON)与 Ancient 在两条链路里都不会被动到。
+#
+# The undo direction closes the loop: unticking "played" in Jellyfin/Findroid
+# used to leave the torrent stopped and bgm still marked watched, with no way
+# back except doing both by hand. It is the gentler of the two directions —
+# resuming a torrent costs some upload traffic and a bgm mark can be re-applied
+# at any time, neither of which is destructive the way deleting a torrent is.
 JFHOOK_PORT_DEFAULT = int(CONFIG.get("jfhook_port", 8766))
+JFHOOK_REVERSE_ENABLED = bool(CONFIG.get("jfhook_reverse_enabled", True))
+# Marking a whole Series played/unplayed in Jellyfin cascades to every episode
+# and pushes one webhook per episode. 0 disables the brake (the default: the
+# undo direction is recoverable, so a burst is an inconvenience, not damage).
+JFHOOK_REVERSE_RATE_LIMIT = int(CONFIG.get("jfhook_reverse_rate_limit_per_min", 0))
 
 
 def qb_stop(hashes: str) -> None:
@@ -2193,8 +2222,31 @@ def qb_stop(hashes: str) -> None:
     raise RuntimeError(f"stop/pause 均失败：{last}")
 
 
+def qb_start(hashes: str) -> None:
+    """恢复做种：qB 5.x 用 torrents/start，4.x 回退 torrents/resume。"""
+    last = None
+    for path in ("/api/v2/torrents/start", "/api/v2/torrents/resume"):
+        try:
+            qb_post(path, {"hashes": hashes})
+            return
+        except Exception as ex:  # noqa: BLE001
+            last = ex
+    raise RuntimeError(f"start/resume 均失败：{last}")
+
+
 def _truthy(v) -> bool:
     return str(v).strip().lower() in ("true", "1", "yes")
+
+
+def _falsy(v) -> bool:
+    """Explicitly false, as opposed to absent.
+
+    The webhook template renders every field, so a key that does not apply to
+    this event arrives as "" rather than going missing. Treating that as false
+    would make an unrelated UserDataSaved read as "the user unticked watched",
+    so only a real negative counts.
+    """
+    return str(v).strip().lower() in ("false", "0", "no")
 
 
 def _jf_is_watched_event(p: dict) -> bool:
@@ -2208,6 +2260,42 @@ def _jf_is_watched_event(p: dict) -> bool:
         return _truthy(p.get("PlayedToCompletion"))
     if nt == "UserDataSaved":
         return (p.get("SaveReason") or "").strip() == "TogglePlayed" and _truthy(p.get("Played"))
+    return False
+
+
+def _jf_is_unwatched_event(p: dict) -> bool:
+    """判断这是不是一个「取消看过」事件（在 Jellyfin/Findroid 里取消勾选）。
+
+    Verified end-to-end against Jellyfin 10.11.11 + Webhook 21.0.0.0: unticking
+    an episode delivers NotificationType=UserDataSaved, SaveReason=TogglePlayed,
+    Played="False" — a capitalised string, hence the case-folded compare. Only
+    UserDataSaved counts; a PlaybackStop that merely fell short of completion is
+    someone stopping halfway, not an instruction to undo anything.
+    """
+    if (p.get("NotificationType") or "").strip() != "UserDataSaved":
+        return False
+    return ((p.get("SaveReason") or "").strip() == "TogglePlayed"
+            and _falsy(p.get("Played")))
+
+
+_JF_REVERSE_LOCK = threading.Lock()
+_JF_REVERSE_HITS: list[float] = []
+
+
+def _jf_reverse_rate_limited() -> bool:
+    """Sliding one-minute window over undo actions; False when the brake is off.
+
+    Served from a ThreadingHTTPServer, so a Series-wide cascade arrives on
+    several threads at once and the window needs a lock.
+    """
+    if JFHOOK_REVERSE_RATE_LIMIT <= 0:
+        return False
+    now = time.time()
+    with _JF_REVERSE_LOCK:
+        _JF_REVERSE_HITS[:] = [t for t in _JF_REVERSE_HITS if now - t < 60]
+        if len(_JF_REVERSE_HITS) >= JFHOOK_REVERSE_RATE_LIMIT:
+            return True
+        _JF_REVERSE_HITS.append(now)
     return False
 
 
@@ -2259,69 +2347,107 @@ def _jf_item_path(item_id: str) -> str:
     return ""
 
 
-def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = False) -> None:
-    """处理一个 Jellyfin webhook 事件：命中「看完一集」就停做种 + 标 bgm 看过。
+def _jf_resolve_event(payload: dict) -> tuple[dict, int, int] | None:
+    """Map a webhook event to the (torrent, bgm subject, bgm episode) it means.
 
-    全程 best-effort：任何一步失败都只打日志、绝不抛出（不能拖垮监听）。
+    Both directions funnel through here, so the Ancient hard gate and the
+    old-cour red line inside resolve_torrent_target are inherited by the undo
+    path rather than reimplemented next to it. Returns None — having said why —
+    whenever the event cannot be pinned to something safe to act on.
     """
-    if not _jf_is_watched_event(payload):
-        return
-    item_type = (payload.get("ItemType") or "").strip()
-    if item_type and item_type != "Episode":
-        return  # 只处理剧集，电影/合集等忽略
     file_path = payload.get("Path") or ""
     if not file_path:  # 模板没给 Path -> 用 ItemId 反查
         file_path = _jf_item_path(str(payload.get("ItemId") or "").strip())
     label = payload.get("SeriesName") or os.path.basename(file_path.replace("\\", "/")) or "?"
     if not file_path:
         print(f"   [jfhook] 事件无文件路径（且 ItemId 反查失败），跳过: {label}")
-        return
+        return None
     if _jf_path_is_protected(file_path):
         print(f"   [jfhook] 跳过（Ancient 保护）: {label}")
-        return
+        return None
     try:
         torrents = qb_get_json("/api/v2/torrents/info")
     except Exception as ex:  # noqa: BLE001
         print(f"   [jfhook] 读取 qB 失败，跳过：{ex}")
-        return
+        return None
     t = _jf_find_torrent(file_path, torrents)
     if t is None:
         print(f"   [jfhook] 未找到对应种子（可能已删/非自动下载）: {os.path.basename(file_path)}")
-        return
+        return None
     # 经 resolve_torrent_target 收口：它内置「无规则 / 无 bgm id / 旧番 < cutoff /
-    # 集数解析失败」全部判为非 ok。只有 ok 时我们才停做种 + 标看过，足够保守。
+    # 集数解析失败」全部判为非 ok。只有 ok 时我们才动手，足够保守。
     bgm_id, eid, reason = resolve_torrent_target(
         t, rules_by_savepath(existing_rules()), {}, {}, {}
     )
-    nm = t.get("name", "")[:55]
     if reason != "ok":
-        print(f"   [jfhook] 跳过（{reason}）: {nm}")
+        print(f"   [jfhook] 跳过（{reason}）: {t.get('name', '')[:55]}")
+        return None
+    return t, bgm_id, eid
+
+
+def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = False) -> None:
+    """处理一个 Jellyfin webhook 事件。
+
+    看完一集   -> ① 停该集做种  ② bgm 标该集看过
+    取消看过   -> ① 恢复该集做种  ② bgm 撤销该集看过（type 0）
+
+    全程 best-effort：任何一步失败都只打日志、绝不抛出（不能拖垮监听）。
+    """
+    watched = _jf_is_watched_event(payload)
+    undo = not watched and _jf_is_unwatched_event(payload)
+    if not (watched or undo):
         return
+    if undo and not JFHOOK_REVERSE_ENABLED:
+        return
+    item_type = (payload.get("ItemType") or "").strip()
+    if item_type and item_type != "Episode":
+        return  # 只处理剧集，电影/合集等忽略
+    # The brake is checked before the lookups so a Series-wide cascade is cheap
+    # to shed, and only against the undo direction — the forward one is unchanged.
+    if undo and _jf_reverse_rate_limited():
+        print(f"   [jfhook] 取消看过速率闸触发（>{JFHOOK_REVERSE_RATE_LIMIT}/分钟），"
+              f"只记日志: {payload.get('SeriesName') or payload.get('ItemId')}")
+        return
+    resolved = _jf_resolve_event(payload)
+    if resolved is None:
+        return
+    t, bgm_id, eid = resolved
+    nm = t.get("name", "")[:55]
     ep = parse_episode(t.get("name", ""))
     if dry_run:
-        print(f"   [jfhook][dry] 会停做种 + 标 ep{ep} 看过 (subject {bgm_id}): {nm}")
+        verb = "恢复做种 + 撤销 ep%s 看过" % ep if undo else "停做种 + 标 ep%s 看过" % ep
+        print(f"   [jfhook][dry] 会{verb} (subject {bgm_id}): {nm}")
         return
     try:
-        qb_stop(t["hash"])
-        print(f"   [jfhook] ✓ 已停做种 ep{ep}: {nm}")
+        if undo:
+            qb_start(t["hash"])
+            print(f"   [jfhook] ✓ 已恢复做种 ep{ep}: {nm}")
+        else:
+            qb_stop(t["hash"])
+            print(f"   [jfhook] ✓ 已停做种 ep{ep}: {nm}")
     except Exception as ex:  # noqa: BLE001
-        print(f"   [jfhook] ! 停做种失败 ep{ep}: {ex}")
+        print(f"   [jfhook] ! {'恢复' if undo else '停'}做种失败 ep{ep}: {ex}")
     token = token_provider() if callable(token_provider) else token_provider
     if not token:
         print("   [jfhook] 未配置 bgm token，跳过标记")
         return
     try:
-        bgm_mark_episode_watched(token, eid)
-        print(f"   [jfhook] ✓ ep{ep} 看过 (subject {bgm_id}): {nm}")
+        if undo:
+            bgm_unmark_episode_watched(token, eid)
+            print(f"   [jfhook] ✓ ep{ep} 已撤销看过 (subject {bgm_id}): {nm}")
+        else:
+            bgm_mark_episode_watched(token, eid)
+            print(f"   [jfhook] ✓ ep{ep} 看过 (subject {bgm_id}): {nm}")
     except Exception as ex:  # noqa: BLE001
-        print(f"   [jfhook] ! 标记失败 ep{ep} (subject {bgm_id}): {ex}")
+        print(f"   [jfhook] ! {'撤销' if undo else ''}标记失败 ep{ep} (subject {bgm_id}): {ex}")
 
 
-def run_jfhook_server(port: int, token_provider) -> http.server.ThreadingHTTPServer:
+def run_jfhook_server(port: int, token_provider, *,
+                      dry_run: bool = False) -> http.server.ThreadingHTTPServer:
     """起一个常驻 HTTP 监听，接 Jellyfin Webhook 插件 POST 来的事件。
 
     立刻 200 应答（不让 Jellyfin 等），再同步处理事件（事件稀疏，无需排队）。
-    GET / 作健康检查。
+    GET / 作健康检查。dry_run 时只报告会做什么，不碰 qB 也不写 bgm。
     """
     class _Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):  # 静音默认访问日志
@@ -2352,7 +2478,7 @@ def run_jfhook_server(port: int, token_provider) -> http.server.ThreadingHTTPSer
                 print(f"   [jfhook] JSON 解析失败：{ex}")
                 return
             try:
-                handle_jellyfin_event(payload, token_provider)
+                handle_jellyfin_event(payload, token_provider, dry_run=dry_run)
             except Exception:  # noqa: BLE001
                 print("   [jfhook] 处理事件出错：")
                 traceback.print_exc()
@@ -4403,8 +4529,10 @@ def cmd_auth(args):
 def cmd_jfhook(args):
     """独立常驻：只起 Jellyfin webhook 监听（不跑 sync），便于单独调试。"""
     port = args.port if args.port is not None else JFHOOK_PORT_DEFAULT
-    httpd = run_jfhook_server(port, lambda: bgm_token(args))
-    print(f"=== jfhook 独立监听 :{port}（Ctrl-C 退出）===", flush=True)
+    httpd = run_jfhook_server(port, lambda: bgm_token(args), dry_run=args.dry_run)
+    print(f"=== jfhook 独立监听 :{port}"
+          f"{'（dry-run：只报告，不动 qB/bgm）' if args.dry_run else ''}（Ctrl-C 退出）===",
+          flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -4565,6 +4693,8 @@ def main():
     add_token(pj)
     pj.add_argument("--port", type=int, default=None,
                     help="listen port (default: config jfhook_port 或 8766)")
+    pj.add_argument("--dry-run", action="store_true",
+                    help="report what each event would do; no qB change, no bgm write")
     pj.set_defaults(func=cmd_jfhook)
 
     args = p.parse_args()
