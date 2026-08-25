@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>autopilot states</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  iframe { display: block; border: 0; }
+</style>
+</head>
+<body>
+<!--
+  Hover states, painted.
+
+  A plain screenshot can never show a hover effect: nothing is under the
+  pointer, so every :hover rule in the sheet is inert and the shot shows the
+  resting state of controls whose whole point is what they do when pointed at.
+
+  Two halves to forcing them:
+
+    · the script-driven states (.xhl, .lit, .scrub, the peek) are produced by
+      dispatching real pointer events into the frame, so the panel's own
+      listeners are what put the classes on — the same path a pointer takes;
+
+    · the CSS-driven ones are forced by walking the frame's own stylesheet,
+      finding every rule whose selector contains :hover / :focus-visible /
+      :focus-within, and re-inserting a copy of that rule with the pseudo-class
+      swapped for an attribute this page then sets on the target. Mechanical
+      rather than a hand-maintained list, so a hover rule added later is
+      covered without anyone remembering to add it here.
+
+  ?scene= picks what to stage. Driven by scripts/states.ps1.
+-->
+<iframe id="frame"></iframe>
+<script>
+const QS = new URLSearchParams(location.search);
+const scene = QS.get("scene") || "shelf";
+const W = +(QS.get("w") || 1920), H = +(QS.get("h") || 1400);
+const frame = document.getElementById("frame");
+frame.width = W; frame.height = H;
+frame.src = "index.html?" + new URLSearchParams({
+  fixture: "demo",
+  lang: QS.get("lang") || "en",
+  theme: QS.get("theme") || "dark",
+  tab: scene === "timetable" ? "schedule" : "watching",
+}).toString();
+
+function fire(el, type) {
+  el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1 }));
+}
+
+// Re-insert every pseudo-class rule as an attribute rule. Sheets that cannot
+// be read are skipped rather than thrown on — a font sheet from another origin
+// has no hover rules in it anyway.
+function forcePseudoStates(doc) {
+  const swaps = [[":hover", "[data-fh]"], [":focus-visible", "[data-ff]"],
+                 [":focus-within", "[data-ff]"], [":focus", "[data-ff]"]];
+  const extra = doc.createElement("style");
+  doc.head.appendChild(extra);
+  const sheet = extra.sheet;
+  let added = 0;
+  for (const ss of doc.styleSheets) {
+    let rules;
+    try { rules = ss.cssRules; } catch (e) { continue; }
+    if (!rules) continue;
+    for (const r of rules) {
+      if (!r.selectorText || !/:hover|:focus/.test(r.selectorText)) continue;
+      let sel = r.selectorText;
+      for (const [from, to] of swaps) sel = sel.split(from).join(to);
+      try { sheet.insertRule(`${sel}{${r.style.cssText}}`, sheet.cssRules.length); added++; }
+      catch (e) { /* a selector the engine will not re-parse; skip it */ }
+    }
+  }
+  return added;
+}
+
+frame.addEventListener("load", () => {
+  const d = frame.contentDocument, w = frame.contentWindow;
+  const ready = () => d.body.classList.contains("booted") &&
+                      d.querySelectorAll("#cards .unit, #cards .sched-item").length > 0;
+  const t0 = Date.now();
+  const go = () => {
+    if (!ready()) {
+      if (Date.now() - t0 > 12000) { document.title = "STATES-TIMEOUT"; return; }
+      return setTimeout(go, 40);
+    }
+    const added = forcePseudoStates(d);
+    const mark = (el, attr) => { if (el) el.setAttribute(attr || "data-fh", ""); };
+
+    if (scene === "shelf") {
+      // A volume under the pointer, with its second layer out.
+      const unit = d.querySelector('#cards .unit[data-bgm="1002"]') ||
+                   d.querySelector("#cards .unit");
+      mark(unit);
+      fire(unit, "pointerover");
+      w.showPeek(unit, unit.dataset.bgm);
+      // …and the same show lit everywhere else it appears.
+      w.setXhl(unit.dataset.bgm);
+      mark(d.querySelector("#sortbar .sortk"));
+    } else if (scene === "gauge") {
+      // The instrument, with the drift arrows out and the needle walked back
+      // to an earlier episode.
+      w.openCard(1002);
+      const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+      mark(g.querySelector(".g-body"));
+      const cell = g.querySelectorAll(".g-cell")[3];
+      mark(cell);
+      fire(cell, "pointerover");
+    } else if (scene === "long") {
+      w.openCard(1004);            // the compressed scale, mid-scrub
+      const g = d.querySelector("#cardsheet-body .gauge[data-air]");
+      mark(g.querySelector(".g-body"));
+      const cell = g.querySelectorAll(".g-cell")[44];
+      mark(cell);
+      fire(cell, "pointerover");
+    } else if (scene === "timetable") {
+      const slip = d.querySelector("#cards .sched-col .sched-item");
+      fire(slip, "pointerover");
+      mark(slip);
+      mark(slip.closest(".sched-col").querySelector(".sched-day"));
+    } else if (scene === "picker") {
+      w.openCard(1002);
+      const btn = d.querySelector("#cardsheet-body .gpick-btn");
+      btn.click();
+      mark(btn);
+      setTimeout(() => { mark(d.querySelector("#gpicker .gopt")); done(added); }, 400);
+      return;
+    }
+    done(added);
+  };
+  const done = n => { document.title = `STATES-READY ${scene} ${n}`; };
+  go();
+});
+</script>
+</body>
+</html>

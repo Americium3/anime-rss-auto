@@ -2067,6 +2067,97 @@ def rules_by_savepath(rules: dict) -> dict[str, dict]:
     return out
 
 
+def _subjects_resolved_onto(mikan_id: int) -> list[int]:
+    """bgm subjects the pipeline itself resolved onto this mikan entry.
+
+    The resolve cache is written from the *user's* 在看 list outwards ("this
+    subject subscribes to that feed"), which is the opposite direction from
+    rule_bgm_id, which reads the bgm id the mikan page declares. For an ordinary
+    show the two agree. For a split cour they cannot: one mikan entry carries
+    the whole run, its page names the first subject, and the half being watched
+    now is a second subject bgm created separately.
+    """
+    out: list[int] = []
+    try:
+        for key, val in load_resolve_cache().items():
+            mid = val.get("mikan_id")
+            if mid and int(mid) == int(mikan_id):
+                out.append(int(key))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _feed_mikan_id(rdef: dict) -> int | None:
+    for f in rdef.get("affectedFeeds", []):
+        m = re.search(r"bangumiId=(\d+)", f)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def split_cour_continuation(rdef: dict | None, head_id: int, ep: int,
+                            ep_cache: dict, span_cache: dict | None):
+    """(subject, episode_id) for an episode number that runs on past a split cour.
+
+    A fansub numbers a season straight through. bgm splits that season into two
+    subjects, and the second one starts again at episode 1 — so "第四季 - 13"
+    exists under neither: not in the first subject, which stopped at 11, and not
+    in the second, whose own numbering calls it 2 and whose whole-series `sort`
+    calls it 79. Nothing in the filename matches anything in either subject, and
+    the episode silently never reaches bangumi.
+
+    The missing quantity is the offset, and it is simply how many main episodes
+    the earlier subject had. Applied only when every one of these holds:
+
+      · both subjects resolved onto the same mikan entry, so they really are two
+        halves of one fansub run rather than two shows with similar numbering;
+      · the number is not already valid in the later subject (nothing to fix);
+      · it *is* valid there once the offset is taken off, and lands at 1 or above;
+      · the earlier subject finished broadcasting before the later one began.
+
+    The last one also settles direction: if the mikan page happens to name the
+    later half instead, the airdates come out the wrong way round and this
+    declines rather than guessing. Returns None whenever it is not certain.
+    """
+    if rdef is None or ep is None:
+        return None
+    mikan_id = _feed_mikan_id(rdef)
+    if mikan_id is None:
+        return None
+    head_eps = bgm_subject_episodes(head_id, ep_cache)
+    if ep in head_eps:
+        # The earlier subject answers for this number under one of its own two
+        # numberings, so it is not a continuation of anything. resolve_torrent_
+        # target only calls this once that lookup has already missed, but the
+        # rule enforces its own precondition rather than trusting its caller:
+        # the halves overlap (both have an episode 5), so a reuse that skipped
+        # the check would quietly file episodes against the wrong subject.
+        return None
+    offset = len(set(head_eps.values()))
+    if offset <= 0:
+        return None
+    span = span_cache if span_cache is not None else {}
+    head_span = bgm_episode_span(head_id, span)
+    for tail_id in _subjects_resolved_onto(mikan_id):
+        if tail_id == head_id:
+            continue
+        tail_eps = bgm_subject_episodes(tail_id, ep_cache)
+        if ep in tail_eps:
+            return tail_id, tail_eps[ep]      # numbering already lines up
+        shifted = ep - offset
+        if shifted < 1 or shifted not in tail_eps:
+            continue
+        tail_span = bgm_episode_span(tail_id, span)
+        head_last, tail_first = head_span.get("last"), tail_span.get("first")
+        if not (head_last and tail_first and head_last < tail_first):
+            continue                          # not consecutive, or the wrong way round
+        print(f"     [split-cour] 第 {ep} 集接到 subject {tail_id} 的第 {shifted} 集"
+              f"（前半 subject {head_id} 共 {offset} 集）")
+        return tail_id, tail_eps[shifted]
+    return None
+
+
 def resolve_torrent_target(
     t: dict,
     rule_by_path: dict[str, dict],
@@ -2111,6 +2202,12 @@ def resolve_torrent_target(
         return None, None, "集数解析失败"
     eid = eps.get(ep)
     if not eid:
+        # A number that fits neither the subject's own episodes nor its
+        # whole-series sort is the signature of a split cour the fansub keeps
+        # numbering straight through.
+        cont = split_cour_continuation(rdef, bgm_id, ep, ep_cache, span_cache)
+        if cont:
+            return cont[0], cont[1], "ok"
         return None, None, f"集数 {ep} 在 subject {bgm_id} 找不到对应集(ep/sort 都无)"
     return bgm_id, eid, "ok"
 
@@ -2385,6 +2482,28 @@ def _jf_resolve_event(payload: dict) -> tuple[dict, int, int] | None:
     return t, bgm_id, eid
 
 
+def _jf_log_ignored(payload: dict, why: str) -> None:
+    """Say that an event arrived and was not acted on, and say what it was.
+
+    Every *failure* path below already logs. The three paths that decided an
+    event was simply not for us did not, and that turns out to be the difference
+    between a diagnosable report and an unfalsifiable one: when episodes stop
+    reaching bangumi, "there is no line in the log" is equally consistent with
+    "Jellyfin never sent anything" and with "Jellyfin sent something this
+    classifier does not recognise", and there is no way to tell which from here.
+    A webhook that is enabled for two notification types on one library is a few
+    events an hour, so logging the ones we drop costs nothing and is the only
+    record that the other explanation was ever ruled out.
+    """
+    print(f"   [jfhook] 忽略（{why}）: "
+          f"type={payload.get('NotificationType')!r} "
+          f"reason={payload.get('SaveReason')!r} "
+          f"played={payload.get('Played')!r} "
+          f"complete={payload.get('PlayedToCompletion')!r} "
+          f"item={payload.get('ItemType')!r} "
+          f"name={(payload.get('SeriesName') or payload.get('ItemId') or '?')}")
+
+
 def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = False) -> None:
     """处理一个 Jellyfin webhook 事件。
 
@@ -2396,11 +2515,14 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
     watched = _jf_is_watched_event(payload)
     undo = not watched and _jf_is_unwatched_event(payload)
     if not (watched or undo):
+        _jf_log_ignored(payload, "既不是看完也不是取消看过")
         return
     if undo and not JFHOOK_REVERSE_ENABLED:
+        _jf_log_ignored(payload, "取消看过已在配置里关闭")
         return
     item_type = (payload.get("ItemType") or "").strip()
     if item_type and item_type != "Episode":
+        _jf_log_ignored(payload, f"不是剧集（ItemType={item_type}）")
         return  # 只处理剧集，电影/合集等忽略
     # The brake is checked before the lookups so a Series-wide cascade is cheap
     # to shed, and only against the undo direction — the forward one is unchanged.

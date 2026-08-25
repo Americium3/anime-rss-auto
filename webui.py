@@ -30,8 +30,8 @@ import urllib.request
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -703,6 +703,224 @@ def api_collections():
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Per-episode progress: the three tracks the depth gauge is drawn from
+# --------------------------------------------------------------------------- #
+# /api/overview deliberately ships each torrent as {progress} and nothing else,
+# which is enough for an "n of m ready" line and for nothing else. The gauge
+# needs to know *which* episode each of those numbers belongs to, and it needs
+# two tracks the overview never had:
+#
+#   aired      bgm's per-episode airdates            -> the baseline
+#   downloaded qB torrent names run through          -> what is on disk
+#              core.parse_episode, plus their state
+#   watched    the user's per-episode collection     -> where the viewer is
+#
+# One bgm call per show answers both aired and watched — the collection endpoint
+# returns each episode's airdate alongside its collection status — so this costs
+# one request per show plus one shared qB call, and it is read-only end to end.
+#
+# Reads are served from whatever is warm and a background thread refreshes what
+# has gone stale, the same shape as the title and span fills above: eighteen bgm
+# round-trips inline would turn a 30s poll into a stall, and a gauge that is a
+# few minutes behind is honest as long as it is never blank.
+_PROGRESS_TTL = 300
+_progress: dict[int, dict] = {}            # bgm_id -> {"eps": [...], "t": unix}
+_progress_lock = threading.Lock()
+_progress_fill_running = False
+
+
+def bgm_episode_ledger(token: str, subject_id: int) -> list[dict]:
+    """[{'ep', 'airdate', 'watched', 'name'}] for a subject's 本篇, ascending.
+
+    One paged read of GET /v0/users/-/collections/{id}/episodes, which is the
+    only endpoint that carries the broadcast schedule and the user's own
+    progress in the same record. episode.type 0 is 本篇, so SP/OP/ED never take a
+    slot on the gauge; collection type 2 is 看过.
+
+    Numbering follows core.bgm_subject_episodes: 'ep' is the per-season number
+    and is what a fansub writes in a filename, so it is preferred; 'sort' (the
+    whole-series running number) is the fallback for continuation seasons that
+    have no per-season number at all. Getting this backwards would file every
+    episode of a second season under numbers no torrent will ever match.
+    """
+    out: list[dict] = []
+    offset = 0
+    while True:
+        url = (f"{core.BGM_API}/v0/users/-/collections/{subject_id}/episodes"
+               f"?limit=100&offset={offset}")
+        req = urllib.request.Request(
+            url, headers={"User-Agent": core.UA, "Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+        data = d.get("data", [])
+        for x in data:
+            ep = x.get("episode") or {}
+            if ep.get("type") != 0:
+                continue
+            n = core._int_key(ep.get("ep"))
+            if n is None:
+                n = core._int_key(ep.get("sort"))
+            if n is None:
+                continue        # a fractional 5.5 is a special, not a rung
+            out.append({
+                "ep": n,
+                "airdate": ep.get("airdate") or None,
+                "watched": x.get("type") == 2,
+                "name": ep.get("name_cn") or ep.get("name") or "",
+            })
+        offset += len(data)
+        if offset >= d.get("total", 0) or not data:
+            break
+    out.sort(key=lambda e: e["ep"])
+    return out
+
+
+def _torrent_episodes(torrents: list[dict], save_path: str) -> dict[int, dict]:
+    """Episode number -> {'progress', 'seeding'} for the torrents living under a
+    rule's save path. Later torrents win on a collision, which is what a
+    re-download after a subgroup switch should look like."""
+    norm = (save_path or "").replace("\\", "/").rstrip("/").lower()
+    out: dict[int, dict] = {}
+    if not norm:
+        return out
+    for t in torrents:
+        sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
+        if sp != norm:
+            continue
+        ep = core.parse_episode(t.get("name", ""))
+        if ep is None:
+            continue
+        out[ep] = {
+            "progress": round(float(t.get("progress", 0)), 4),
+            "seeding": t.get("state") in core._SEEDING_STATES,
+        }
+    return out
+
+
+def _start_progress_fill(want: list[int], token: str) -> None:
+    """Refresh the ledgers that have gone stale, off the request path."""
+    global _progress_fill_running
+    now = time.time()
+    todo = [b for b in want
+            if now - (_progress.get(b) or {}).get("t", 0) >= _PROGRESS_TTL]
+    with _progress_lock:
+        if _progress_fill_running or not todo:
+            return
+        _progress_fill_running = True
+
+    def run() -> None:
+        global _progress_fill_running
+        try:
+            for bid in todo:
+                try:
+                    eps = bgm_episode_ledger(token, bid)
+                except Exception:  # noqa: BLE001 — a show that fails keeps its
+                    continue       # last good ledger rather than going blank
+                _progress[bid] = {"eps": eps, "t": time.time()}
+                time.sleep(0.3)
+        finally:
+            _progress_fill_running = False
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.get("/api/progress")
+def api_progress():
+    """Per-episode state for every 在看 show, for the depth gauge.
+
+    Read-only: bgm collection reads, a qB torrent listing, and nothing else. No
+    part of this touches a rule, a torrent, a file or a collection.
+
+    Each episode carries one state, in descending precedence:
+
+      watched      the user has marked it 看过 on bgm
+      seeding      complete and uploading (qB has not been told to stop yet)
+      downloaded   complete and stopped
+      downloading  a torrent exists but is not finished
+      aired        broadcast, nothing on disk
+      unaired      scheduled, not broadcast yet
+
+    `cold` is true for a show whose ledger has not been fetched yet, so the panel
+    can draw a skeleton instead of a gauge reading zero — an empty gauge and a
+    gauge that has not loaded look identical, and only one of them is true.
+    """
+    token = core.bgm_token(None)
+    if not token:
+        return {"shows": {}, "code": "no_token"}
+    try:
+        torrents = core.qb_get_json("/api/v2/torrents/info")
+        qb_ok = True
+    except Exception:  # noqa: BLE001
+        torrents, qb_ok = [], False
+
+    rules = core.existing_rules()
+    path_of: dict[int, str] = {}
+    for rdef in rules.values():
+        bid = core.rule_bgm_id(rdef, _mikan_bgm)
+        if bid:
+            path_of[bid] = rdef.get("savePath", "")
+
+    user = str(core.CONFIG.get("bgm_user"))
+    try:
+        watching = [s["bgm_id"] for s in core.bgm_collection_subjects(user, 3)]
+    except Exception:  # noqa: BLE001
+        watching = list(_progress)
+
+    today = datetime.date.today().isoformat()
+    shows: dict[str, dict] = {}
+    for bid in watching:
+        hit = _progress.get(bid)
+        have = _torrent_episodes(torrents, path_of.get(bid, ""))
+        if not hit:
+            # Nothing known about the episodes yet — still report the download
+            # side, which needs no bgm call, so the card has something true to
+            # say while the ledger warms.
+            shows[str(bid)] = {"cold": True, "episodes": [], "total": None,
+                               "aired": 0, "downloaded": len(have),
+                               "watched": 0, "ready": 0, "depth": 0}
+            continue
+        eps = []
+        aired = watched = downloaded = ready = 0
+        for e in hit["eps"]:
+            tor = have.get(e["ep"])
+            is_aired = bool(e["airdate"]) and e["airdate"] <= today
+            if e["watched"]:
+                st = "watched"
+            elif tor and tor["progress"] >= 1:
+                st = "seeding" if tor["seeding"] else "downloaded"
+            elif tor:
+                st = "downloading"
+            elif is_aired:
+                st = "aired"
+            else:
+                st = "unaired"
+            aired += is_aired
+            watched += e["watched"]
+            if tor:
+                downloaded += 1
+                if tor["progress"] >= 1 and not e["watched"]:
+                    ready += 1
+            eps.append({"ep": e["ep"], "airdate": e["airdate"], "state": st,
+                        "name": e["name"],
+                        "progress": tor["progress"] if tor else None})
+        shows[str(bid)] = {
+            "cold": False,
+            "episodes": eps,
+            "total": len(eps),
+            "aired": aired,
+            "downloaded": downloaded,
+            "watched": watched,
+            "ready": ready,
+            # How many broadcast episodes the viewer has not watched. Never
+            # negative: watching ahead of the schedule (a leak, a simulcast the
+            # airdate has not caught up with) is being level, not being early.
+            "depth": max(0, aired - watched),
+        }
+    _start_progress_fill(watching, token)
+    return {"shows": shows, "qb_ok": qb_ok}
+
+
 @app.get("/api/logs")
 def api_logs(lines: int = 120):
     try:
@@ -982,9 +1200,108 @@ def api_rule_switch(body: RuleSwitch):
             "deleted": deleted, "note": f"rule now follows {grp}"}
 
 
+# --------------------------------------------------------------------------- #
+# Serving the shell: freshness
+# --------------------------------------------------------------------------- #
+# Starlette's FileResponse and StaticFiles both send ETag + Last-Modified and no
+# Cache-Control at all. That is not "no caching" — with a validator but no
+# freshness directive a browser is free to invent one, and the usual heuristic is
+# a tenth of the document's age. A page that has been on disk for a week is then
+# considered fresh for most of a day, during which the browser does not even send
+# the conditional request, so a reload can return code that shipped days ago.
+# This panel is normally left open in a pinned tab, which is the exact shape of
+# user that heuristic caching punishes.
+#
+# Two layers, because one is not enough:
+#
+#   1. no-cache (NOT no-store) on the shell and on /static. no-cache still
+#      permits the copy on disk; it only requires the browser to revalidate
+#      before using it, which over loopback is a 304 costing nothing.
+#   2. every /static reference inside the shell is rewritten to carry the
+#      referenced file's mtime (?v=...). Changing the URL is the only
+#      deterministic cache bust — a header added today does nothing for a copy
+#      already sitting in the cache under its old freshness lifetime.
+#
+# The shell also carries the build stamp on <html data-build>, so a tab that has
+# been open across a deploy can notice (see /api/version) and offer a reload
+# instead of quietly running last week's script against this week's API.
+_STATIC_REF = re.compile(r'(?<=["\'(])(/static/[A-Za-z0-9._/\-]+)')
+_INDEX = ROOT / "static" / "index.html"
+_shell_cache: dict = {"stamp": None, "html": ""}
+
+
+def _mtime(path: Path) -> int:
+    try:
+        return int(path.stat().st_mtime)
+    except OSError:
+        return 0
+
+
+def build_stamp() -> int:
+    """Version of the served shell. The shell is the only thing that carries
+    application code (there are no separate .js/.css files — everything is inline
+    in the one document), so its mtime is the whole build."""
+    return _mtime(_INDEX)
+
+
+def render_shell() -> str:
+    """index.html with every /static reference version-stamped, cached until the
+    file changes. Rewriting is a substitution over the raw text rather than any
+    kind of templating: the shell has to stay a file that opens in a browser and
+    renders, so nothing may be introduced that only a server can resolve."""
+    stamp = build_stamp()
+    if _shell_cache["stamp"] == stamp:
+        return _shell_cache["html"]
+    html_txt = _INDEX.read_text(encoding="utf-8")
+
+    def stamp_ref(m: re.Match) -> str:
+        ref = m.group(1)
+        v = _mtime(ROOT / ref.lstrip("/"))
+        return f"{ref}?v={v}" if v else ref
+
+    html_txt = _STATIC_REF.sub(stamp_ref, html_txt)
+    html_txt = html_txt.replace("<html lang=\"en\">",
+                                f"<html lang=\"en\" data-build=\"{stamp}\">", 1)
+    _shell_cache["stamp"] = stamp
+    _shell_cache["html"] = html_txt
+    return html_txt
+
+
+@app.middleware("http")
+async def freshness(request, call_next):
+    resp = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/"):
+        # Readings, not documents. A stale one is always wrong, and none of them
+        # carry a validator, so there is nothing to revalidate against.
+        resp.headers["Cache-Control"] = "no-store"
+    elif path == "/" or path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.get("/")
-def index():
-    return FileResponse(ROOT / "static" / "index.html")
+def index(request: Request):
+    """The shell, version-stamped and revalidated on every navigation.
+
+    The ETag is the build, so the usual case is a 304 with no body: no-cache
+    asks the browser to check, it does, and the answer is almost always "the
+    copy you have is fine". Without a validator here the same header would mean
+    re-sending 300KB on every load — correct, but pointlessly so.
+    """
+    tag = f'W/"{build_stamp()}"'
+    if request.headers.get("if-none-match") == tag:
+        return Response(status_code=304, headers={"ETag": tag})
+    return HTMLResponse(render_shell(), headers={"ETag": tag})
+
+
+@app.get("/api/version")
+def api_version():
+    """The build the server would serve right now. A tab compares this against
+    the stamp baked into the shell it is running and offers a reload when they
+    diverge — the one thing a version string in a URL cannot fix, since the stale
+    document never asks for the new one."""
+    return {"build": build_stamp()}
 
 
 # Brand assets (the favicon family + the web manifest) live on disk instead of

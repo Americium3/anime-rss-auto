@@ -18,6 +18,7 @@ heal_pending.json
 intro_skip_state.json
 *.tmp
 *.log
+scripts/shots/
 .codegraph/
 .claude/
 __pycache__/
