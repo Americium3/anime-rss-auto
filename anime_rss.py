@@ -2305,6 +2305,10 @@ JFHOOK_REVERSE_ENABLED = bool(CONFIG.get("jfhook_reverse_enabled", True))
 # and pushes one webhook per episode. 0 disables the brake (the default: the
 # undo direction is recoverable, so a burst is an inconvenience, not damage).
 JFHOOK_REVERSE_RATE_LIMIT = int(CONFIG.get("jfhook_reverse_rate_limit_per_min", 0))
+# How long one applied episode suppresses repeats of the same event. Watching an
+# episode to the end delivers Played=True on every UserDataSaved that follows,
+# so without this a single episode means a dozen qB scans and bangumi writes.
+JFHOOK_REPEAT_WINDOW = int(CONFIG.get("jfhook_repeat_window_sec", 6 * 3600))
 
 
 def qb_stop(hashes: str) -> None:
@@ -2350,13 +2354,26 @@ def _jf_is_watched_event(p: dict) -> bool:
     """判断这是不是一个「看完一集」事件。
 
     - PlaybackStop 且 PlayedToCompletion 为真（默认看到 >=90% 算完成）
-    - UserDataSaved 且 SaveReason=TogglePlayed 且 Played 为真（在 Jellyfin 里手动勾选看过）
+    - UserDataSaved 且 Played 为真，不论 SaveReason
+
+    The Played flag is Jellyfin's own verdict that the episode has been seen;
+    SaveReason only says which action prompted the save. Reading the reason
+    instead of the verdict is what made this hook recognise a hand-ticked
+    checkbox (TogglePlayed) but not the ordinary case of watching an episode to
+    the end, which arrives as SaveReason=PlaybackFinished with Played=True and
+    was dropped in silence. The ignored-event log added the day before records
+    exactly that shape against Grand Blue Dreaming; PlaybackStop, the branch
+    that was supposed to cover playback, never arrived once in the same window,
+    the webhook not being subscribed to it.
+
+    Played=True also rides along on the PlaybackProgress saves that follow, so
+    the caller de-duplicates rather than acting fourteen times per episode.
     """
     nt = (p.get("NotificationType") or "").strip()
     if nt == "PlaybackStop":
         return _truthy(p.get("PlayedToCompletion"))
     if nt == "UserDataSaved":
-        return (p.get("SaveReason") or "").strip() == "TogglePlayed" and _truthy(p.get("Played"))
+        return _truthy(p.get("Played"))
     return False
 
 
@@ -2394,6 +2411,85 @@ def _jf_reverse_rate_limited() -> bool:
             return True
         _JF_REVERSE_HITS.append(now)
     return False
+
+
+_JF_APPLIED_LOCK = threading.Lock()
+_JF_APPLIED: dict[str, tuple[str, float]] = {}
+
+
+def _jf_event_key(payload: dict) -> str:
+    """Identify the episode an event is about, before anything is looked up."""
+    return str(payload.get("ItemId") or payload.get("Path") or "").strip().lower()
+
+
+def _jf_recently_applied(payload: dict, direction: str) -> bool:
+    """True when this same episode was already acted on in this direction.
+
+    Recorded only after the work succeeded, so a run that failed on qB or on
+    bangumi leaves nothing behind and the next event in the burst retries. That
+    ordering is the whole point: the flag now arrives many times per episode,
+    and a de-duplicator that remembered attempts rather than successes would
+    turn one transient failure into a silently skipped episode — the exact
+    failure this hook is being repaired for.
+
+    Un-ticking after ticking flips the direction and is never suppressed.
+    """
+    key = _jf_event_key(payload)
+    if not key:
+        return False
+    now = time.time()
+    with _JF_APPLIED_LOCK:
+        for k, (_, ts) in list(_JF_APPLIED.items()):
+            if now - ts > JFHOOK_REPEAT_WINDOW:
+                del _JF_APPLIED[k]
+        prev = _JF_APPLIED.get(key)
+        return bool(prev and prev[0] == direction)
+
+
+def _jf_remember_applied(payload: dict, direction: str) -> None:
+    """Record that this episode's watched/unwatched state was pushed through."""
+    key = _jf_event_key(payload)
+    if not key:
+        return
+    with _JF_APPLIED_LOCK:
+        _JF_APPLIED[key] = (direction, time.time())
+
+
+_JF_NOISE_LOCK = threading.Lock()
+_JF_NOISE: dict[str, float] = {}
+JF_NOISE_QUIET_SEC = 600
+
+
+def _jf_is_midplay_noise(payload: dict) -> bool:
+    """A save from a session that is under way and has not been marked played.
+
+    Jellyfin writes user data every few seconds while something is playing.
+    Those events carry no verdict either way, and at one line each they were
+    272 of the 289 ignored lines in the first day of logging — enough to bury
+    the seventeen that meant something.
+    """
+    if (payload.get("NotificationType") or "").strip() != "UserDataSaved":
+        return False
+    reason = (payload.get("SaveReason") or "").strip()
+    return reason in ("PlaybackStart", "PlaybackProgress") and not _truthy(payload.get("Played"))
+
+
+def _jf_noise_is_due(payload: dict) -> bool:
+    """Let one mid-play line per episode through every ten minutes.
+
+    Silence would be indistinguishable from a webhook that stopped firing, so
+    the heartbeat is thinned rather than dropped.
+    """
+    key = _jf_event_key(payload) or "?"
+    now = time.time()
+    with _JF_NOISE_LOCK:
+        for k, ts in list(_JF_NOISE.items()):
+            if now - ts > JF_NOISE_QUIET_SEC:
+                del _JF_NOISE[k]
+        if key in _JF_NOISE:
+            return False
+        _JF_NOISE[key] = now
+    return True
 
 
 def _jf_path_is_protected(file_path: str) -> bool:
@@ -2515,7 +2611,8 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
     watched = _jf_is_watched_event(payload)
     undo = not watched and _jf_is_unwatched_event(payload)
     if not (watched or undo):
-        _jf_log_ignored(payload, "既不是看完也不是取消看过")
+        if not _jf_is_midplay_noise(payload) or _jf_noise_is_due(payload):
+            _jf_log_ignored(payload, "既不是看完也不是取消看过")
         return
     if undo and not JFHOOK_REVERSE_ENABLED:
         _jf_log_ignored(payload, "取消看过已在配置里关闭")
@@ -2524,6 +2621,9 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
     if item_type and item_type != "Episode":
         _jf_log_ignored(payload, f"不是剧集（ItemType={item_type}）")
         return  # 只处理剧集，电影/合集等忽略
+    direction = "undo" if undo else "watched"
+    if _jf_recently_applied(payload, direction):
+        return  # 同一集的重复通知，已经处理过了
     # The brake is checked before the lookups so a Series-wide cascade is cheap
     # to shed, and only against the undo direction — the forward one is unchanged.
     if undo and _jf_reverse_rate_limited():
@@ -2560,6 +2660,7 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
         else:
             bgm_mark_episode_watched(token, eid)
             print(f"   [jfhook] ✓ ep{ep} 看过 (subject {bgm_id}): {nm}")
+        _jf_remember_applied(payload, direction)
     except Exception as ex:  # noqa: BLE001
         print(f"   [jfhook] ! {'撤销' if undo else ''}标记失败 ep{ep} (subject {bgm_id}): {ex}")
 

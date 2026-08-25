@@ -65,6 +65,7 @@
   "jfhook_port": 8766,
   "jfhook_reverse_enabled": true,
   "jfhook_reverse_rate_limit_per_min": 0,
+  "jfhook_repeat_window_sec": 21600,
   "watch_interval_seconds": 300,
 
   "webui_host": "127.0.0.1",

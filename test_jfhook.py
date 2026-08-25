@@ -22,6 +22,12 @@ WATCHED = {
     "SaveReason": "TogglePlayed",
 }
 UNWATCHED = dict(WATCHED, Played="False")
+# Also captured verbatim, from watch.log: what an episode watched to the end in
+# Findroid actually delivers. The hook used to read SaveReason and drop this.
+FINISHED = dict(WATCHED, SaveReason="PlaybackFinished", SeriesName="Grand Blue Dreaming")
+# The saves that ride along once Jellyfin has flipped the flag mid-session.
+PROGRESS_PLAYED = dict(WATCHED, SaveReason="PlaybackProgress")
+PROGRESS_UNPLAYED = dict(WATCHED, SaveReason="PlaybackProgress", Played="False")
 
 
 class EventClassificationCase(unittest.TestCase):
@@ -65,6 +71,30 @@ class EventClassificationCase(unittest.TestCase):
              "PlayedToCompletion": "True"}
         self.assertTrue(core._jf_is_watched_event(p))
         self.assertFalse(core._jf_is_unwatched_event(p))
+
+    def test_watching_an_episode_to_the_end_reads_as_watched(self):
+        """The regression: PlaybackFinished + Played=True is the ordinary case.
+
+        Recognising only TogglePlayed meant the hook worked when the checkbox
+        was ticked by hand and silently did nothing when an episode was simply
+        watched, which is how eight episodes went missing over two days.
+        """
+        self.assertTrue(core._jf_is_watched_event(FINISHED))
+        self.assertFalse(core._jf_is_unwatched_event(FINISHED))
+
+    def test_the_played_flag_is_believed_whatever_the_save_reason(self):
+        for reason in ("PlaybackFinished", "PlaybackProgress", "TogglePlayed", ""):
+            self.assertTrue(core._jf_is_watched_event(dict(WATCHED, SaveReason=reason)), reason)
+
+    def test_a_mid_play_save_is_still_not_watched(self):
+        """Played=False during playback stays neutral in both directions."""
+        self.assertFalse(core._jf_is_watched_event(PROGRESS_UNPLAYED))
+        self.assertFalse(core._jf_is_unwatched_event(PROGRESS_UNPLAYED))
+
+    def test_only_a_deliberate_untick_undoes_anything(self):
+        """Widening the watched side must not widen the undo side with it."""
+        for reason in ("PlaybackProgress", "PlaybackFinished", "PlaybackStart", ""):
+            self.assertFalse(core._jf_is_unwatched_event(dict(UNWATCHED, SaveReason=reason)), reason)
 
     def test_no_payload_is_ever_both(self):
         for played in ("True", "False", "", "yes", "no", "1", "0", "garbage"):
@@ -147,6 +177,8 @@ class HandlerRoutingCase(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         core._JF_REVERSE_HITS.clear()
+        core._JF_APPLIED.clear()
+        core._JF_NOISE.clear()
 
     def run_event(self, payload, path=r"X:\BangumiJF\2026.07\Show\Season 01\ep03.mp4", **kw):
         core.handle_jellyfin_event(dict(payload, Path=path), "tok", **kw)
@@ -218,12 +250,83 @@ class HandlerRoutingCase(unittest.TestCase):
         self.run_event(dict(UNWATCHED, SaveReason="PlaybackProgress"))
         self.assertEqual(self.calls, [])
 
+    def test_finishing_an_episode_stops_seeding_and_marks(self):
+        """End to end for the shape that was being dropped."""
+        self.assertEqual(self.run_event(FINISHED),
+                         [("qb_stop", "H"), ("bgm_mark_episode_watched", 77)])
+
+    def test_the_burst_after_one_episode_acts_once(self):
+        """Fourteen Played=True saves for one episode, one stop and one mark."""
+        for _ in range(6):
+            self.run_event(PROGRESS_PLAYED)
+        self.run_event(FINISHED)
+        self.assertEqual(self.calls,
+                         [("qb_stop", "H"), ("bgm_mark_episode_watched", 77)])
+
+    def test_a_failed_attempt_is_retried_by_the_next_notification(self):
+        """Suppression follows success, so a transient failure is not a loss."""
+        with mock.patch.object(core, "bgm_mark_episode_watched",
+                               side_effect=RuntimeError("bgm down")):
+            self.run_event(PROGRESS_PLAYED)
+        self.calls.clear()
+        self.run_event(FINISHED)
+        self.assertEqual(self.calls,
+                         [("qb_stop", "H"), ("bgm_mark_episode_watched", 77)])
+
+    def test_unticking_after_watching_is_never_suppressed(self):
+        self.run_event(FINISHED)
+        self.calls.clear()
+        self.run_event(UNWATCHED)
+        self.assertEqual(self.calls,
+                         [("qb_start", "H"), ("bgm_unmark_episode_watched", 77)])
+
+    def test_two_different_episodes_are_independent(self):
+        self.run_event(FINISHED)
+        self.calls.clear()
+        self.run_event(dict(FINISHED, ItemId="other-item"))
+        self.assertEqual(self.calls,
+                         [("qb_stop", "H"), ("bgm_mark_episode_watched", 77)])
+
+    def test_a_dry_run_does_not_suppress_the_real_thing(self):
+        self.run_event(FINISHED, dry_run=True)
+        self.assertEqual(self.run_event(FINISHED),
+                         [("qb_stop", "H"), ("bgm_mark_episode_watched", 77)])
+
+
+class MidPlayNoiseCase(unittest.TestCase):
+    """Mid-play heartbeats are thinned in the log, never silenced entirely."""
+
+    def setUp(self) -> None:
+        core._JF_NOISE.clear()
+
+    def test_a_mid_play_save_counts_as_noise(self):
+        self.assertTrue(core._jf_is_midplay_noise(PROGRESS_UNPLAYED))
+        self.assertTrue(core._jf_is_midplay_noise(dict(WATCHED, SaveReason="PlaybackStart",
+                                                       Played="False")))
+
+    def test_nothing_that_carries_a_verdict_is_noise(self):
+        for p in (WATCHED, UNWATCHED, FINISHED, PROGRESS_PLAYED):
+            self.assertFalse(core._jf_is_midplay_noise(p), p.get("SaveReason"))
+
+    def test_an_unrecognised_shape_is_never_silenced(self):
+        """Whatever this classifier does not understand stays fully logged."""
+        self.assertFalse(core._jf_is_midplay_noise(
+            {"NotificationType": "SomethingNew", "Played": "False"}))
+
+    def test_one_line_per_episode_then_quiet(self):
+        self.assertTrue(core._jf_noise_is_due(PROGRESS_UNPLAYED))
+        for _ in range(20):
+            self.assertFalse(core._jf_noise_is_due(PROGRESS_UNPLAYED))
+        self.assertTrue(core._jf_noise_is_due(dict(PROGRESS_UNPLAYED, ItemId="other")))
+
 
 class ReverseRateLimitCase(unittest.TestCase):
     """Marking a Series played cascades one webhook per episode."""
 
     def setUp(self) -> None:
         core._JF_REVERSE_HITS.clear()
+        core._JF_APPLIED.clear()
+        core._JF_NOISE.clear()
         self.addCleanup(core._JF_REVERSE_HITS.clear)
 
     def test_disabled_by_default_never_brakes(self):
@@ -256,9 +359,10 @@ class ReverseRateLimitCase(unittest.TestCase):
                                lambda p, t: {"hash": "H", "name": "Show - 03.mp4"}), \
              mock.patch.object(core, "resolve_torrent_target",
                                lambda *a, **k: (900, 77, "ok")):
-            for _ in range(5):
+            for n in range(5):
                 core.handle_jellyfin_event(
-                    dict(WATCHED, Path=r"X:\BangumiJF\2026.07\S\Season 01\e.mp4"), "tok")
+                    dict(WATCHED, ItemId=f"episode-{n}",
+                         Path=rf"X:\BangumiJF\2026.07\S\Season 01\e{n}.mp4"), "tok")
         self.assertEqual(len(calls), 5)
 
 
