@@ -166,6 +166,15 @@ HARD_REJECT_TAGS = [str(t).lower() for t in CONFIG.get("hard_reject_tags", [
     "nf web-dl", "amzn web-dl", "dsnp web-dl", "atvp web-dl", "hulu web-dl",
     "max web-dl", "dsnp", "atvp",
 ])]
+# Both defenses stand down for a show subscribed to mikan's raw bucket. mikan
+# files every untagged upload under one global subgroup, id 202, and calls it
+# 「生肉/不明字幕」; a rule pointed at it is a standing request for precisely the
+# releases A and B exist to throw away. Unguarded, the pipeline downloads the
+# asked-for episode and deletes it again every pass, forever, saying only
+# "hard-reject: 删生肉" into a log nobody reads — 攻壳机动队 THE GHOST IN THE SHELL
+# ran that loop for seven weeks and never held an episode of the group it was
+# subscribed to. The subscribed subgroup is the user's word and outranks both.
+RAW_SUBGROUP_IDS = {int(g) for g in CONFIG.get("raw_subgroup_ids", [202])}
 
 # Shows from a cour BEFORE this one are left entirely to manual handling: the
 # script never adds, removes, unsubscribes, or deletes files for them. The
@@ -255,6 +264,15 @@ JELLYFIN_API_KEY = str(CONFIG.get("jellyfin_api_key", ""))  # secret: config onl
 MIRROR_VIDEO_EXT = (".mkv", ".mp4")
 MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu"}
 _COUR_DIR_RE = re.compile(r"^\d{4}\.\d{2}$")
+# Filenames reject_hard_variants deleted this pass. qB unlinks asynchronously, so
+# a file it was just told to delete can still be on disk when mirror_sync_pass
+# runs later in the same pass — and the mirror only ever adds links. On
+# 2026-08-25 eight raws were deleted and three of them were hardlinked out from
+# under the delete in the same breath (the other five logged WinError 2/5 as they
+# vanished mid-link). The source folder then went empty, which is exactly the
+# state mirror_prune_orphan_files refuses to act on, so the three copies became
+# permanent and Jellyfin showed episodes 1, 3 and 7 twice.
+_HARD_REJECTED_NAMES: set[str] = set()
 
 # --- Intro Skipper: analyse newly landed episodes --------------------------- #
 # A third, independent cour cutoff, deliberately not reusing either of the two
@@ -1188,6 +1206,17 @@ def _confirm_mikan_candidate(candidates: list[int], bgm_id: int) -> tuple:
     return None, [], ""
 
 
+def _is_guess(confidence: str | None) -> bool:
+    """Is this mapping the tier-3 name-match fallback, with no bgm id to back it?
+
+    The one confidence level resolve_show hands out without the mikan page
+    agreeing on the bgm id, so the one that can still turn out to belong to a
+    different subject (and the only one that can move — a page that names the
+    subject is authoritative and stays put).
+    """
+    return str(confidence or "").startswith("low")
+
+
 def resolve_show(show: dict) -> dict:
     """Map a bgm show -> mikan bangumiId + subgroupid. Adds resolution keys.
 
@@ -1484,8 +1513,11 @@ def build_plan(user: str, season: str, *, ctx: "SyncContext | None" = None,
             "subgroup_name": resolved["subgroup_name"],
             "available_subgroups": resolved["available_subgroups"],
             # 有自定义组过滤词就用它；否则（兜底组/空过滤词）退回「要求中文字幕标记」，
-            # 挡掉 mikan 交叉发布的无中文字幕生肉（见 CJK_SUB_REQUIRED）。
-            "mustContain": GROUP_FILTER.get(resolved["subgroup"]) or CJK_SUB_REQUIRED,
+            # 挡掉 mikan 交叉发布的无中文字幕生肉（见 CJK_SUB_REQUIRED）。生肉桶
+            # （RAW_SUBGROUP_IDS）例外：订它就是要生肉，加白名单等于拒收全部。
+            "mustContain": (GROUP_FILTER.get(resolved["subgroup"])
+                            or ("" if resolved["subgroup"] in RAW_SUBGROUP_IDS
+                                else CJK_SUB_REQUIRED)),
             "confidence": resolved["confidence"],
             "feed": feed_url(mid, resolved["subgroup"])
             if mid and resolved["subgroup"]
@@ -1841,6 +1873,20 @@ def rule_mikan_id(rdef: dict) -> int | None:
         if m:
             return int(m.group(1))
     return None
+
+
+def rule_subgroup_id(rdef: dict) -> int | None:
+    """The mikan subgroupid a rule's feed points at (None for a non-mikan rule)."""
+    for f in rdef.get("affectedFeeds", []):
+        m = re.search(r"subgroupid=(\d+)", f)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def rule_wants_raw(rdef: dict | None) -> bool:
+    """Is this rule subscribed to mikan's raw bucket? -> raw defenses stand down."""
+    return bool(rdef) and rule_subgroup_id(rdef) in RAW_SUBGROUP_IDS
 
 
 def rule_bgm_id(rdef: dict, cache: dict[int, int | None]) -> int | None:
@@ -2673,6 +2719,39 @@ def _events_backfill_first_run() -> None:
     print(f"# events: 建账，回填最近 48h 的 {len(items)} 集落库记录")
 
 
+def mirror_unlink(save_path: str, names: set[str]) -> int:
+    """Drop mirror hardlinks by filename under the mirror twin of a source folder.
+
+    For callers that delete a source file and must not leave the library holding
+    the only remaining copy of it. Only ever unlinks inside JELLYFIN_MIRROR, and
+    only the names it was given — the source is never touched.
+    """
+    if not names:
+        return 0
+    src_root, dst_root = Path(BANGUMI_LIBRARY), Path(JELLYFIN_MIRROR)
+    try:
+        rel = Path(save_path).relative_to(src_root)
+    except ValueError:
+        return 0  # outside the library (hand-placed torrent) -> no mirror twin
+    show_dir = dst_root / rel
+    if not show_dir.is_dir():
+        return 0
+    dst_prefix = str(dst_root).rstrip("\\").lower() + "\\"
+    dropped = 0
+    for link in show_dir.rglob("*"):
+        if not link.is_file() or link.name not in names:
+            continue
+        if not str(link).lower().startswith(dst_prefix):   # 双重断言：只删镜像内
+            continue
+        try:
+            link.unlink()
+            dropped += 1
+            print(f"# mirror: 连带删镜像硬链接 {link}")
+        except OSError as ex:
+            print(f"# mirror: 删除失败 {link}：{ex}")
+    return dropped
+
+
 def mirror_sync_pass() -> int:
     """把 X:\\Bangumi\\<cour>\\<show>\\… 的新剧集硬链接到 X:\\BangumiJF\\<cour>\\<show>\\Season NN\\。
 
@@ -2703,6 +2782,8 @@ def mirror_sync_pass() -> int:
             for f in show_dir.rglob("*"):
                 if not f.is_file() or f.suffix.lower() not in MIRROR_VIDEO_EXT:
                     continue
+                if f.name in _HARD_REJECTED_NAMES:
+                    continue  # deleted this pass, qB just hasn't unlinked it yet
                 parents = f.relative_to(show_dir).parts[:-1]
                 season = "Season 00" if any(p in MIRROR_SPECIAL_DIRS for p in parents) else "Season 01"
                 link = dst_root / cour / show_dir.name / season / f.name
@@ -3914,6 +3995,97 @@ def _torrent_bgm_id(t: dict, rule_by_path: dict[str, dict],
     return rule_bgm_id(rdef, mikan_cache) if rdef else None
 
 
+def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
+    """Re-point a rule when mikan moves the show out from under its feed.
+
+    A show whose mikan entry does not exist yet at resolve time falls to the
+    tier-3 name match and binds to the nearest title — for a cour bgm split in
+    two that is the *other* half. Re:Zero 4th season: bgm opened 633836 「奪還編」
+    on 2026-08-12, mikan had only 3951 「丧失篇」, and the rule was built on that
+    feed. Episodes 12 and 13 arrived while mikan still filed them under 3951;
+    then mikan opened 4052 for 奪還編, episode 14 appeared only there, and 3951
+    stopped at 11. Nothing downloads, nothing errors, nothing says why.
+
+    Only `low` mappings are re-searched (see _is_guess), so in the steady state
+    this pass makes no network calls at all. The rule keeps its savePath, its
+    subgroup and its previouslyMatchedEpisodes: the same show from the same
+    fansub, only filed elsewhere — episodes already downloaded must not return.
+    """
+    rules = ctx.rules()
+    watching = {int(s["bgm_id"]): s for s in ctx.collection(3)}
+    moved = 0
+    for bid, show in watching.items():
+        cached = ctx.resolve_disk.get(str(bid))
+        if not cached or not cached.get("mikan_id") or not _is_guess(cached.get("confidence")):
+            continue
+        old_mid = int(cached["mikan_id"])
+        victim = next(((n, d) for n, d in rules.items()
+                       if rule_mikan_id(d) == old_mid), None)
+        if victim is None:
+            continue
+        # Whose rule is it? The pipeline resolves 在看 subjects onto mikan entries,
+        # and a split cour can point two of them at the same entry. If more than
+        # one claims this feed we cannot say which the rule was built for, and
+        # moving it would silently unsubscribe the other half.
+        claimants = {int(k) for k, v in ctx.resolve_disk.items()
+                     if v.get("mikan_id") and int(v["mikan_id"]) == old_mid}
+        if len(claimants & set(watching)) != 1:
+            continue
+        rname, rdef = victim
+        gid = rule_subgroup_id(rdef)
+        if gid is None:
+            continue
+        fresh = ctx.resolve(show, force_search=True)
+        new_mid = fresh.get("mikan_id")
+        if not new_mid or int(new_mid) == old_mid:
+            continue
+        if gid not in (fresh.get("available_subgroups") or []):
+            print(f"  ! mikan-move {rname}: {old_mid} -> {new_mid}，"
+                  f"但新条目上没有当前字幕组 {GROUP_NAME.get(gid, gid)}，不动")
+            continue
+        old_feed = next((f for f in rdef.get("affectedFeeds", [])
+                         if f"bangumiId={old_mid}" in f), "")
+        new_feed = feed_url(int(new_mid), gid)
+        season = (rdef.get("torrentParams", {}).get("tags") or [current_season()])[0]
+        title = fresh.get("mikan_title") or f"Mikan Project - {new_mid}"
+        print(f"  mikan-move: {rname}  bangumiId {old_mid} -> {new_mid} ({title})")
+        if dry_run:
+            moved += 1
+            continue
+        try:
+            qb_post("/api/v2/rss/addFeed", {"url": new_feed, "path": f"{season}\\{title}"})
+        except Exception as ex:  # noqa: BLE001
+            print(f"     ! addFeed 失败，规则不动: {ex}")
+            continue   # never strand the rule on a feed that does not exist
+        nd = dict(rdef)
+        nd["affectedFeeds"] = [new_feed if f == old_feed else f
+                               for f in rdef.get("affectedFeeds", [])] or [new_feed]
+        try:
+            qb_post("/api/v2/rss/setRule",
+                    {"ruleName": rname, "ruleDef": json.dumps(nd)})
+        except Exception as ex:  # noqa: BLE001
+            print(f"     ! setRule 失败: {ex}")
+            continue
+        rules[rname] = nd
+        # Drop the abandoned feed only once nothing points at it any more.
+        if old_feed and not any(old_feed in d.get("affectedFeeds", []) for d in rules.values()):
+            old_path = rss_feed_paths().get(old_feed)
+            if old_path:
+                with suppress(Exception):
+                    qb_post("/api/v2/rss/removeItem", {"path": old_path})
+        with suppress(Exception):
+            add_event("show.remapped", {
+                "title": rname, "bgm_id": bid, "season": season,
+                "from_mikan": old_mid, "to_mikan": int(new_mid),
+                "subgroup": gid, "subgroup_name": GROUP_NAME.get(gid, f"subgroup {gid}"),
+            })
+        moved += 1
+    if moved:
+        ctx.invalidate_rules()
+        print(f"# mikan-move: 迁移 {moved} 条规则{'（dry-run 未实写）' if dry_run else ''}")
+    return moved
+
+
 def reconcile_rule_blacklist(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """把 SOURCE_BLACKLIST 补进现存 qB 规则的 mustNotContain（幂等，自愈）。
 
@@ -3978,6 +4150,8 @@ def reconcile_rule_cjk_whitelist(*, ctx: "SyncContext | None" = None, dry_run: b
                 and not _old_cour_exempt(
                     m.group(1), rule_bgm_id(rdef, mikan_cache), span_cache)):
             continue  # 旧番规则不碰（正在更新的半年番/年番豁免，照常升级）
+        if rule_wants_raw(rdef):
+            continue  # 订的就是生肉桶：灌白名单等于把这条规则拒收成空
         old = rdef.get("mustContain", "") or ""
         if not old or old == cur:
             continue
@@ -4004,9 +4178,11 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
     """删掉命中生肉硬拒绝标记的种子（含文件），无条件、不参与版本排序。
 
     针对 mikan 交叉发布进来的无中文字幕生肉（Netflix/Amazon/… 双语版）。只动
-    SKIP_BEFORE_SEASON 之后的番；无法判定季度的一律不碰（守旧番红线）。与
+    SKIP_BEFORE_SEASON 之后的番；无法判定季度的一律不碰（守旧番红线）；订了生肉桶
+    的番整番不碰（见 RAW_SUBGROUP_IDS——那是点名要的，不是漏进来的）。与
     prefer_variant_dedup 互补：那个按优先级留一版删其余，这个是「见到就删」。
     """
+    _HARD_REJECTED_NAMES.clear()
     if not HARD_REJECT_TAGS:
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
@@ -4021,6 +4197,9 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         if (cour < SKIP_BEFORE_SEASON and not _old_cour_exempt(
                 cour, _torrent_bgm_id(t, rule_by_path, mikan_cache), span_cache)):
             continue  # 旧番 -> 不碰（正在更新的半年番/年番豁免）
+        sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
+        if rule_wants_raw(rule_by_path.get(sp)):
+            continue  # 这番订的就是生肉桶 -> 删的正是点名要的东西
         if _hard_reject(t["name"]):
             victims.append(t)
     for t in victims:
@@ -4031,6 +4210,13 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
                         {"hashes": t["hash"], "deleteFiles": "true"})
             except Exception as ex:  # noqa: BLE001
                 print(f"     ! 删除失败: {ex}")
+                continue
+            # qB unlinks asynchronously, so the file can still be on disk when
+            # mirror_sync_pass runs later this pass. Claim the name now and drop
+            # any link an earlier pass already made — see _HARD_REJECTED_NAMES.
+            names = {t["name"], Path(t.get("content_path") or "").name} - {""}
+            _HARD_REJECTED_NAMES.update(names)
+            mirror_unlink(t.get("save_path") or "", names)
     if victims:
         print(f"# hard-reject: 删除 {len(victims)} 个生肉"
               f"{'（dry-run 未实删）' if dry_run else ''}")
@@ -4354,11 +4540,20 @@ class SyncContext:
 
         # Steady-state HIT (0 network): resolved id, not forced, not grace/override, and
         # either rule-backed (a live feed carries this bangumiId) or within the 24h TTL.
+        #
+        # "Rule-backed" is only evidence when something other than this mapping put
+        # the feed there. A `low (...)` mapping built the rule itself, so honouring
+        # it here lets a guess certify itself and outlive the TTL forever: bgm
+        # 633836 (Re:Zero 4th 奪還編) was bound to mikan 3951 (丧失篇) because 奪還編
+        # had no mikan entry yet, the rule it created then vouched for it, and when
+        # mikan opened 4052 nothing re-searched. The old feed stopped at episode 11
+        # and the download side went quiet with no error anywhere.
         if (not force_search and not in_grace and not in_override
                 and cached and cached.get("mikan_id")):
             mid = cached["mikan_id"]
             fbm = self.feed_by_mikan()
-            if mid in fbm or now - cached.get("resolved_at", 0) < RESOLVE_TTL:
+            certified = mid in fbm and not _is_guess(cached.get("confidence"))
+            if certified or now - cached.get("resolved_at", 0) < RESOLVE_TTL:
                 subs = (fbm[mid]["subgroups"] if mid in fbm and fbm[mid]["subgroups"]
                         else cached.get("available_subgroups", []))
                 return self._shape(show, mid, subs, cached.get("mikan_title", ""),
@@ -4498,6 +4693,13 @@ def run_sync_once(user, cookie, season, purge, token=None):
         except Exception:  # noqa: BLE001
             print("!!! premiere-watch 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    # Before planning: a rule whose show mikan has since filed elsewhere still
+    # looks subscribed to build_plan, so this has to correct the feed first.
+    try:
+        reconcile_mikan_moves(ctx)
+    except Exception:  # noqa: BLE001
+        print("!!! mikan-move 出错（不影响本轮 sync）：")
+        traceback.print_exc()
     plan = build_plan(user, season, ctx=ctx)
     to_add = [e for e in plan if e["include"] and e.get("feed") and e.get("name")]
     if to_add:
