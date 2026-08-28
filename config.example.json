@@ -39,6 +39,7 @@
   ],
   "cjk_sub_required": "简|繁|简日|繁日|简中|繁中|简繁|CHS|CHT|SC|TC|GB|BIG5|中文|CR|Baha",
   "hard_reject_tags": ["NF WEB-DL", "AMZN WEB-DL", "DSNP WEB-DL", "ATVP WEB-DL", "Hulu WEB-DL", "MAX WEB-DL", "DSNP", "ATVP"],
+  "raw_subgroup_ids": [202],
 
   "bgm_access_token": "<365-day personal token, or use OAuth below>",
   "bgm_client_id": "",
