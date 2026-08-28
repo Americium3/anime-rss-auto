@@ -888,6 +888,37 @@ def bgm_subject_episodes(subject_id: int, cache: dict[int, dict[int, int]]) -> d
     return out
 
 
+_PREQUEL_CACHE: dict[int, int | None] = {}
+
+
+def bgm_subject_prequel(subject_id: int) -> int | None:
+    """The subject bgm files as this one's 前传 (prequel), or None.
+
+    The authoritative link between the two halves of a split cour, and the only
+    one that survives mikan giving each half its own entry — at that point the
+    resolve cache maps each subject to a different feed and no longer relates
+    them to each other. Cached per process, including the negative answer, so a
+    show without a prequel costs one call per run rather than one per episode.
+    """
+    if subject_id in _PREQUEL_CACHE:
+        return _PREQUEL_CACHE[subject_id]
+    out = None
+    try:
+        d = json.loads(
+            http_get(f"{BGM_API}/v0/subjects/{subject_id}/subjects", retries=2)
+            .decode("utf-8", "replace")
+        )
+        for rel in d if isinstance(d, list) else []:
+            # 前传 is bgm's own label; 2 is its type id for anime subjects.
+            if rel.get("relation") == "前传" and rel.get("id"):
+                out = int(rel["id"])
+                break
+    except Exception:  # noqa: BLE001
+        return None      # a blip must not memoise "no prequel" for the whole run
+    _PREQUEL_CACHE[subject_id] = out
+    return out
+
+
 def _bgm_put_episode_type(token: str, episode_id: int, ctype: int) -> None:
     """PUT a single episode's collection status. 204 on success.
 
@@ -2134,12 +2165,21 @@ def _subjects_resolved_onto(mikan_id: int) -> list[int]:
     return out
 
 
-def _feed_mikan_id(rdef: dict) -> int | None:
+def _feed_mikan_ids(rdef: dict) -> list[int]:
+    """Every mikan entry a rule's feeds point at, in order, deduplicated.
+
+    A split cour puts two on one rule — the earlier half's, which names the
+    subject rule_bgm_id answers with, and the later half's, which is where new
+    episodes actually appear. Looking only at the first would miss the subject
+    the continuation is trying to reach; looking only at the last would lose the
+    offset. Both are needed, so both are returned.
+    """
+    out: list[int] = []
     for f in rdef.get("affectedFeeds", []):
         m = re.search(r"bangumiId=(\d+)", f)
-        if m:
-            return int(m.group(1))
-    return None
+        if m and int(m.group(1)) not in out:
+            out.append(int(m.group(1)))
+    return out
 
 
 def split_cour_continuation(rdef: dict | None, head_id: int, ep: int,
@@ -2156,20 +2196,28 @@ def split_cour_continuation(rdef: dict | None, head_id: int, ep: int,
     The missing quantity is the offset, and it is simply how many main episodes
     the earlier subject had. Applied only when every one of these holds:
 
-      · both subjects resolved onto the same mikan entry, so they really are two
-        halves of one fansub run rather than two shows with similar numbering;
+      · both subjects resolved onto a mikan entry this rule subscribes to, so
+        they really are two halves of one fansub run rather than two shows with
+        similar numbering (mikan may file the halves under one entry or two —
+        when it opens a second one mid-cour the rule ends up carrying both, and
+        the later half is then only reachable through the second feed);
       · the number is not already valid in the later subject (nothing to fix);
       · it *is* valid there once the offset is taken off, and lands at 1 or above;
       · the earlier subject finished broadcasting before the later one began.
 
-    The last one also settles direction: if the mikan page happens to name the
-    later half instead, the airdates come out the wrong way round and this
-    declines rather than guessing. Returns None whenever it is not certain.
+    The last one also settles direction. When the mikan page names the *later*
+    half instead, no sibling can answer — the resolve cache maps that entry to
+    the later subject and nothing else — and the offset has to come from the
+    other side: bgm's own 前传 relation names the earlier half, and the episode
+    then belongs to this very subject, shifted down by however long that half
+    ran. That is the shape mikan leaves behind once it gives a split cour two
+    entries (Re:Zero 4th: 3951 「丧失篇」 and 4052 「奪還編」), which is also the
+    only shape a show resolved after the split ever has.
     """
     if rdef is None or ep is None:
         return None
-    mikan_id = _feed_mikan_id(rdef)
-    if mikan_id is None:
+    mikan_ids = _feed_mikan_ids(rdef)
+    if not mikan_ids:
         return None
     head_eps = bgm_subject_episodes(head_id, ep_cache)
     if ep in head_eps:
@@ -2185,9 +2233,11 @@ def split_cour_continuation(rdef: dict | None, head_id: int, ep: int,
         return None
     span = span_cache if span_cache is not None else {}
     head_span = bgm_episode_span(head_id, span)
-    for tail_id in _subjects_resolved_onto(mikan_id):
-        if tail_id == head_id:
+    seen: set[int] = {head_id}
+    for tail_id in (s for mid in mikan_ids for s in _subjects_resolved_onto(mid)):
+        if tail_id in seen:
             continue
+        seen.add(tail_id)
         tail_eps = bgm_subject_episodes(tail_id, ep_cache)
         if ep in tail_eps:
             return tail_id, tail_eps[ep]      # numbering already lines up
@@ -2201,7 +2251,24 @@ def split_cour_continuation(rdef: dict | None, head_id: int, ep: int,
         print(f"     [split-cour] 第 {ep} 集接到 subject {tail_id} 的第 {shifted} 集"
               f"（前半 subject {head_id} 共 {offset} 集）")
         return tail_id, tail_eps[shifted]
-    return None
+
+    # No sibling answered: this subject IS the later half, and the offset has to
+    # come from its 前传 rather than from another subject on the same feed.
+    prev_id = bgm_subject_prequel(head_id)
+    if not prev_id:
+        return None
+    prev_eps = bgm_subject_episodes(prev_id, ep_cache)
+    prev_offset = len(set(prev_eps.values()))
+    shifted = ep - prev_offset
+    if prev_offset <= 0 or shifted < 1 or shifted not in head_eps:
+        return None
+    prev_span = bgm_episode_span(prev_id, span)
+    prev_last, this_first = prev_span.get("last"), head_span.get("first")
+    if not (prev_last and this_first and prev_last < this_first):
+        return None                           # not consecutive, or the wrong way round
+    print(f"     [split-cour] 第 {ep} 集接到 subject {head_id} 自己的第 {shifted} 集"
+          f"（前传 subject {prev_id} 共 {prev_offset} 集）")
+    return head_id, head_eps[shifted]
 
 
 def resolve_torrent_target(
@@ -4010,6 +4077,13 @@ def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
     this pass makes no network calls at all. The rule keeps its savePath, its
     subgroup and its previouslyMatchedEpisodes: the same show from the same
     fansub, only filed elsewhere — episodes already downloaded must not return.
+
+    The old feed is then dropped, which moves rule_bgm_id from 丧失篇 onto 奪還編
+    and so changes what a fansub's straight-through 「第四季 - 14」 has to be
+    measured against. split_cour_continuation covers that from the other side,
+    via bgm's 前传 relation — keeping the dead feed on the rule to preserve the
+    old answer was tried first and is worse: qB drops an affectedFeeds entry
+    whose feed it no longer holds, so the arrangement does not even survive.
     """
     rules = ctx.rules()
     watching = {int(s["bgm_id"]): s for s in ctx.collection(3)}
@@ -4057,9 +4131,9 @@ def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
         except Exception as ex:  # noqa: BLE001
             print(f"     ! addFeed 失败，规则不动: {ex}")
             continue   # never strand the rule on a feed that does not exist
-        nd = dict(rdef)
-        nd["affectedFeeds"] = [new_feed if f == old_feed else f
-                               for f in rdef.get("affectedFeeds", [])] or [new_feed]
+        feeds = [new_feed if f == old_feed else f
+                 for f in rdef.get("affectedFeeds", [])] or [new_feed]
+        nd = dict(rdef, affectedFeeds=feeds)
         try:
             qb_post("/api/v2/rss/setRule",
                     {"ruleName": rname, "ruleDef": json.dumps(nd)})
@@ -4077,6 +4151,7 @@ def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
             add_event("show.remapped", {
                 "title": rname, "bgm_id": bid, "season": season,
                 "from_mikan": old_mid, "to_mikan": int(new_mid),
+                "split_cour": split_cour,
                 "subgroup": gid, "subgroup_name": GROUP_NAME.get(gid, f"subgroup {gid}"),
             })
         moved += 1

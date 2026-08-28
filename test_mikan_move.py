@@ -64,9 +64,10 @@ def _rule(mikan_id: int, subgroup: int, **kw) -> dict:
 class FakeCtx:
     """Only the four seams reconcile_mikan_moves actually touches."""
 
-    def __init__(self, rules, resolve_disk, watching, fresh):
+    def __init__(self, rules, resolve_disk, watching, fresh, rule_bgmid):
         self._rules, self.resolve_disk = rules, resolve_disk
         self._watching, self._fresh = watching, fresh
+        self.rule_bgmid = rule_bgmid   # mikan id -> the bgm subject its page names
         self.resolved_with_force = []
         self.invalidated = False
 
@@ -96,6 +97,7 @@ def _ctx(*, confidence="low (name match, bgm id NOT confirmed)",
         fresh if fresh is not None else {
             "mikan_id": TAIL_MIKAN, "available_subgroups": [370, 583, 615],
             "mikan_title": "Mikan Project - Re：从零开始的异世界生活 第四季 夺还篇"},
+        {HEAD_MIKAN: HEAD_BGM},
     )
 
 
@@ -132,7 +134,8 @@ class MikanMoveCase(unittest.TestCase):
         ctx = _ctx()
         self.run_pass(ctx)
         moved = self.rule_written()
-        self.assertEqual(core.rule_subgroup_id(moved), ANI)
+        self.assertTrue(all(core.rule_subgroup_id({"affectedFeeds": [f]}) == ANI
+                            for f in moved["affectedFeeds"]))
         self.assertEqual(moved["savePath"], _rule(HEAD_MIKAN, ANI)["savePath"])
 
     def test_downloaded_episodes_are_not_fetched_again(self):
@@ -208,6 +211,72 @@ class MikanMoveCase(unittest.TestCase):
         ctx = _ctx()
         self.assertEqual(self.run_pass(ctx, dry_run=True), 1)
         self.assertEqual(self.calls, [])
+
+
+class AfterTheMoveCase(unittest.TestCase):
+    """Once the rule sits on 4052, ANi's numbering must still reach bangumi.
+
+    This is the shape the move leaves behind, and the only shape a show resolved
+    after mikan split the cour ever has: the rule's one feed names 奪還編, so
+    head_id IS the later half and no sibling can supply the offset. 丧失篇 ran 11
+    episodes (sort 67-77), 奪還編 runs 8 (sort 78-85), and ANi calls 奪還編's third
+    「第四季 - 14」 — a number in neither subject under either of its numberings.
+    """
+
+    HEAD_EPS = {n: 5000 + n for n in range(1, 12)} | {s: 5000 + s - 66 for s in range(67, 78)}
+    TAIL_EPS = {n: 9000 + n for n in range(1, 9)} | {s: 9000 + s - 77 for s in range(78, 86)}
+    SPANS = {HEAD_BGM: {"first": "2026-04-08", "last": "2026-06-17", "count": 11},
+             TAIL_BGM: {"first": "2026-08-12", "last": "2026-09-30", "count": 8}}
+    RULE = {"affectedFeeds": [core.feed_url(TAIL_MIKAN, ANI)]}
+
+    def resolve(self, ep, *, prequel=HEAD_BGM, spans=None, onto=None):
+        eps = {HEAD_BGM: self.HEAD_EPS, TAIL_BGM: self.TAIL_EPS}
+        spans = self.SPANS if spans is None else spans
+        # The resolve cache maps 奪還編 onto its own entry now — itself, and so
+        # useless as a sibling. That is what forces the 前传 route.
+        onto = {TAIL_MIKAN: [TAIL_BGM]} if onto is None else onto
+        with mock.patch.object(core, "_subjects_resolved_onto",
+                               side_effect=lambda mid: onto.get(mid, [])),              mock.patch.object(core, "bgm_subject_prequel", return_value=prequel),              mock.patch.object(core, "bgm_subject_episodes",
+                               side_effect=lambda sid, _c: eps.get(sid, {})),              mock.patch.object(core, "bgm_episode_span",
+                               side_effect=lambda sid, _c: spans.get(sid, {})):
+            return core.split_cour_continuation(self.RULE, TAIL_BGM, ep, {}, {})
+
+    def test_the_episode_that_started_all_this(self):
+        """ANi 「第四季 - 14」 is 奪還編 episode 3."""
+        self.assertEqual(self.resolve(14), (TAIL_BGM, self.TAIL_EPS[3]))
+
+    def test_it_keeps_counting_past_the_seam(self):
+        self.assertEqual(self.resolve(12), (TAIL_BGM, self.TAIL_EPS[1]))
+        self.assertEqual(self.resolve(19), (TAIL_BGM, self.TAIL_EPS[8]))
+
+    def test_a_number_this_subject_already_owns_is_left_alone(self):
+        """3 is 奪還編's own episode 3; resolve_torrent_target never gets here."""
+        self.assertIsNone(self.resolve(3))
+
+    def test_a_number_past_both_halves_is_declined(self):
+        self.assertIsNone(self.resolve(20))
+
+    def test_it_declines_without_a_prequel(self):
+        self.assertIsNone(self.resolve(14, prequel=None))
+
+    def test_it_declines_when_the_halves_are_not_consecutive(self):
+        """A prequel that ran after this one is a sequel mislabelled, not an offset."""
+        spans = {**self.SPANS, HEAD_BGM: {"first": "2027-01-01", "last": "2027-03-01"}}
+        self.assertIsNone(self.resolve(14, spans=spans))
+
+    def test_it_declines_when_a_span_is_unknown(self):
+        self.assertIsNone(self.resolve(14, spans={TAIL_BGM: self.SPANS[TAIL_BGM]}))
+
+    def test_a_sibling_on_the_feed_still_wins(self):
+        """The original path is untouched: 3951 carrying both halves still works."""
+        eps = {HEAD_BGM: self.HEAD_EPS, TAIL_BGM: self.TAIL_EPS}
+        rule = {"affectedFeeds": [core.feed_url(HEAD_MIKAN, ANI)]}
+        with mock.patch.object(core, "_subjects_resolved_onto", return_value=[TAIL_BGM]),              mock.patch.object(core, "bgm_subject_prequel") as prequel,              mock.patch.object(core, "bgm_subject_episodes",
+                               side_effect=lambda sid, _c: eps.get(sid, {})),              mock.patch.object(core, "bgm_episode_span",
+                               side_effect=lambda sid, _c: self.SPANS.get(sid, {})):
+            self.assertEqual(core.split_cour_continuation(rule, HEAD_BGM, 14, {}, {}),
+                             (TAIL_BGM, self.TAIL_EPS[3]))
+        prequel.assert_not_called()
 
 
 class GuessCase(unittest.TestCase):
