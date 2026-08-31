@@ -531,6 +531,7 @@ def api_overview():
     shows = bgm_watching_rich(user)
     rules = core.existing_rules()
     grace = core.load_grace()
+    no_mikan = _no_mikan_ids()
 
     qb_ok = True
     try:
@@ -570,6 +571,10 @@ def api_overview():
             "image": s["image"],
             "score": s.get("score"),
             "status": "unresolved",
+            # Distinct from status: status says "no qB rule yet" (a show added
+            # minutes ago is that too), this says mikan itself has nothing to
+            # subscribe to, which is the case only a human can settle.
+            "no_mikan": s["bgm_id"] in no_mikan,
             "rule": None,
             "grace": None,
             "torrents": [],
@@ -628,6 +633,39 @@ _collections_cache: dict = {"data": None, "ts": 0.0}
 _COLL_TYPES = {3: "watching", 1: "want", 2: "done", 4: "onhold", 5: "dropped"}
 
 
+def _no_mikan_ids() -> set[int]:
+    """bgm ids that currently match no mikan feed — dismissed ones included.
+
+    /api/unresolved drops dismissed entries, which is right for a banner and
+    wrong for everything else. The show still has no feed and the daemon still
+    warns about it every pass; dismissing only ever meant "stop shouting at me".
+    It used to also mean the paste box went with it, so the one control that can
+    fix the show became unreachable the moment its banner was acknowledged —
+    the state stayed and the cure disappeared. The cards read this instead.
+    """
+    try:
+        return {int(e["bgm_id"]) for e in core.load_unresolved() if e.get("bgm_id")}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _mark_no_mikan(out: dict) -> dict:
+    """Stamp the live no-mikan set onto a collections payload.
+
+    Applied outside the 2-minute cache on purpose: resolving a show by hand has
+    to clear its own marks immediately, and the cached lists themselves are
+    unaffected by that (same shows, same order) — only this flag moves.
+    """
+    ids = _no_mikan_ids()
+    n = 0
+    for lst in out.get("groups", {}).values():
+        for e in lst:
+            e["no_mikan"] = e["bgm_id"] in ids
+            n += bool(e["no_mikan"])
+    out.setdefault("counts", {})["no_mikan"] = n
+    return out
+
+
 @app.get("/api/collections")
 def api_collections():
     """All anime the user has marked on bangumi, grouped by collection type.
@@ -638,7 +676,7 @@ def api_collections():
     """
     now = time.time()
     if _collections_cache["data"] and now - _collections_cache["ts"] < 120:
-        return _collections_cache["data"]
+        return _mark_no_mikan(_collections_cache["data"])
     user = str(core.CONFIG.get("bgm_user"))
     airing_cache = _load_airing_cache()
     groups: dict[str, list] = {}
@@ -700,7 +738,7 @@ def api_collections():
     out = {"groups": groups, "counts": counts}
     _collections_cache["data"] = out
     _collections_cache["ts"] = now
-    return out
+    return _mark_no_mikan(out)
 
 
 # --------------------------------------------------------------------------- #

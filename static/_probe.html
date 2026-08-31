@@ -50,6 +50,7 @@ const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 // The peek is on a dwell timer and will open over whatever is staged next
 // unless it is put away first.
 const hidePeek_ = doc => doc.defaultView.hidePeek();
+const closeDrawers_ = doc => doc.defaultView.closeDrawers();
 const eq = (a, b, msg) => must(String(a) === String(b), `${msg}: got ${a}, want ${b}`);
 
 // Real events, so the panel's own delegated listeners are what respond. A
@@ -670,6 +671,63 @@ frame.addEventListener("load", async () => {
                 8000, "the queue to drain")
     .then(() => check("the queue drains rather than repeating", () => "empty"))
     .catch(err => results.push({ name: "the queue drains rather than repeating", ok: false, detail: err.message }));
+
+  // ---- uncatalogued stock ------------------------------------------------
+  // A show mikan has no entry for used to be reachable from exactly one place:
+  // a banner with a dismiss button. Dismissing it left the state (no feed, the
+  // daemon still warning every pass) and removed the only cure. These assert
+  // the three replacements, none of which can be dismissed.
+  hidePeek_(d);
+  closeDrawers_(d);
+  check("the no-mikan tab is offered, counted across every type", () => {
+    const chip = [...d.querySelectorAll("#filters .fchip")]
+      .find(c => (c.getAttribute("onclick") || "").includes("no_mikan"));
+    must(chip, "no chip for the no-mikan tab");
+    eq(chip.querySelector("b").textContent, "2", "the chip counts wrong");
+    chip.click();
+    return "counted 2";
+  });
+  check("the shelf holds exactly the unmatched shows, from both types", () => {
+    const units = [...d.querySelectorAll("#cards .unit")];
+    const ids = units.map(u => u.dataset.bgm).sort().join(",");
+    // 1007 is 在看, 2002 is a film in 想看 — one tab reaching across both is
+    // the whole reason it is not just another collection filter.
+    eq(ids, "1007,2002", "wrong volumes on the no-mikan shelf");
+    must(units.every(u => u.classList.contains("nomikan")), "a volume is unmarked");
+    return ids;
+  });
+  check("a marked volume carries a slip of paper", () => {
+    const unit = d.querySelector('#cards .unit[data-bgm="2002"]');
+    const slip = unit.querySelector(".slip");
+    must(slip, "no slip tucked into the volume");
+    // Stands proud of the fore-edge rather than sitting inside the cover.
+    const sr = slip.getBoundingClientRect(), cr = unit.querySelector(".f-cover").getBoundingClientRect();
+    must(sr.right > cr.right, "the slip does not stand out past the cover");
+    must(slip.querySelector(".slip-rule"), "the slip is blank");
+    return "proud by " + Math.round(sr.right - cr.right) + "px";
+  });
+  check("an unmatched card carries both ways in, kept separate", () => {
+    w.openCard(2002);
+    const box = d.querySelector("#cardsheet-body .nomikan-box");
+    must(box, "no docket on an unmatched show's card");
+    eq(box.querySelectorAll(".nmb-row").length, 2, "wrong number of ways in");
+    must(d.getElementById("cmurl-2002"), "no box for a mikan link");
+    must(d.getElementById("cmag-2002"), "no box for a magnet");
+    must(d.getElementById("cmurlgo-2002") && d.getElementById("cmaggo-2002"),
+         "a box has no button of its own");
+    // Each hint has to say what that box does, or the two read as duplicates.
+    const hints = [...box.querySelectorAll(".nmb-hint")].map(h => h.textContent.trim());
+    must(hints.length === 2 && hints[0] && hints[1] && hints[0] !== hints[1],
+         "the two boxes are not told apart");
+    return "two boxes, two hints";
+  });
+  check("a show with a feed has no docket", () => {
+    w.openCard(1001);
+    must(!d.querySelector("#cardsheet-body .nomikan-box"),
+         "docket shown on a show that already has a feed");
+    return "absent";
+  });
+  closeDrawers_(d);
 
   // ---- the console -------------------------------------------------------
   check("the console stayed silent", () => {

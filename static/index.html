@@ -578,6 +578,37 @@ if (new URLSearchParams(location.search).has("probe")) {
     position: absolute; top: 2px; right: 0; bottom: 2px; width: 3px;
     background: #efe6d2; opacity: .8; z-index: 1;
   }
+  /* Uncatalogued stock: mikan has no entry for this volume, so it stands on the
+     shelf unbound — the cover drained of its colour — with a slip of paper
+     tucked into the fore-edge. A sibling of the faces rather than a child of
+     the cover, because the cover clips its own overflow and the slip has to
+     stand proud of the book. Pushed 1px forward instead of given a z-index:
+     inside preserve-3d the paint order is the geometry, not the stacking
+     context. Colour returns on hover so the volume can still be identified
+     while you deal with it. */
+  /* Sits below the pip, not beside it: the pip is already pinned to the top
+     right corner, and a slip level with it read as one two-part badge rather
+     than as paper in a book. */
+  .slip {
+    position: absolute; top: 34%; right: -8px; width: 15px; height: 34%;
+    background: linear-gradient(178deg, #fdf6e6, #efe1c4);
+    border: 1px solid rgba(120, 96, 60, .45); border-left: 0;
+    border-radius: 0 2px 2px 0;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, .3);
+    transform: translateZ(1px) rotate(-2deg);
+  }
+  /* Two ruled lines, the second short — a note written on it, at the size where
+     handwriting is only ever texture. Same red as the accession ledger and the
+     timetable margin, so the mark reads as this desk's own stationery. */
+  .slip-rule, .slip-rule::after {
+    position: absolute; height: 1px; background: var(--accent-a); opacity: .75;
+  }
+  .slip-rule { left: 3px; right: 3px; top: 30%; }
+  .slip-rule::after { content: ""; left: 0; right: 40%; top: 5px; }
+  .unit.nomikan .f-cover img { filter: grayscale(1) brightness(1.06) contrast(.9); }
+  .unit.nomikan:hover .f-cover img,
+  .unit.nomikan:focus-visible .f-cover img,
+  .unit.nomikan.open .f-cover img { filter: none; }
   .f-spine {
     left: 0; right: auto; width: var(--vd);
     transform-origin: left center; transform: rotateY(90deg);
@@ -926,6 +957,32 @@ if (new URLSearchParams(location.search).has("probe")) {
     flex: 1; min-width: 0;
   }
   .murl input::placeholder { color: var(--text-faint); }
+  /* The uncatalogued-stock docket on a show's card: a form to be worked, not a
+     notice to be read. Ruled off in the same red as the slip on the shelf, so
+     the mark on the wall and the control that clears it are visibly the same
+     matter. Unlike the banner this cannot be dismissed — the show either has a
+     feed or it does not. */
+  .nomikan-box {
+    margin-top: 10px; padding: 9px 10px 8px;
+    border: 1px solid var(--panel-border); border-left: 3px solid var(--accent-a);
+    border-radius: 3px; background: var(--input-bg);
+  }
+  .nmb-h {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+    font-family: var(--font-display); font-size: calc(.9rem * var(--ui));
+    color: var(--accent-a);
+  }
+  .nmb-row + .nmb-row {
+    margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--gilt-soft);
+  }
+  .nmb-lab {
+    font-size: calc(.84rem * var(--ui)); color: var(--text-dim); margin-bottom: 4px;
+  }
+  .nmb-hint {
+    font-size: calc(.78rem * var(--ui)); color: var(--text-faint);
+    margin-top: 4px; font-style: italic;
+  }
+  .nomikan-box .murl { margin-top: 0; }
   .gracebar { font-size: calc(.86rem * var(--ui)); color: var(--warn); display: flex; align-items: center; gap: 10px; }
   .gracebar .cd { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); }
 
@@ -3217,8 +3274,18 @@ const I18N = {
     searchPh: "Search titles…",
     noMatch: "No matching shows",
     scoreHint: "bangumi rating",
+    nmbHead: "Not on mikan — bring it in by hand",
+    nmbMikan: "Bind a mikan entry",
+    nmbMikanPh: "mikanani.me bangumi / episode link…",
+    nmbMikanHint: "Subscribes the whole season and follows it from then on",
+    nmbGoMikan: "Subscribe",
+    nmbMagnet: "Paste a magnet link",
+    nmbMagnetPh: "magnet:?xt=urn:btih:…",
+    nmbMagnetHint: "Takes this one release into the library — for the movies and specials mikan has no feed for",
+    nmbGoMagnet: "Import",
     t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
+    t_no_mikan: "Awaiting mikan",
     airsLabel: "Airs", airedLabel: "Premiered", updatesLabel: "Airs",
     cour_half: "Half-year", cour_year: "Year-long",
     themeAuto: "Auto", themeDark: "Dark", themeLight: "Light",
@@ -3362,8 +3429,18 @@ const I18N = {
     searchPh: "搜索番名…",
     noMatch: "没有匹配的番剧",
     scoreHint: "bangumi 评分",
+    nmbHead: "mikan 上没有条目 —— 手动接入",
+    nmbMikan: "补 mikan 条目",
+    nmbMikanPh: "mikanani.me 番组页 / 剧集页链接…",
+    nmbMikanHint: "订阅整季，之后每集自动追更",
+    nmbGoMikan: "订阅",
+    nmbMagnet: "直接贴磁力链接",
+    nmbMagnetPh: "magnet:?xt=urn:btih:…",
+    nmbMagnetHint: "只把这一个资源收进库 —— mikan 没有 feed 的剧场版 / 特别篇走这条",
+    nmbGoMagnet: "导入",
     t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
+    t_no_mikan: "待接入",
     airsLabel: "开播", airedLabel: "开播", updatesLabel: "更新",
     cour_half: "半年番", cour_year: "年番",
     themeAuto: "跟随系统", themeDark: "深色", themeLight: "浅色",
@@ -3472,7 +3549,7 @@ let uiScale = pick(QS.get("size") || localStorage.getItem("uiScale") || "m",
   ["m", "l", "xl"], "m");
 const UI_SCALES = { m: 1, l: 1.12, xl: 1.25 };
 let activeType = pick(QS.get("tab") || localStorage.getItem("tab") || "watching",
-  [...FILTER_ORDER, "schedule"], "watching");
+  [...FILTER_ORDER, "no_mikan", "schedule"], "watching");
 let schedFilter = pick(localStorage.getItem("schedFilter") || "all",
   ["all", "aired", "upcoming"], "all");   // timetable premiere-status filter
 let schedSeasonOnly = localStorage.getItem("schedSeasonOnly") === "1";  // timetable: limit to current cour
@@ -3522,6 +3599,7 @@ function fixtureData() {
     bgm_id: id, title, title_jp: jp, title_en: en, date: "2026-07-05",
     season, pinned: false, cour_kind: null, long_current: false, airing: true,
     image: "", score: 7.4, status: "subscribed", rule: null, grace: null,
+    no_mikan: false,
     torrents: [], premiere_date: "2026-07-05", airing_at: slot(0, 23),
   }, o);
   const rule = (gid, name) => ({ name: "fixture", mikan_id: 3300 + gid, subgroup: gid, subgroup_name: name });
@@ -3544,7 +3622,7 @@ function fixtureData() {
     mk(1006, "等 ANi 的番", "ANi待ち", "Waiting On ANi", "2026.07",
        { status: "grace", grace: { expires: now + 5400 }, airing_at: slot(4, 3) }),
     mk(1007, "没匹配上的番", "未マッチ", "No Mikan Match", "2026.07",
-       { status: "unresolved", airing_at: slot(5, 12) }),
+       { status: "unresolved", no_mikan: true, airing_at: slot(5, 12) }),
     mk(1008, "旧番（手动）", "旧作", "Legacy, Hand-Managed", "2025.10",
        { status: "manual", airing: false, airing_at: slot(6, 18) }),
   ];
@@ -3590,8 +3668,15 @@ function fixtureData() {
   });
   const groups = {
     watching: shows.map(s => asColl(s, "watching")),
-    want: [asColl(mk(2001, "想看的番", "見たい", "Plan To Watch", "2026.10",
-      { airing: false, airing_at: now + 6 * 86400 }), "want")],
+    want: [
+      asColl(mk(2001, "想看的番", "見たい", "Plan To Watch", "2026.10",
+        { airing: false, airing_at: now + 6 * 86400 }), "want"),
+      // The case the no-mikan tab exists for: a film, in 想看 rather than 在看,
+      // that mikan has no entry for and never will. It is reachable only from
+      // the tab and its own card — never from the banner, which is dismissed.
+      asColl(mk(2002, "剧场版：没有条目", "劇場版", "The Film With No Entry", "2026.10",
+        { airing: false, no_mikan: true, airing_at: now + 9 * 86400 }), "want"),
+    ],
     done: [1, 2, 3, 4, 5, 6].map(i => asColl(
       mk(3000 + i, `看过的番 ${i}`, `既視 ${i}`, `Finished ${i}`,
          `202${i % 5}.0${1 + (i % 4) * 3}`.slice(0, 7),
@@ -3600,6 +3685,9 @@ function fixtureData() {
     onhold: [], dropped: [],
   };
   const counts = Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length]));
+  // Counted the way the backend counts it: across every collection type, since
+  // that is the one thing the no-mikan tab does that the others cannot.
+  counts.no_mikan = Object.values(groups).flat().filter(s => s.no_mikan).length;
   return {
     "/api/overview": {
       season: "2026.07", grace_hours: 3, qb_ok: true, anilist_faults: 0,
@@ -4191,6 +4279,12 @@ function readyCount(s) {
 function bookUnit(s, type) {
   const b = bookStyle(s.bgm_id);
   const r = readyCount(s);
+  // A volume mikan has no entry for is uncatalogued stock: it reads as unbound
+  // (cover drained of colour) and carries a slip of paper tucked into its
+  // fore-edge. Both are on the wall itself because the banner that used to be
+  // the only way to reach these is dismissible, and dismissing it is exactly
+  // what makes the show unreachable.
+  const nomk = !!s.no_mikan;
   let pip = "";
   if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
     // A grace window is the one state that expires on its own — it has to be
@@ -4198,18 +4292,22 @@ function bookUnit(s, type) {
     pip = `<span class="upip wait" title="${esc(t("waitingAni"))}">${esc(t("gracePip"))}</span>`;
   } else if (r) {
     pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;
-  } else if (s.status === "unresolved") {
+  } else if (nomk || s.status === "unresolved") {
     pip = `<span class="upip none">?</span>`;
   }
+  const slip = nomk
+    ? `<span class="slip" aria-hidden="true"><span class="slip-rule"></span></span>` : "";
   const title = displayTitle(s);
-  return `<button class="unit t-${type}" data-bgm="${s.bgm_id}"
+  return `<button class="unit t-${type}${nomk ? " nomikan" : ""}" data-bgm="${s.bgm_id}"
       style="--cloth:${b.cloth};--foil:${b.foil};--vh:${Math.round(144 * b.tall)}px"
-      onclick="openCard(${s.bgm_id})" aria-label="${esc(title)}">
+      onclick="openCard(${s.bgm_id})"
+      aria-label="${esc(nomk ? title + " — " + t("t_no_mikan") : title)}">
     ${pip}
     <span class="tome">
       <span class="f f-top"></span>
       <span class="f f-spine">${spineFurniture(b)}</span>
       <span class="f f-cover">${coverHtml(s.image)}<span class="foredge"></span></span>
+      ${slip}
     </span>
     <span class="plank"></span>
     <span class="ulabel">${esc(title)}</span>
@@ -4219,6 +4317,42 @@ function bookUnit(s, type) {
 const coverHtml = url => url
   ? `<img src="${esc(url)}" loading="lazy" alt="">`
   : `<span class="ph">◌</span>`;
+
+// The two ways to bring a show mikan cannot answer for into the pipeline.
+// Lives on the card rather than only on the banner because the banner is
+// dismissible and the state is not: acknowledging the warning used to take the
+// only cure with it, and the show then had no reachable control anywhere.
+//
+// Two boxes for one endpoint. The backend classifies whatever is pasted, so
+// neither box can reject what belongs in the other — but a mikan link and a
+// magnet are different decisions (subscribe the whole season vs. take this one
+// release and nothing else), and a movie is almost always the second, which is
+// precisely what mikan carries worst.
+function noMikanBox(bgmId) {
+  // The two buttons are labelled for what they each do, not both "Resolve":
+  // one takes on a season, the other takes a single file, and a shared verb
+  // would undo the separation the two boxes exist to make.
+  const row = (key, pre, ph, hint, go) => {
+    const which = pre === "cmag" ? "magnet" : "mikan";
+    return `
+    <div class="nmb-row">
+      <div class="nmb-lab">${t(key)}</div>
+      <div class="grouprow murl">
+        <input id="${pre}-${bgmId}" type="text" placeholder="${esc(t(ph))}" spellcheck="false"
+               aria-label="${esc(t(key))}"
+               onkeydown="if(event.key==='Enter')resolveFromCard(${bgmId},'${which}')">
+        <button class="btn small" id="${pre}go-${bgmId}"
+                onclick="resolveFromCard(${bgmId},'${which}')">${t(go)}</button>
+      </div>
+      <div class="nmb-hint">${t(hint)}</div>
+    </div>`;
+  };
+  return `<div class="nomikan-box">
+    <div class="nmb-h"><span class="nmb-flag">⚑</span>${t("nmbHead")}</div>
+    ${row("nmbMikan", "cmurl", "nmbMikanPh", "nmbMikanHint", "nmbGoMikan")}
+    ${row("nmbMagnet", "cmag", "nmbMagnetPh", "nmbMagnetHint", "nmbGoMagnet")}
+  </div>`;
+}
 
 function card(show) {
   const st = show.status;
@@ -4291,6 +4425,7 @@ function card(show) {
       <h3>${bgmLink(show.bgm_id, esc(displayTitle(show)))}${showLinks(show)}</h3>
       ${jpLine(show)}
       ${airRow}${gaugeHtml(show)}${groupRow}${graceRow}${torrents}
+      ${show.no_mikan ? noMikanBox(show.bgm_id) : ""}
     </div>
   </div>`;
 }
@@ -4313,6 +4448,7 @@ function basicCard(s) {
       <h3>${bgmLink(s.bgm_id, esc(displayTitle(s)))}${showLinks(s)}</h3>
       ${jpLine(s)}
       ${airRow}
+      ${s.no_mikan ? noMikanBox(s.bgm_id) : ""}
     </div>
   </div>`;
 }
@@ -4475,9 +4611,15 @@ function syncSegs() {
 const typingInField = el =>
   !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 
+// The no-mikan tab is not a collection type — it cuts across all of them — so
+// it is appended rather than living in FILTER_ORDER, and only while it has
+// something to hold.
+const noMikanCount = () => ((collections && collections.counts && collections.counts.no_mikan) || 0);
+
 function tabOrder() {
   const c = (collections && collections.counts) || {};
-  return [...FILTER_ORDER.filter(k => (c[k] || 0) > 0), "schedule"];
+  return [...FILTER_ORDER.filter(k => (c[k] || 0) > 0),
+          ...(noMikanCount() ? ["no_mikan"] : []), "schedule"];
 }
 
 function stepTab(delta) {
@@ -4524,10 +4666,14 @@ function renderFilters() {
   if (!collections) return;
   const c = collections.counts || {};
   const visible = FILTER_ORDER.filter(k => (c[k] || 0) > 0);
+  const nm = noMikanCount();
   // The active tab can vanish (its count drops to 0) — retarget instead of
-  // leaving a blank grid with no chip highlighted.
-  if (activeType !== "schedule" && !visible.includes(activeType)) activeType = visible[0] || "schedule";
+  // leaving a blank grid with no chip highlighted. Resolving the last unmatched
+  // show empties the no-mikan tab the same way, so it retargets too.
+  if (activeType !== "schedule" && !visible.includes(activeType)
+      && !(activeType === "no_mikan" && nm)) activeType = visible[0] || "schedule";
   const chips = visible.map(k => fchipBtn(k, t("t_" + k), c[k], activeType === k, "setFilter"));
+  if (nm) chips.push(fchipBtn("no_mikan", t("t_no_mikan"), nm, activeType === "no_mikan", "setFilter"));
   chips.push(fchipBtn("schedule", t("t_schedule"), null, activeType === "schedule", "setFilter"));
   setHTML($("filters"), chips.join(""));
 }
@@ -4808,9 +4954,15 @@ function renderCards() {
   }
   // Every non-timetable tab splits into cour blocks, newest season on top.
   let list = null, total = null, shown = null;
+  // The no-mikan tab draws from every collection type at once — a show mikan
+  // cannot answer for is just as likely to be sitting in 想看 (movies and
+  // specials, which is most of them) as in 在看.
   const pool = activeType === "watching"
     ? (state ? state.shows : null)
-    : (collections ? (collections.groups[activeType] || []) : null);
+    : activeType === "no_mikan"
+      ? (collections ? FILTER_ORDER.flatMap(k => collections.groups[k] || [])
+          .filter(sh => sh.no_mikan) : null)
+      : (collections ? (collections.groups[activeType] || []) : null);
   if (pool) {
     total = pool.length;
     let shows = pool.filter(inScope);
@@ -4819,21 +4971,27 @@ function renderCards() {
     }
     // 想看 reads oldest cour first (a backlog to clear); 看过 orders each cour by
     // when it was marked; 搁置/抛弃 stay newest cour first.
-    const cmp = activeType === "watching" || activeType === "want" ? bySeasonAscThen(byAir)
+    // no-mikan reads oldest first for the same reason 想看 does: it is a
+    // backlog to work through, and the one that has been waiting longest is
+    // the one to deal with first.
+    const cmp = activeType === "watching" || activeType === "want" || activeType === "no_mikan"
+      ? bySeasonAscThen(byAir)
       : activeType === "done" ? byDone
       : bySeasonThen(byAir);
     shows = shows.slice().sort(cmp);
     shown = shows.length;
+    // On the no-mikan tab each volume keeps its own collection colour: the tab
+    // is a cross-section, so tinting them all alike would throw away the one
+    // thing that says whether a show is being watched or merely planned.
+    const unit = sh => bookUnit(sh, activeType === "no_mikan" ? (sh.type || "want") : activeType);
     if (gridSort.key) {
       // A user order that is not the cour order has to lose the cour rules:
       // they announce a block, and once the list is ordered by score or by
       // depth there are no blocks for them to announce.
       shows = applyGridSort(shows);
-      list = gridSort.key === "season"
-        ? withSeasonDividers(shows, sh => bookUnit(sh, activeType))
-        : shows.map(sh => bookUnit(sh, activeType));
+      list = gridSort.key === "season" ? withSeasonDividers(shows, unit) : shows.map(unit);
     } else {
-      list = withSeasonDividers(shows, sh => bookUnit(sh, activeType));
+      list = withSeasonDividers(shows, unit);
     }
   }
   renderSortBar(total, shown);
@@ -5537,6 +5695,13 @@ function bootDone() {
       wall.classList.add("anim");
     }
     setTimeout(() => el.remove(), 700);
+    // ?card=<bgm id> opens straight onto one show, the same way ?tab= opens
+    // onto one shelf: a link worth sending someone, and the only way a
+    // screenshot can be taken of a card at all (there is nothing to click in
+    // a headless capture). Opened after the curtain, so the sheet is not
+    // measured while it is still behind an overlay.
+    const deep = +QS.get("card");
+    if (deep && findShow(deep)) openCard(deep);
   }, wait);
 }
 
@@ -5814,14 +5979,20 @@ async function dismissAllUnresolved() {
 }
 
 // Hand a pasted mikan link (or magnet) to the backend: it binds the show via
-// mikan_overrides.json + subscribes, or one-shot-imports the magnet — either
-// way the banner clears itself on success (the backend drops the entry).
-async function resolveByUrl(bgmId) {
-  const inp = $("murl-" + bgmId);
+// mikan_overrides.json + subscribes, or one-shot-imports the magnet. The
+// backend drops the unresolved entry on success, so the banner, the slip on the
+// shelf and the card's own box all clear themselves off the same fact.
+//
+// Parameterised by element id because the same call now has three front ends:
+// the banner (which is dismissible) and the two boxes on the card (which are
+// not — that is the point of them).
+async function resolveWith(bgmId, inputId, btnId) {
+  const inp = $(inputId);
   const url = inp ? inp.value.trim() : "";
   if (!url) { toast(t("resolvePh")); return; }
-  const btn = $("murlgo-" + bgmId);
+  const btn = $(btnId);
   if (btn && btn.disabled) return; // double-click / Enter+click guard
+  const label = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = t("resolving"); }
   try {
     const r = await fetch("/api/unresolved/resolve", {
@@ -5835,16 +6006,30 @@ async function resolveByUrl(bgmId) {
       if (d.imported) bits.push(t("resolvedImported"));
       if (d.notes && d.notes.length) bits.push(d.notes.join(" · "));
       toast(bits.join(" · "));
+      if (inp) inp.value = "";
       refreshUnresolved();
       refresh();
+      refreshCollections();   // clears the slip, the grey cover and the count
     } else {
       toast(t("resolveFail", d && d.notes && d.notes.length ? d.notes.join(" · ") : errText(d, r)));
-      if (btn) { btn.disabled = false; btn.textContent = t("resolveGo"); }
+      if (btn) { btn.disabled = false; btn.textContent = label; }
     }
   } catch (e) {
     toast(t("resolveFail", e.message));
-    if (btn) { btn.disabled = false; btn.textContent = t("resolveGo"); }
+    if (btn) { btn.disabled = false; btn.textContent = label; }
   }
+}
+
+async function resolveByUrl(bgmId) {
+  return resolveWith(bgmId, "murl-" + bgmId, "murlgo-" + bgmId);
+}
+
+// Both card boxes reach the same endpoint — the backend classifies what was
+// pasted, so neither box can be "wrong" — but they stay separate controls
+// because they are separate intentions, and saying so is the whole point.
+async function resolveFromCard(bgmId, which) {
+  const pre = which === "magnet" ? "cmag" : "cmurl";
+  return resolveWith(bgmId, `${pre}-${bgmId}`, `${pre}go-${bgmId}`);
 }
 
 // One shared fast poll drives the sync button lifecycle — used both by the
