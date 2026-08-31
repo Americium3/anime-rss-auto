@@ -16,6 +16,7 @@ mikan_resolve_cache.json
 subject_season_cache.json
 heal_pending.json
 intro_skip_state.json
+jf_played_seen.json
 *.tmp
 *.log
 scripts/shots/

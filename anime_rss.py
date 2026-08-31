@@ -54,6 +54,9 @@ UA = "anime-rss-auto/0.1 (personal qbit rss helper)"
 PLAN_PATH = Path(__file__).with_name("plan.json")
 CONFIG_PATH = Path(__file__).with_name("config.local.json")
 SEED_STATES_PATH = Path(__file__).with_name("seed_states.json")
+# jf-played reconcile: Jellyfin item ids already accounted for on bgm, so the
+# sweep that backstops the webhook only ever looks at what is genuinely new.
+JF_PLAYED_SEEN_PATH = Path(__file__).with_name("jf_played_seen.json")
 BGM_TOKEN_PATH = Path(__file__).with_name("bgm_token.json")
 # premiere-watch: 想看列表开播检测的状态与面板提醒队列
 NOTIFY_PATH = Path(__file__).with_name("premiere_notify.json")
@@ -259,7 +262,12 @@ def save_grace(d: dict[str, float]) -> None:
 # 删规则/删文件等破坏性逻辑仍只对 SKIP_BEFORE_SEASON 之后的番生效。
 JELLYFIN_MIRROR  = str(CONFIG.get("jellyfin_mirror", r"X:\BangumiJF"))
 MIRROR_SKIP_BEFORE_SEASON = str(CONFIG.get("mirror_skip_before_season", ""))
-JELLYFIN_URL     = str(CONFIG.get("jellyfin_url", "http://localhost:8096")).rstrip("/")
+# 127.0.0.1, not localhost: on Windows the name resolves to ::1 first, and a
+# Jellyfin bound only to IPv4 lets that connection sit until it times out — a
+# flat ~2s tax on *every* call (measured 2.05s vs 0.016s), which is most of what
+# the Jellyfin passes below ever cost. Set jellyfin_url explicitly for a remote
+# server; a host that answers on IPv6 is unaffected either way.
+JELLYFIN_URL     = str(CONFIG.get("jellyfin_url", "http://127.0.0.1:8096")).rstrip("/")
 JELLYFIN_API_KEY = str(CONFIG.get("jellyfin_api_key", ""))  # secret: config only
 MIRROR_VIDEO_EXT = (".mkv", ".mp4")
 MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu"}
@@ -2677,6 +2685,149 @@ def handle_jellyfin_event(payload: dict, token_provider, *, dry_run: bool = Fals
         print(f"   [jfhook] ! {'撤销' if undo else ''}标记失败 ep{ep} (subject {bgm_id}): {ex}")
 
 
+# --------------------------------------------------------------------------- #
+# jf-played reconcile: the pull half of the Jellyfin link
+# --------------------------------------------------------------------------- #
+JF_PLAYED_RECONCILE_ENABLED = bool(CONFIG.get("jellyfin_played_reconcile_enabled", True))
+# How far back each sweep looks, newest-played first. Only has to cover what can
+# accumulate between two passes; the ledger answers for everything older.
+JF_PLAYED_SCAN_LIMIT = int(CONFIG.get("jellyfin_played_scan_limit", 100))
+JF_PLAYED_LEDGER_KEEP = 5000
+# Verdicts that could change once something is fixed, and so are never written to
+# the ledger — the sweep must be able to come back for them.
+_JF_PLAYED_RETRY_REASONS = ("bgm 未响应", "集数")
+
+
+def load_jf_played_seen() -> dict[str, str]:
+    if JF_PLAYED_SEEN_PATH.exists():
+        try:
+            d = json.loads(JF_PLAYED_SEEN_PATH.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+def save_jf_played_seen(seen: dict[str, str]) -> None:
+    if len(seen) > JF_PLAYED_LEDGER_KEEP:      # keep the newest, drop the tail
+        seen = dict(list(seen.items())[-JF_PLAYED_LEDGER_KEEP:])
+    tmp = JF_PLAYED_SEEN_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(seen, ensure_ascii=False, indent=0), encoding="utf-8")
+    os.replace(tmp, JF_PLAYED_SEEN_PATH)
+
+
+def jellyfin_played_reconcile_pass(token: str | None, *, ctx: "SyncContext | None" = None,
+                                   dry_run: bool = False) -> int:
+    """Mark episodes Jellyfin has played that bgm never heard about.
+
+    jfhook is at-most-once. Jellyfin fires a webhook once and never replays it,
+    so an episode watched during any window where the hook could not act on it —
+    a resolver bug, a daemon restart, the plugin failing to deliver — is lost for
+    good. The qB side cannot cover for it either: mark_watched_pass waits on a
+    seeding -> stopped transition, and a hook that failed never stopped the
+    torrent, so the transition it waits for is exactly the one that never comes.
+    Both halves of the design turn out to depend on the same delivery. (Re:Zero
+    奪還編 ep3, watched 2026-08-28 00:57 and still unmarked days after the
+    split-cour fix landed at 03:20 the same morning — the code was right by then,
+    the episode had simply already been spent.)
+
+    So this is the pull half: Jellyfin's Played flag is the truth and gets swept
+    every pass, which makes the link self-healing rather than delivery-dependent.
+    Marking is idempotent, and a failure deliberately leaves the item out of the
+    ledger so the next pass tries again — the one property a webhook cannot have.
+    """
+    if not JELLYFIN_API_KEY:
+        return 0
+    if not token:
+        print("# jf-played: 未配置 bgm token，跳过")
+        return 0
+    ctx = ctx or SyncContext("", token)
+    seen = load_jf_played_seen()
+    baseline = not seen
+    uid = _jf_user_id()
+    if not uid:
+        print("# jf-played: Jellyfin 用户 id 取不到，跳过")
+        return 0
+    try:
+        _, d = _jf_req("GET", "/Items", {
+            "userId": uid, "recursive": "true", "includeItemTypes": "Episode",
+            "isPlayed": "true", "fields": "Path", "enableTotalRecordCount": "false",
+            "sortBy": "DatePlayed", "sortOrder": "Descending",
+            "limit": str(5000 if baseline else JF_PLAYED_SCAN_LIMIT),
+        })
+    except Exception as ex:  # noqa: BLE001
+        print(f"# jf-played: 读取 Jellyfin 已播列表失败，跳过：{ex}")
+        return 0
+    items = [it for it in ((d or {}).get("Items") or []) if it.get("Id")]
+    fresh = [it for it in items if str(it["Id"]) not in seen]
+    if not fresh:
+        return 0
+
+    if baseline:
+        # A first run records the backlog without acting on it. Everything in it
+        # was watched long before this pass existed, and bgm's own state for it
+        # was settled by whatever ran at the time; re-deciding all of that at
+        # once, off a single flag, is not a backfill but a bulk write.
+        for it in items:
+            seen[str(it["Id"])] = ""
+        if not dry_run:
+            save_jf_played_seen(seen)
+        print(f"# jf-played: 首轮建立基线（{len(items)} 集已播），本轮不标记")
+        return 0
+
+    try:
+        torrents = qb_get_json("/api/v2/torrents/info")
+    except Exception as ex:  # noqa: BLE001
+        print(f"# jf-played: 读取 qB 种子失败，跳过：{ex}")
+        return 0
+    rule_by_path = rules_by_savepath(ctx.rules())
+    marked = 0
+    for it in fresh:
+        iid, path = str(it["Id"]), (it.get("Path") or "")
+        if not path or _jf_path_is_protected(path):
+            seen[iid] = ""                     # settled: Ancient, or no file
+            continue
+        t = _jf_find_torrent(path, torrents)
+        if t is None:
+            seen[iid] = ""                     # settled: nothing left to act on
+            continue
+        bgm_id, eid, reason = resolve_torrent_target(
+            t, rule_by_path, ctx.rule_bgmid, ctx.season, ctx.eps, ctx.span
+        )
+        nm = (t.get("name") or "")[:55]
+        if reason != "ok":
+            if not any(r in reason for r in _JF_PLAYED_RETRY_REASONS):
+                seen[iid] = ""                 # settled: no rule, or an old cour
+            continue
+        ep = parse_episode(t.get("name", ""))
+        if dry_run:
+            print(f"   [jf-played][dry] 会补标 ep{ep} 看过 (subject {bgm_id}): {nm}")
+            marked += 1
+            continue
+        try:
+            bgm_mark_episode_watched(token, eid)
+        except Exception as ex:  # noqa: BLE001
+            print(f"   [jf-played] ! 补标失败 ep{ep} (subject {bgm_id}): {ex}")
+            continue                           # no ledger entry -> retried next pass
+        marked += 1
+        seen[iid] = ""
+        print(f"   [jf-played] ✓ 补标 ep{ep} 看过 (subject {bgm_id}): {nm}")
+        # The hook stops seeding as part of marking, so a backfill means that
+        # never happened either — and a torrent left seeding is also what keeps
+        # mark_watched_pass from ever firing on it.
+        if t.get("state") in _SEEDING_STATES:
+            try:
+                qb_stop(t["hash"])
+                print(f"   [jf-played] ✓ 已停做种 ep{ep}: {nm}")
+            except Exception as ex:  # noqa: BLE001
+                print(f"   [jf-played] ! 停做种失败 ep{ep}: {ex}")
+    if not dry_run:
+        save_jf_played_seen(seen)
+    if marked:
+        print(f"# jf-played: 补标 {marked} 集（webhook 当时没送到/没认出）")
+    return marked
+
+
 def run_jfhook_server(port: int, token_provider, *,
                       dry_run: bool = False) -> http.server.ThreadingHTTPServer:
     """起一个常驻 HTTP 监听，接 Jellyfin Webhook 插件 POST 来的事件。
@@ -4807,6 +4958,16 @@ def run_sync_once(user, cookie, season, purge, token=None):
         except Exception:  # noqa: BLE001
             print("!!! mark-watched 出错（不影响本轮 sync）：")
             traceback.print_exc()
+    if JF_PLAYED_RECONCILE_ENABLED:
+        # Backstop for jfhook's at-most-once delivery. Runs every pass: it shares
+        # this ctx's caches, and a steady pass with nothing new to say is one
+        # Jellyfin call (~0.05s once jellyfin_url is not going through the
+        # localhost -> ::1 timeout) and no bgm calls at all.
+        try:
+            jellyfin_played_reconcile_pass(token, ctx=ctx)
+        except Exception:  # noqa: BLE001
+            print("!!! jf-played 出错（不影响本轮 sync）：")
+            traceback.print_exc()
     mirror_changed = False
     if CONFIG.get("jellyfin_heal_empty_enabled", True):
         # 空系列自愈的 /Items 全库扫描（~2s）只在「上轮有镜像变动」或每 N 轮兜底时才跑，
@@ -4865,6 +5026,11 @@ def cmd_sync(args):
 def cmd_mark(args):
     """Standalone mark-watched pass. --dry-run reports resolution without writing."""
     mark_watched_pass(bgm_token(args), dry_run=args.dry_run)
+
+
+def cmd_jfplayed(args):
+    """Standalone jf-played sweep. --dry-run reports what it would backfill."""
+    jellyfin_played_reconcile_pass(bgm_token(args), dry_run=args.dry_run)
 
 
 def cmd_dedup(args):
@@ -5038,6 +5204,13 @@ def main():
     pm.add_argument("--dry-run", action="store_true",
                     help="report resolution for all stopped torrents; no bgm write, no baseline update")
     pm.set_defaults(func=cmd_mark)
+
+    pjp = sub.add_parser("jf-played",
+                         help="mark episodes Jellyfin played that the webhook never delivered")
+    add_token(pjp)
+    pjp.add_argument("--dry-run", action="store_true",
+                     help="report what would be backfilled; no bgm write, no ledger update")
+    pjp.set_defaults(func=cmd_jfplayed)
 
     prs = sub.add_parser("resolve", help="manual resolve: bind an unmatched show to a pasted mikan link")
     add_user(prs)
