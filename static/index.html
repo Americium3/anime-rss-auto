@@ -3072,15 +3072,28 @@ if (new URLSearchParams(location.search).has("probe")) {
     display: grid; gap: 1px; padding: 3px 0 0;
   }
   .g-cell {
-    border: 0; padding: 0; margin: 0; cursor: pointer;
+    border: 0; padding: 0; margin: 0; cursor: default;   /* a click does nothing here */
+    position: relative;
     border-radius: 1px 1px 0 0;
     background: color-mix(in srgb, var(--text) 12%, transparent);
     transition: background-color .18s, transform .18s;
     transform-origin: bottom center;
     min-width: 0;
   }
-  .g-cell:hover, .g-cell:focus-visible { transform: scaleY(1.22); outline: none; }
+  /* The hit area reaches down through the water and one gap to the left, so a
+     pointer that drops below the cell strip, or sweeps the compressed head of
+     a long run, still resolves to an episode rather than to nothing. It is a
+     pseudo-element: the cell's own box — the one measured against the 2px
+     floor — is unchanged, hit-testing still names the cell, and the body's
+     overflow clips whatever hangs past the bottom. */
+  .g-cell::after { content: ""; position: absolute; left: -1px; right: 0; top: 0; height: 300%; }
+  /* .at is the episode the transport is parked on: the keyboard's hover. */
+  .g-cell:hover, .g-cell:focus-visible, .g-cell.at { transform: scaleY(1.22); outline: none; }
   .g-cell:focus-visible { box-shadow: 0 0 0 1px var(--accent-b); }
+  /* The track is the one focus stop in the instrument — a slider, walked with
+     the arrow keys — so the ring goes on it, drawn inward to stay inside the
+     body's clip. */
+  .g-track:focus-visible { outline: 1px solid var(--accent-b); outline-offset: -1px; }
   .g-cell.s-unaired, .g-swatch.s-unaired { background: color-mix(in srgb, var(--text) 9%, transparent); }
   .g-cell.s-aired, .g-swatch.s-aired { background: color-mix(in srgb, var(--accent-a) 55%, transparent); }
   .g-cell.s-downloading, .g-swatch.s-downloading { background: color-mix(in srgb, var(--warn) 52%, transparent); }
@@ -3156,7 +3169,10 @@ if (new URLSearchParams(location.search).has("probe")) {
      up, but the move is not yours to make, so it is drawn in the waiting
      colour rather than the acting one. */
   .g-drift.stall { color: var(--warn); }
-  .g-body:hover .g-drift, .gauge:focus-within .g-drift { opacity: .95; }
+  /* Out while the pointer is on the body, while the track has keyboard focus
+     (the drift is a later sibling of the track, hence ~), and while the
+     transport is parked on an episode by any input — a tap, a keystroke. */
+  .g-body:hover .g-drift, .g-track:focus-visible ~ .g-drift, .gauge.scrub .g-drift { opacity: .95; }
   .g-drift i { font-style: normal; animation: driftUp 1.25s ease-in-out infinite; }
   .g-drift i:nth-child(2) { animation-delay: .16s; }
   .g-drift i:nth-child(3) { animation-delay: .32s; }
@@ -3190,6 +3206,13 @@ if (new URLSearchParams(location.search).has("probe")) {
     font-size: calc(.72rem * var(--ui)); color: var(--text-faint);
   }
   .g-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  /* The scale note is not a key entry: pushed to the far end behind a
+     hairline, so it does not read as a fourth swatch that lost its swatch.
+     No italics — the zh face would only get a synthesised oblique. */
+  .g-legend .g-scale { margin-left: auto; color: var(--text-faint); }
+  .g-legend .g-scale::before {
+    content: ""; width: 1px; height: .9em; background: var(--panel-border); margin-right: 6px;
+  }
   .g-legend .g-swatch {
     width: calc(8px * var(--ui)); height: calc(8px * var(--ui));
     border-radius: 1px; display: inline-block; flex: none;
@@ -3211,6 +3234,10 @@ if (new URLSearchParams(location.search).has("probe")) {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: calc(.85rem * var(--ui)); color: var(--text);
   }
+  /* The status of a row that is not a plain subscription, set beside the name
+     in the waiting colour: the rail lists every show with a reading, and a
+     grace or an unmatched show has to say why its depth is not yours to fix. */
+  .sound .stag { font-size: .72em; color: var(--warn); font-family: var(--mono); }
   .sound .sd { font-family: var(--mono); font-size: calc(.8rem * var(--ui)); }
   .sound .sd.level { color: var(--ok); }
   .sound .sd.deep { color: var(--warn); }
@@ -3232,7 +3259,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* ----- the hover peek --------------------------------------------------- */
   /* A volume pulled half off the shelf: the second layer of a card, without
      leaving the shelf to get it. Anchored by JS to the volume it belongs to,
-     because the grid clips and a popover inside it would be cut off. */
+     because the grid clips and a popover inside it would be cut off.
+
+     Inert while faded out — a layer that is not there must not block clicks —
+     but it takes the pointer once it is up. It stands over the next volumes
+     on the shelf, and a layer the pointer falls through hands the hover, and
+     the click, to whatever is underneath: the peek jumped to the neighbour on
+     approach and opened the neighbour's card when clicked. */
   .peek {
     position: fixed; z-index: 60; width: min(330px, 84vw);
     padding: 11px 13px 12px;
@@ -3248,7 +3281,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     transition: opacity .16s ease-out, transform .16s ease-out;
     pointer-events: none;
   }
-  .peek.on { opacity: 1; transform: none; }
+  .peek.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
   .peek h4 {
     margin: 0 0 2px; font-size: calc(.98rem * var(--ui)); font-weight: 600;
     line-height: 1.3;
@@ -3774,6 +3807,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     </div>
     <span class="chip warn" id="qbwarn" hidden></span>
     <span class="chip warn" id="anilistwarn" hidden></span>
+    <span class="chip warn" id="progresswarn" hidden></span>
     <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
     <span class="chip" id="synchip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
     <button class="btn" id="syncbtn" onclick="runSync()">Sync now</button>
@@ -4056,7 +4090,7 @@ const I18N = {
     via: "via", switch: "Switch", waitingAni: "Waiting for ANi", lockBest: "Lock best now",
     noEpisodes: "Subscribed — no episodes in feed yet",
     notOnMikan: "Not on mikan yet — checked every 5 min",
-    epReady: o => `${o.done}/${o.total} episode${o.total === 1 ? "" : "s"} ready to watch`,
+    epReady: o => `${o.done}/${o.total} download${o.total === 1 ? "" : "s"} complete`,
     graceH: h => `grace ${h}h`,
     backendUnreachable: e => "Backend unreachable: " + e,
     syncFinished: "Sync pass finished",
@@ -4131,7 +4165,7 @@ const I18N = {
     machineHead: "Machine",
     mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
     mSync: "Last sync", mSyncing: "running",
-    mSubs: "Subscriptions", mReady: "Episodes ready",
+    mSubs: "Subscriptions", mDownloads: "Downloads complete",
     mGrace: "In grace", mWaiting: "Awaiting mikan",
     censusHead: "The census", censusNone: "Nothing shelved yet",
     censusVols: "volumes", censusSpan: "years", censusMean: "mean bgm rating",
@@ -4161,6 +4195,13 @@ const I18N = {
     ep_downloading: "downloading", ep_downloaded: "downloaded",
     ep_seeding: "seeding", ep_watched: "watched",
     legendAired: "aired", legendReady: "on disk", legendWatched: "watched",
+    gaugeHolding: "waiting for ANi — no download rule yet",
+    gaugeUnmatched: "not on mikan yet — nothing to download from",
+    progressNoToken: "bangumi token missing — progress unavailable",
+    progressUnavailable: "progress unavailable",
+    gaugeUnavailable: "episode ledger unavailable",
+    peekOpenKey: "Enter opens the full card",
+    gaugeReadHint: "watched / aired",
     // --- sorting / filtering ---
     sortHead: "Order", sortDefault: "Default",
     sort_air: "Airtime", sort_updated: "Updated", sort_progress: "Progress",
@@ -4214,7 +4255,7 @@ const I18N = {
     via: "字幕组", switch: "切换", waitingAni: "等待 ANi", lockBest: "锁定当前最优",
     noEpisodes: "已订阅 — feed 中暂无剧集",
     notOnMikan: "mikan 上尚未出现 — 每 5 分钟检查一次",
-    epReady: o => `${o.done}/${o.total} 集准备完成，可以观看`,
+    epReady: o => `${o.done}/${o.total} 个下载已完成`,
     graceH: h => `宽限 ${h} 小时`,
     backendUnreachable: e => "后端无法连接：" + e,
     syncFinished: "本轮同步完成",
@@ -4289,7 +4330,7 @@ const I18N = {
     machineHead: "机器状态",
     mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
     mSync: "上次同步", mSyncing: "进行中",
-    mSubs: "订阅", mReady: "已就绪剧集",
+    mSubs: "订阅", mDownloads: "下载完成",
     mGrace: "宽限中", mWaiting: "等待 mikan",
     censusHead: "藏书年谱", censusNone: "书架上还没有藏书",
     censusVols: "卷", censusSpan: "年份", censusMean: "bgm 均分",
@@ -4316,6 +4357,13 @@ const I18N = {
     ep_downloading: "下载中", ep_downloaded: "已下载",
     ep_seeding: "做种中", ep_watched: "已看",
     legendAired: "已播", legendReady: "在盘", legendWatched: "已看",
+    gaugeHolding: "等待 ANi — 尚未建立下载规则",
+    gaugeUnmatched: "尚未匹配 mikan — 无处可下",
+    progressNoToken: "缺少 bangumi token — 进度不可用",
+    progressUnavailable: "进度不可用",
+    gaugeUnavailable: "分集账暂不可用",
+    peekOpenKey: "回车展开完整卡片",
+    gaugeReadHint: "已看 / 已播",
     // --- 排序 / 筛选 ---
     sortHead: "排序", sortDefault: "默认",
     sort_air: "开播时间", sort_updated: "更新时间", sort_progress: "追番进度",
@@ -4484,7 +4532,7 @@ function fixtureData() {
     }];
   };
   const progress = Object.fromEntries([
-    roll(1001, 13, 8, 8, 8, 8),          // level, one still seeding
+    roll(1001, 13, 8, 8, 8, 8),          // level, all in hand (watched wins over seeding in eps())
     roll(1002, 13, 8, 5, 8),             // 3 behind, all three in hand
     roll(1003, 13, 8, 8, 0),             // level but nothing on disk
     roll(1004, 52, 46, 31, 46, 45),      // long-runner, 15 behind, compressed
@@ -4492,9 +4540,19 @@ function fixtureData() {
     ["1005", { cold: true, episodes: [], total: null, aired: 0, downloaded: 3,
                watched: 0, ready: 0, depth: 0 }],
   ]);
-  const asColl = (s, type) => Object.assign({}, s, {
-    type, updated_at: new Date((now - (s.bgm_id % 9) * DAY) * 1000).toISOString(),
-  });
+  // Shaped the way /api/collections answers, which is a bgm list row and
+  // nothing else: no status, no rule — those belong to the daemon, and only
+  // 在看 is fetched with them. Carrying mk()'s defaults through made every
+  // shelved volume look subscribed to the panel, and the fixture's job is to
+  // reproduce the backend's shape, not to paper over it.
+  const asColl = (s, type) => {
+    const e = Object.assign({}, s, {
+      type, updated_at: new Date((now - (s.bgm_id % 9) * DAY) * 1000).toISOString(),
+    });
+    delete e.status;
+    delete e.rule;
+    return e;
+  };
   const groups = {
     watching: shows.map(s => asColl(s, "watching")),
     want: [
@@ -5151,7 +5209,10 @@ function spineFurniture(b, archive) {
   return out;
 }
 
-// Episodes sitting in qBittorrent, ready to watch. Drives the corner pip.
+// Torrents finished in qBittorrent, out of those it holds. The cold fallback
+// for the corner pip: /api/overview ships {progress} per torrent and nothing
+// else, so this cannot tell a finished episode from a finished-and-watched
+// one — the ledger can, and takes over the moment it is warm.
 function readyCount(s) {
   if (!s.torrents || !s.torrents.length) return null;
   return { done: s.torrents.filter(tr => tr.progress >= 1).length, total: s.torrents.length };
@@ -5168,15 +5229,27 @@ function bookUnit(s, type) {
   // the only way to reach these is dismissible, and dismissing it is exactly
   // what makes the show unreachable.
   const nomk = !!s.no_mikan;
+  const p = showProgress(s.bgm_id);
   let pip = "";
   if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
     // A grace window is the one state that expires on its own — it has to be
     // visible from the wall, not only once the card is open.
     pip = `<span class="upip wait" title="${esc(t("waitingAni"))}">${esc(t("gracePip"))}</span>`;
-  } else if (r) {
-    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;
   } else if (nomk || s.status === "unresolved") {
+    // Before the ledger, not after: an unmatched show has a warm ledger too,
+    // and it would read "−N" in the waiting colour — true, but not the fact
+    // that matters, which is that nothing can be downloaded from anywhere.
     pip = `<span class="upip none">?</span>`;
+  } else if (p && !p.cold && p.total) {
+    // The ledger is the reading: episodes finished and not yet watched, or
+    // the depth when nothing is in hand. A level show wears no tag at all —
+    // the one reading available without a click has to mean something, and
+    // "8/8" in the ok colour on a level show and on one three behind did not.
+    // Same guard as depthOf, so the pip and the progress sort key agree.
+    pip = p.ready ? `<span class="upip">+${p.ready}</span>`
+        : p.depth ? `<span class="upip wait">−${p.depth}</span>` : "";
+  } else if (r) {
+    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;   // cold: what qB knows
   }
   const slip = nomk
     ? `<span class="slip" aria-hidden="true"><span class="slip-rule"></span></span>` : "";
@@ -5272,17 +5345,27 @@ function card(show) {
   if (st === "grace" && show.grace) {
     // Render the already-expired state directly: the 30s re-render must not
     // resurrect a dead 0:00:00 countdown + button for the ticker to re-kill.
+    //
+    // The countdown itself is left empty here and filled by tickCountdowns()
+    // straight after the insertion. Baking h:mm:ss into the markup made a
+    // grace card differ on every poll, so setHTML's memo never hit and the
+    // whole body was torn down and rebuilt every 30 s — the button re-created
+    // under the pointer, the needle swimming in from the edge again.
     graceRow = show.grace.expires <= Date.now() / 1000
       ? `<div class="gracebar">${t("grace_ended")}</div>`
       : `
       <div class="gracebar">
         <span>${t("waitingAni")}</span>
-        <span class="cd" data-expires="${show.grace.expires}">${fmtCountdown(show.grace.expires)}</span>
+        <span class="cd" data-expires="${show.grace.expires}"></span>
         <button class="btn ghost small" onclick="endGrace(${show.bgm_id})">${t("lockBest")}</button>
       </div>`;
   }
 
-  // Episode summary instead of per-torrent rows: "done/total ready to watch".
+  // The downloader's summary instead of per-torrent rows: "done/total
+  // downloads complete". It is labelled for what it counts — a torrent that
+  // has finished, watched or not — because the sounding above already says
+  // what is ready to watch, and a second line saying "ready" from a different
+  // count contradicted it on every card where the two differed.
   let torrents = "";
   if (show.torrents.length) {
     const done = show.torrents.filter(tr => tr.progress >= 1).length;
@@ -5493,6 +5576,7 @@ function openCard(bgmId) {
   // the close button hears which show opened, not "Shows".
   $("cardsheet-h").textContent = displayTitle(found.show);
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
+  tickCountdowns();   // the grace bar is inserted with its countdown empty
   setCoverGhost(found.show.image);
   markOpenUnit();
   showPanel("cardsheet");
@@ -5505,22 +5589,35 @@ function openCard(bgmId) {
 // sounding, the ready count and the subgroup all go stale otherwise. Never
 // while the subgroup picker is open: rebuilding the card would take the list
 // out from under a choice being made, on the one control here that deletes
-// files.
+// files. And never over the reader's hands: a docket box with text in it, or
+// a gauge mid-scrub, means the card is being used, and a swap would take the
+// half-pasted link, its focus and the reading away in one go. The poll after
+// next lands the same data anyway.
 function refreshCard() {
   if (openBgm === null) return;
   markOpenUnit();
   if (groupPickerOpen()) return;
+  const body = $("cardsheet-body");
+  const a = document.activeElement;
+  // Only a docket field that HOLDS text defers: resolveWith clears the box and
+  // calls refresh() without blurring it, and that refresh has to land — it is
+  // the one that takes the docket off the card.
+  if (body.contains(a) && typingInField(a) && a.value) return;
+  if (body.querySelector(".gauge.scrub")) return;
   const found = findShow(openBgm);
   if (!found) { closeDrawers(); return; }
   $("cardsheet-h").textContent = displayTitle(found.show);
-  // A rebuild drops whatever inside the body held focus (the group button,
-  // after a switch reports back and the card is redrawn). Same snapshot as
-  // the docket inputs take: by id, restored on the new copy.
-  const ae = document.activeElement;
-  const keepId = ae && $("cardsheet-body").contains(ae) ? ae.id : "";
-  setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
-  tuneGauges($("cardsheet-body"));
-  if (keepId && $(keepId)) $(keepId).focus({ preventScroll: true });
+  // Unfocused boxes with text survive the swap the way the banner's do
+  // (refreshUnresolved): value only. Focus is put back on whichever control
+  // had it, so a rebuild under a keyboard user does not drop them to <body>.
+  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"]')]
+    .filter(i => i.value).map(i => [i.id, i.value]);
+  const fid = body.contains(a) && a.id ? a.id : "";
+  setHTML(body, found.watching ? card(found.show) : basicCard(found.show));
+  for (const [id, v] of keep) { const inp = $(id); if (inp && !inp.value) inp.value = v; }
+  if (fid) { const el = $(fid); if (el && document.activeElement !== el) el.focus({ preventScroll: true }); }
+  tuneGauges(body);
+  tickCountdowns();
   setCoverGhost(found.show.image);
 }
 
@@ -5584,6 +5681,10 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // Innermost first. A picker is open over a card; closing both at once
     // would take the card away as the answer to "cancel this menu".
+    // A gauge scrubbed from its focused track is innermost of all: Escape
+    // parks the needle before it is allowed to close anything.
+    const sg = e.target.closest && e.target.closest(".gauge.scrub");
+    if (sg) { gaugeHome(sg); return; }
     if (groupPickerOpen()) { closeGroupPickers(); return; }
     if (peekFor !== null) { hidePeek(); return; }
     if (document.body.classList.contains("drawer-open")) closeDrawers();
@@ -5842,22 +5943,45 @@ function setGridSort(k) {
    feeding it.
 
    Anchored by script against the volume rather than parented to it — the grid
-   clips, so a layer inside it would be cut off at the shelf edge — and it never
-   takes the pointer, so moving toward it does not count as leaving the volume.
---------------------------------------------------------------------------- */
-let peekTimer = null, peekFor = null;
+   clips, so a layer inside it would be cut off at the shelf edge. Once it is
+   up it takes the pointer: it lies across the next one or two volumes on the
+   shelf, and a layer the pointer fell through handed the hover (and the click)
+   to whatever was beneath — the peek jumped to the neighbour on approach, and
+   clicking the line that says "open the full card" opened the neighbour's.
+   The 10px gap between volume and layer is bridged by a short hide delay.
 
-function peekHtml(s) {
+   It is reached three ways: a dwell of the pointer, keyboard focus on a volume
+   (with no dwell — nobody tabs past a book by accident), and a re-anchor on
+   every poll, because the wall is rebuilt underneath it and a layer left at
+   the old coordinates with the old rows is a reading of a volume that is no
+   longer there.
+--------------------------------------------------------------------------- */
+let peekTimer = null, peekFor = null, peekAnchor = null, peekHide = null;
+
+function peekHtml(s, opts) {
   const p = showProgress(s.bgm_id);
   const slot = nextSlot(s);
   const row = (k, v, cls) =>
     `<div class="prow"><span class="k">${esc(k)}</span><span class="v ${cls || ""}">${esc(v)}</span></div>`;
   // A show with no rule, no ledger and no slot still has to say something.
   // The status is the one fact every show has, so it leads and the peek is
-  // never reduced to a single line that explains nothing.
-  let rows = row(t("peekStatus"),
-    STATUS_KEY[s.status] ? t(STATUS_KEY[s.status]) : t("peekSubscribed"),
-    s.status === "unresolved" ? "warn" : s.status === "subscribed" ? "ok" : "");
+  // never reduced to a single line that explains nothing. Watching shows
+  // carry the daemon's status; a collection entry carries none, so its
+  // collection type stands in — it used to fall through to "Subscribed",
+  // which named a subscription nothing had made — and a volume mikan has no
+  // entry for says so, matching the '?' pip and the slip on the wall.
+  let stText, stCls = "";
+  if (STATUS_KEY[s.status]) {
+    stText = t(STATUS_KEY[s.status]);
+    stCls = s.status === "unresolved" ? "warn" : "";
+  } else if (s.status === "subscribed") {
+    stText = t("peekSubscribed"); stCls = "ok";
+  } else if (s.no_mikan) {
+    stText = t("t_no_mikan"); stCls = "warn";
+  } else {
+    stText = t("t_" + (s.type || "want"));
+  }
+  let rows = row(t("peekStatus"), stText, stCls);
   if (p && !p.cold && p.total) {
     rows += row(t("peekEpisodes"), `${p.watched} / ${p.aired} / ${p.total}`);
     if (p.ready) rows += row(t("peekReady"), String(p.ready), "ok");
@@ -5877,17 +6001,26 @@ function peekHtml(s) {
   ].join("");
   return `<h4>${esc(displayTitle(s))}</h4>
     <div class="pmeta">${badges}</div>
-    ${p && !p.cold && p.total ? gaugeHtml(s, { legend: false }) + "<hr>" : ""}
+    ${p && !p.cold && p.total ? gaugeHtml(s, { legend: false, keys: false }) + "<hr>" : ""}
     ${rows}
-    <div class="phint">${esc(t("peekOpen"))}</div>`;
+    <div class="phint">${esc(t(opts && opts.fromKeys ? "peekOpenKey" : "peekOpen"))}</div>`;
 }
 
 function showPeek(anchor, bgmId) {
   const found = findShow(+bgmId);
   if (!found) return;
   const el = $("peek");
+  clearTimeout(peekHide);
+  if (peekAnchor && peekAnchor !== anchor) peekAnchor.removeAttribute("aria-describedby");
+  peekAnchor = anchor;
   peekFor = +bgmId;
-  el.innerHTML = peekHtml(found.show);
+  // A keyboard user reached this by focus, and Enter is what opens the card
+  // from there — the hint says so rather than telling them to click.
+  const fromKeys = !!(anchor.matches && anchor.matches(":focus-visible"));
+  // Through the memo, so a re-anchor that changed nothing leaves the layer's
+  // gauge (and whatever is being scrubbed on it) alone.
+  setHTML(el, peekHtml(found.show, { fromKeys }));
+  anchor.setAttribute("aria-describedby", "peek");
   el.setAttribute("aria-hidden", "false");
   // Measure, then place: right of the volume if it fits, otherwise left, and
   // clamped inside the viewport so a volume on the bottom shelf still shows
@@ -5906,23 +6039,69 @@ function showPeek(anchor, bgmId) {
 
 function hidePeek() {
   clearTimeout(peekTimer);
+  clearTimeout(peekHide);
   peekFor = null;
+  if (peekAnchor) peekAnchor.removeAttribute("aria-describedby");
+  peekAnchor = null;
   const el = $("peek");
   el.classList.remove("on");
   el.setAttribute("aria-hidden", "true");
 }
 
+// The wall and the rail are rebuilt under the layer on every poll. If the
+// same element is still there it is re-read in place — fresh rows, fresh
+// place; if the poll replaced it, the replacement carries the same data-bgm
+// and the layer moves to it; if the show is gone, so is the layer. Mirrors
+// refreshCard(), which does this for the sheet. Deliberately not testing
+// :hover on the replacement — Chrome recomputes hover only after the next
+// layout, so it reads false here and would close a layer whose volume is
+// still under the pointer. If the pointer really is elsewhere now, the
+// browser's synthetic pointerover routes through the handler below.
+function reanchorPeek() {
+  if (peekFor === null) return;
+  if (peekAnchor && peekAnchor.isConnected) { showPeek(peekAnchor, peekFor); return; }
+  const kind = peekAnchor && peekAnchor.classList.contains("sound") ? ".sound" : ".unit";
+  const again = document.querySelector(`${kind}[data-bgm="${peekFor}"]`);
+  if (again) showPeek(again, peekFor); else hidePeek();
+}
+
 document.addEventListener("pointerover", e => {
-  const unit = e.target.closest && e.target.closest(".unit[data-bgm], .sound[data-bgm]");
+  const c = e.target.closest ? s => e.target.closest(s) : () => null;
+  if (c("#peek")) { clearTimeout(peekHide); clearTimeout(peekTimer); return; }   // on the layer: it stays
+  const unit = c(".unit[data-bgm], .sound[data-bgm]");
   if (!unit) {
-    if (peekFor !== null && !(e.target.closest && e.target.closest("#peek"))) hidePeek();
+    clearTimeout(peekTimer);   // left the shelf before the dwell ran: no layer
+    // Not straight away: the 10px between the volume and the layer is desk,
+    // and crossing it on the way to the layer must not put the layer away.
+    if (peekFor !== null) { clearTimeout(peekHide); peekHide = setTimeout(hidePeek, 150); }
     return;
   }
-  if (+unit.dataset.bgm === peekFor) return;
+  if (+unit.dataset.bgm === peekFor) { clearTimeout(peekHide); return; }
   clearTimeout(peekTimer);
   // A short dwell, so sweeping the pointer across a shelf on the way somewhere
   // else does not deal out a layer per volume.
   peekTimer = setTimeout(() => showPeek(unit, unit.dataset.bgm), 240);
+});
+document.addEventListener("pointerleave", hidePeek);   // the pointer left the window
+// The layer's own hint says click to open the card, so a click on the layer
+// opens the card — the volume it belongs to, not whichever neighbour happens
+// to sit underneath.
+$("peek").addEventListener("click", () => { if (peekFor !== null) openCard(peekFor); });
+// The layer is not focusable, so pressing on it would move focus to <body>;
+// with the anchoring volume focused (the card just closed and handed focus
+// back to it) that focusout would put the layer away before the click lands.
+// Cancelling pointerdown keeps focus where it is; the click still fires.
+$("peek").addEventListener("pointerdown", e => e.preventDefault());
+// Keyboard: focus on a volume brings the layer out at once, gated on
+// :focus-visible so a mouse click — whose focus lands before the click —
+// does not flash it on the way to opening the card. Leaving the volume puts
+// it away.
+document.addEventListener("focusin", e => {
+  const unit = e.target.closest && e.target.closest(".unit[data-bgm], .sound[data-bgm]");
+  if (unit && unit.matches(":focus-visible")) { clearTimeout(peekTimer); showPeek(unit, unit.dataset.bgm); }
+});
+document.addEventListener("focusout", e => {
+  if (peekAnchor && e.target === peekAnchor) hidePeek();
 });
 window.addEventListener("scroll", hidePeek, { passive: true });
 
@@ -6334,6 +6513,49 @@ const GAUGE_FULL_DEPTH = 12;   // a whole cour behind reaches the bottom
 const showProgress = bgmId =>
   (progress && progress.shows && progress.shows[String(bgmId)]) || null;
 
+// ---- when the ledger is not coming -----------------------------------------
+// A skeleton that is not waiting on anything is a lie about the state of the
+// machine (the .skel rules say as much), and two things make a ledger never
+// come: the backend has no bangumi token and says so with a code, or a fill
+// that failed was skipped and the show is reported cold on every poll for the
+// life of the tab. Neither is "still warming", so neither gets the shimmer.
+//
+// Polls a show has been seen cold for. Bumped once per /api/progress answer,
+// never per render, so a tab or language switch cannot age a ledger.
+const COLD_POLLS = 4;
+let progressPoll = 0;
+const coldSince = new Map();   // bgm id -> progressPoll when first seen cold
+
+function noteColdShows() {
+  if (!state) return;
+  for (const s of state.shows) {
+    const id = String(s.bgm_id), p = showProgress(id);
+    if (p && !p.cold) coldSince.delete(id);
+    else if (!coldSince.has(id)) coldSince.set(id, progressPoll);
+  }
+}
+// Nothing is on its way: the backend said so (code), or the ledger has been
+// cold for COLD_POLLS answers running — a fill that failed and was skipped,
+// not one still warming. Re-read every poll, so it clears when a fill lands.
+// The poll that first saw it cold counts as one of them: coldSince holds the
+// poll number of that sighting, so the span is inclusive of both ends.
+function ledgerStalled(bgmId) {
+  if (progress && progress.code) return true;
+  const since = coldSince.get(String(bgmId));
+  return since !== undefined && progressPoll - since + 1 >= COLD_POLLS;
+}
+// The header chip for the whole-panel case. Painted from here by both the
+// progress poll and renderHeader, so a language switch (which redraws the
+// header from state) re-localises it instead of leaving it in the old
+// language until the next poll.
+function renderProgressWarn() {
+  const el = $("progresswarn");
+  if (!el) return;
+  const code = progress && progress.code;
+  el.hidden = !code;
+  if (code) el.textContent = code === "no_token" ? t("progressNoToken") : t("progressUnavailable");
+}
+
 // Grid template for the episode track. The head columns are given a pixel floor
 // so a 52-episode run still offers 52 hit targets rather than a smear.
 function gaugeColumns(n) {
@@ -6347,23 +6569,41 @@ function gaugeColumns(n) {
 // Which way the needle is about to travel, from facts rather than from a
 // remembered history the panel does not keep.
 //
-//   rising   episodes are finished and waiting — the gap can be closed now
-//   stalled  behind, with nothing in hand; the move is the downloader's
-//   sinking  level, but still on the air: the next broadcast puts you one down
-//   settled  finished and fully watched; nothing is going to move
-function gaugeTrend(p, airing) {
+//   rising     episodes are finished and waiting — the gap can be closed now
+//   holding    behind, inside an ANi grace window: no rule exists yet, so there
+//              is no downloader to wait on — the wait is for the group
+//   unmatched  behind, and mikan has no entry: nothing to download from at all
+//   stalled    behind, with nothing in hand; the move is the downloader's
+//   sinking    level, but still on the air: the next broadcast puts you one down
+//   settled    finished and fully watched; nothing is going to move
+//
+// The two waiting states are told apart from the plain stall because the card
+// says why underneath: a stall foot reading "waiting on the downloader" over
+// a grace bar reading "waiting for ANi" was two sentences for one wait, and
+// only the second was true.
+//
+// `airing` is the only gate for sinking. bgm's episode list for a running
+// show is often shorter than the run — episodes are appended as it goes — so
+// aired === total says nothing about whether it is finished.
+function gaugeTrend(p, show) {
   if (!p || !p.total) return null;
-  if (p.depth > 0) return p.ready > 0 ? "rising" : "stalled";
-  return airing ? "sinking" : "settled";
+  if (p.depth > 0) {
+    if (p.ready > 0) return "rising";
+    if (show.status === "grace" && show.grace && show.grace.expires > Date.now() / 1000) return "holding";
+    if (show.status === "unresolved") return "unmatched";
+    return "stalled";   // an expired grace lands here: grace_ended already says the next sync locks a group
+  }
+  return show.airing ? "sinking" : "settled";
 }
 
-const TREND_TEXT = { rising: "gaugeRising", stalled: "gaugeStalled",
-                     sinking: "gaugeSinking", settled: "gaugeSettled" };
+const TREND_TEXT = { rising: "gaugeRising", stalled: "gaugeStalled", holding: "gaugeHolding",
+                     unmatched: "gaugeUnmatched", sinking: "gaugeSinking", settled: "gaugeSettled" };
 
 // Chevrons point the way the needle is going: toward the surface when there is
 // ground to make up, away from it when the schedule is about to pull ahead.
-const TREND_DRIFT = { rising: ["up", "›"], stalled: ["up stall", "›"],
-                      sinking: ["down", "‹"], settled: null };
+// Every trend with a direction has an entry: a missing one drops the chevrons.
+const TREND_DRIFT = { rising: ["up", "›"], stalled: ["up stall", "›"], holding: ["up stall", "›"],
+                      unmatched: ["up stall", "›"], sinking: ["down", "‹"], settled: null };
 
 const gaugeSink = depth =>
   Math.min(1, Math.sqrt(Math.max(0, depth) / GAUGE_FULL_DEPTH)).toFixed(3);
@@ -6378,9 +6618,20 @@ function lastIndex(eps, ok) {
 function gaugeHtml(show, opts) {
   const p = showProgress(show.bgm_id);
   const compactLegend = !(opts && opts.legend === false);
+  // The track is a keyboard stop only where a keyboard can reach it: the
+  // peek's copy is aria-hidden and never focused, so it gets no tabindex.
+  const keys = !(opts && opts.keys === false);
   if (!p || p.cold) {
     // A gauge reading zero and a gauge that has not loaded look identical, and
-    // only one of them is true — so say which this is.
+    // only one of them is true — so say which this is. And a ledger that is
+    // not coming at all (see ledgerStalled) gets a plain terminal line, not a
+    // shimmer promising something in flight.
+    if (ledgerStalled(show.bgm_id)) {
+      return `<div class="gauge" data-gauge="${show.bgm_id}">
+        <div class="gauge-head"><span>${esc(t("gaugeHead"))}</span></div>
+        <div class="g-foot"><span class="st">${esc(t("gaugeUnavailable"))}</span></div>
+      </div>`;
+    }
     return `<div class="gauge" data-gauge="${show.bgm_id}">
       <div class="gauge-head"><span>${esc(t("gaugeHead"))}</span></div>
       <div class="skel-row"><span class="skel"></span><span class="skel"></span></div>
@@ -6397,7 +6648,7 @@ function gaugeHtml(show, opts) {
   const airI = lastIndex(eps, e => e.state !== "unaired");
   const diskI = lastIndex(eps, e => ["downloaded", "seeding", "watched"].includes(e.state));
   const watchI = lastIndex(eps, e => e.state === "watched");
-  const trend = gaugeTrend(p, show.airing);
+  const trend = gaugeTrend(p, show);
   const drift = TREND_DRIFT[trend];
   const readCls = p.depth === 0 ? "level" : p.depth >= 4 ? "deep" : "";
   const readTxt = p.depth === 0 ? t("gaugeLevel") : t("gaugeDepth", p.depth);
@@ -6407,14 +6658,23 @@ function gaugeHtml(show, opts) {
        type="button" tabindex="-1"
        aria-label="${esc(`#${e.ep} ${t("ep_" + e.state)}`)}"></button>`).join("");
 
-  // The legend swatches are drawn from .g-swatch, not .g-cell: they are not
+  // The legend keys the states this track actually paints, in track order —
+  // a downloading cell in the waiting colour or a seeding cell pulsing beside
+  // the "on disk" swatch went unkeyed, while a show with neither got entries
+  // for colours that were not there. Unaired stays unkeyed: it is the ground.
+  // The swatches are drawn from .g-swatch, not .g-cell: they are not
   // episodes, and anything counting the cells on the track (the probe does,
-  // and so would anyone reading the DOM) must not find three extra ones
-  // sitting in the caption.
+  // and so would anyone reading the DOM) must not find extra ones sitting in
+  // the caption. The scale note is a separate thing from the key and is set
+  // apart as one, not appended as a fourth swatch-less entry.
+  const LEGEND = [["s-aired", "legendAired"], ["s-downloading", "ep_downloading"],
+                  ["s-downloaded", "legendReady"], ["s-seeding", "ep_seeding"],
+                  ["s-watched", "legendWatched"]];
+  const on = new Set(eps.map(e => e.state));
   const legend = compactLegend ? `<div class="g-legend">${
-    [["s-aired", "legendAired"], ["s-downloaded", "legendReady"], ["s-watched", "legendWatched"]]
+    LEGEND.filter(([c]) => on.has(c.slice(2)))
       .map(([c, k]) => `<span><i class="g-swatch ${c}"></i>${esc(t(k))}</span>`).join("")
-  }<span>${esc(eps.length <= GAUGE_LINEAR_MAX
+  }<span class="g-scale">${esc(eps.length <= GAUGE_LINEAR_MAX
       ? t("gaugeScaleNote", eps.length)
       : t("gaugeScaleSplit", eps.length - Math.min(GAUGE_WINDOW, eps.length - 1),
           Math.min(GAUGE_WINDOW, eps.length - 1)))}</span></div>` : "";
@@ -6424,18 +6684,21 @@ function gaugeHtml(show, opts) {
       style="--sink:${gaugeSink(p.depth)}">
     <div class="gauge-head">
       <span>${esc(t("gaugeHead"))}</span>
-      <span class="gauge-read ${readCls}"><b>${p.watched}/${p.aired}</b> ${esc(readTxt)}</span>
+      <span class="gauge-read ${readCls}"><b title="${esc(t("gaugeReadHint"))}">${p.watched}/${p.aired}</b> ${esc(readTxt)}</span>
     </div>
     <div class="g-body">
       <div class="g-water"></div>
       <div class="g-surface"></div>
-      <div class="g-track" style="grid-template-columns:${gaugeColumns(eps.length)}">${cells}</div>
+      <div class="g-track" style="grid-template-columns:${gaugeColumns(eps.length)}"${keys ? `
+           tabindex="0" role="slider" aria-label="${esc(t("gaugeHead"))}"
+           aria-valuemin="1" aria-valuemax="${eps.length}" aria-valuenow="${Math.max(1, watchI + 1)}"
+           aria-valuetext="${esc(trend ? t(TREND_TEXT[trend]) : "")}"` : ""}>${cells}</div>
       <span class="g-flag"></span>
       <span class="g-disc"></span>
       <span class="g-needle"></span>
       ${drift ? `<span class="g-drift ${drift[0]}"><i>${drift[1]}</i><i>${drift[1]}</i><i>${drift[1]}</i></span>` : ""}
     </div>
-    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}">
+    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}" aria-live="polite">
       <span class="st">${esc(trend ? t(TREND_TEXT[trend]) : "")}</span>
     </div>
     ${legend}
@@ -6463,13 +6726,17 @@ function tuneGauges(root) {
       const c = cells[Math.min(i, cells.length - 1)];
       return c ? ((c.offsetLeft + c.offsetWidth / 2) / w) * 100 : 0;
     };
-    const gx = at(+g.dataset.watch);
+    // A gauge mid-scrub keeps its needle on the scrubbed episode: this runs on
+    // every poll and resize, and snapping the needle home while the foot still
+    // reads "#4 watched…" left the two disagreeing until the pointer moved.
+    const home = at(+g.dataset.watch);
+    const gx = g.classList.contains("scrub") && g._scrubI != null ? at(g._scrubI) : home;
     g.style.setProperty("--gx", `${gx.toFixed(2)}%`);
     const flag = g.querySelector(".g-flag");
     const disc = g.querySelector(".g-disc");
     if (flag) flag.style.left = `${at(+g.dataset.air).toFixed(2)}%`;
     if (disc) disc.style.left = `${at(+g.dataset.disk).toFixed(2)}%`;
-    g._home = gx;
+    g._home = home;
     g._at = at;
   });
 }
@@ -6479,12 +6746,20 @@ function tuneGauges(root) {
 // pointer, and the foot reads out that episode instead of the trend. Leaving
 // the instrument lets it swim home. Delegated once from the document, so it
 // covers gauges on the card, in the peek and anywhere else they get drawn.
+//
+// Three ways in, one transport: the pointer scrubs as it passes, a finger
+// parks the reading where it taps (and drags it), and the arrow keys walk it
+// from the track, which is the instrument's one focus stop. Whatever moved
+// it, the track's slider value follows so a screen reader hears the episode.
 function gaugeScrub(g, i) {
   if (!g || !g._at) return;
-  const cell = g.querySelectorAll(".g-cell")[i];
+  const cells = g.querySelectorAll(".g-cell");
+  const cell = cells[i];
   const foot = g.querySelector(".g-foot");
   g.classList.add("scrub");
+  g._scrubI = i;   // where the needle is parked, for the tuner to respect
   g.style.setProperty("--gx", `${g._at(i).toFixed(2)}%`);
+  cells.forEach((c, k) => c.classList.toggle("at", k === i));
   if (!cell || !foot) return;
   const p = showProgress(g.dataset.gauge);
   const e = p && p.episodes[i];
@@ -6498,14 +6773,26 @@ function gaugeScrub(g, i) {
     `<span class="st">${esc(t("ep_" + e.state))}</span>` +
     (e.name ? `<span class="nm">${esc(e.name)}</span>` : "") +
     (date ? `<span class="dt">${esc(date)}</span>` : "");
+  const track = g.querySelector(".g-track[tabindex]");
+  if (track) {
+    track.setAttribute("aria-valuenow", String(e.ep));
+    track.setAttribute("aria-valuetext", `#${e.ep} ${t("ep_" + e.state)}`);
+  }
 }
 
 function gaugeHome(g) {
   if (!g) return;
   g.classList.remove("scrub");
+  g._scrubI = null;
   if (g._home != null) g.style.setProperty("--gx", `${g._home.toFixed(2)}%`);
+  g.querySelectorAll(".g-cell.at").forEach(c => c.classList.remove("at"));
   const foot = g.querySelector(".g-foot");
   if (foot) foot.innerHTML = `<span class="st">${esc(foot.dataset.rest || "")}</span>`;
+  const track = g.querySelector(".g-track[tabindex]");
+  if (track) {
+    track.setAttribute("aria-valuenow", String(Math.max(1, +g.dataset.watch + 1)));
+    track.setAttribute("aria-valuetext", (foot && foot.dataset.rest) || "");
+  }
 }
 
 document.addEventListener("pointerover", e => {
@@ -6514,8 +6801,68 @@ document.addEventListener("pointerover", e => {
   const g = e.target.closest && e.target.closest(".gauge");
   if (!g) document.querySelectorAll(".gauge.scrub").forEach(gaugeHome);
 });
-document.addEventListener("pointerleave", () =>
-  document.querySelectorAll(".gauge.scrub").forEach(gaugeHome), true);
+// Home only when the pointer actually leaves the instrument. This used to be
+// a capture-phase pointerleave on the document, which fires for every
+// element's own leave — cell to gap, cell to cell, cell to water — so the
+// reading died at every boundary and the pointerover fallback above never
+// got to do its job. A null relatedTarget is the window edge, and homes too.
+// A finger is exempt: the browser fires pointerout the moment it lifts, and
+// a tap has to leave the reading up long enough to be read — the next tap
+// anywhere else homes it through the pointerover fallback.
+document.addEventListener("pointerout", e => {
+  const g = e.target.closest && e.target.closest(".gauge.scrub");
+  if (!g || e.pointerType === "touch") return;
+  if (e.relatedTarget && g.contains(e.relatedTarget)) return;
+  gaugeHome(g);
+});
+// A cell is a hit target, not a control: cancelling pointerdown suppresses
+// the mousedown whose default action is focus, so a click can no longer park
+// focus on a tabindex=-1 button and leave the drift chevrons stuck on.
+document.addEventListener("pointerdown", e => {
+  if (e.target.closest && e.target.closest(".g-cell")) e.preventDefault();
+});
+// A finger dragged along the track scrubs like a slider. Touch captures the
+// pointer to the cell it landed on, so the cell under the finger has to be
+// looked up rather than read from the event; touch-action: pan-y on the body
+// already leaves vertical drags to the page.
+document.addEventListener("pointermove", e => {
+  if (e.pointerType !== "touch") return;
+  const g = e.target.closest && e.target.closest(".gauge.scrub");
+  if (!g) return;
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const cell = under && under.closest && under.closest(".g-cell[data-i]");
+  if (!cell || cell.closest(".gauge") !== g) return;
+  const i = +cell.dataset.i;
+  if (i !== g._scrubI) gaugeScrub(g, i);
+});
+// The keyboard walks the focused track. Only these four keys are taken, so
+// `/` and the digit shortcuts stay with the document handler (which bails on
+// an open drawer anyway); Escape is handled at the head of that handler's
+// Escape chain, ahead of the drawer, so it parks the needle before it closes
+// anything.
+document.addEventListener("keydown", e => {
+  const track = e.target.closest && e.target.closest(".g-track[tabindex]");
+  if (!track) return;
+  const g = track.closest(".gauge");
+  const n = track.children.length;
+  if (!g || !n) return;
+  const cur = g._scrubI != null ? g._scrubI : +g.dataset.watch;
+  let i = null;
+  if (e.key === "ArrowRight") i = Math.min(n - 1, cur + 1);
+  else if (e.key === "ArrowLeft") i = Math.max(0, cur - 1);
+  else if (e.key === "Home") i = 0;
+  else if (e.key === "End") i = n - 1;
+  if (i === null) return;
+  e.preventDefault();
+  gaugeScrub(g, i);
+});
+// Tabbing off the track is leaving the instrument, the same as the pointer
+// going: a reading parked by the keyboard must not outlive the focus that
+// parked it, or the card's refresh would stay deferred behind it.
+document.addEventListener("focusout", e => {
+  const track = e.target.closest && e.target.closest(".g-track[tabindex]");
+  if (track) gaugeHome(track.closest(".gauge.scrub"));
+});
 
 // ---- the rail reading ----------------------------------------------------
 // The same three tracks, one line each: a hairline for what has been watched,
@@ -6523,9 +6870,17 @@ document.addEventListener("pointerleave", () =>
 function soundingRow(s) {
   const p = showProgress(s.bgm_id);
   const title = displayTitle(s);
+  // A row that is not a plain subscription says so beside its name — inside
+  // .sn, because the grid is `1fr auto` and a third column would fight the
+  // depth figure for the right edge.
+  const tag = STATUS_KEY[s.status]
+    ? ` <span class="stag">${esc(t(STATUS_KEY[s.status]))}</span>` : "";
+  const name = `<span class="sn">${esc(title)}${tag}</span>`;
   if (!p || p.cold) {
+    // An ellipsis while the ledger warms; a dash once it is known not to come.
+    const sd = ledgerStalled(s.bgm_id) ? "—" : "…";
     return `<button class="sound" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})">
-      <span class="sn">${esc(title)}</span><span class="sd cold">…</span>
+      ${name}<span class="sd cold">${sd}</span>
       <span class="sbar"></span></button>`;
   }
   const span = Math.max(p.total || 1, p.aired || 1);
@@ -6533,7 +6888,7 @@ function soundingRow(s) {
   const read = p.depth === 0 ? "0" : `−${p.depth}`;
   return `<button class="sound" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})"
       title="${esc(`${title} · ${p.watched}/${p.aired}`)}">
-    <span class="sn">${esc(title)}</span>
+    ${name}
     <span class="sd ${cls}">${esc(read)}</span>
     <span class="sbar">
       <i style="width:${((p.watched / span) * 100).toFixed(1)}%"></i>
@@ -6547,8 +6902,14 @@ function renderSoundings() {
   const el = $("soundings");
   // Deepest first: the rail is a duty list, and the show you are furthest
   // behind on is the one it should be putting in front of you.
+  //
+  // Every show with a warm ledger belongs on it, not only the subscribed:
+  // a show in its grace window is behind just the same, the grid's progress
+  // sort already ranks it, and a list that omits the one show it cannot fix
+  // is not a duty list. Hand-managed legacy shows stay off — there is no duty
+  // to be done on them here.
   const rows = state.shows
-    .filter(s => s.status === "subscribed")
+    .filter(s => s.status !== "manual" && (s.status === "subscribed" || showProgress(s.bgm_id)))
     .map(s => [showProgress(s.bgm_id), s])
     .sort((a, b) => ((b[0] && b[0].depth) || 0) - ((a[0] && a[0].depth) || 0))
     .map(([, s]) => soundingRow(s)).join("");
@@ -6580,6 +6941,7 @@ function renderHeader() {
   const al = $("anilistwarn");
   al.hidden = !state.anilist_faults;
   if (!al.hidden) al.textContent = t("anilistDown");
+  renderProgressWarn();   // so a language switch re-localises it with the rest
   if (state.sync_running) watchSync();
   syncBtnUI();
 }
@@ -6608,6 +6970,7 @@ function render() {
   guardPanel("prio", renderPrio);
   renderRoom();
   refreshCard();
+  reanchorPeek();   // the wall and the rail were just rebuilt under the layer
 }
 
 function syncBtnUI() {
@@ -6761,10 +7124,14 @@ async function refreshProgress() {
     const d = await (await fetch("/api/progress")).json();
     if (q !== seqP) return;
     progress = d;
+    progressPoll++;
+    noteColdShows();
+    renderProgressWarn();
     if (!state) return;
     guardPanel("cards", renderCards);   // the pips and the sort key both move
     guardPanel("soundings", renderSoundings);
     refreshCard();
+    reanchorPeek();
   } catch (e) { /* transient — the last good reading stays up */ }
 }
 
@@ -7630,7 +7997,7 @@ function renderMachine() {
   html += row(state.sync_running ? "warn" : "", t("mSync"),
     state.sync_running ? t("mSyncing") : fmtStamp(state.last_sync));
   html += row("", t("mSubs"), String(count("subscribed")));
-  html += row(ready < held ? "warn" : "", t("mReady"), `${ready}/${held}`);
+  html += row(ready < held ? "warn" : "", t("mDownloads"), `${ready}/${held}`);
   if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
   if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
   setHTML($("machine"), html);
@@ -7775,8 +8142,11 @@ window.addEventListener("resize", () => {
   tuneQueued = setTimeout(() => tuneGauges(document), 120);
 });
 
-// live countdowns
-setInterval(() => {
+// Live countdowns. Its own function rather than the interval's body because
+// the markup carries the countdown empty (see card()'s grace row) — whoever
+// inserts a grace bar calls this straight after, so the bar never shows a
+// blank for the second until the ticker comes round.
+function tickCountdowns() {
   document.querySelectorAll(".cd[data-expires]").forEach(el => {
     const exp = parseFloat(el.dataset.expires);
     if (exp - Date.now() / 1000 <= 0) {
@@ -7788,7 +8158,8 @@ setInterval(() => {
     }
     el.textContent = fmtCountdown(exp);
   });
-}, 1000);
+}
+setInterval(tickCountdowns, 1000);
 
 applyTheme();    // set data-theme first so the initial paint uses the right palette
 applyUiScale();  // …and --ui, so nothing is laid out at the wrong size and reflowed
