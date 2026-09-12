@@ -3196,6 +3196,10 @@ if (new URLSearchParams(location.search).has("probe")) {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: calc(.85rem * var(--ui)); color: var(--text);
   }
+  /* The status of a row that is not a plain subscription, set beside the name
+     in the waiting colour: the rail lists every show with a reading, and a
+     grace or an unmatched show has to say why its depth is not yours to fix. */
+  .sound .stag { font-size: .72em; color: var(--warn); font-family: var(--mono); }
   .sound .sd { font-family: var(--mono); font-size: calc(.8rem * var(--ui)); }
   .sound .sd.level { color: var(--ok); }
   .sound .sd.deep { color: var(--warn); }
@@ -4011,7 +4015,7 @@ const I18N = {
     via: "via", switch: "Switch", waitingAni: "Waiting for ANi", lockBest: "Lock best now",
     noEpisodes: "Subscribed — no episodes in feed yet",
     notOnMikan: "Not on mikan yet — checked every 5 min",
-    epReady: o => `${o.done}/${o.total} episode${o.total === 1 ? "" : "s"} ready to watch`,
+    epReady: o => `${o.done}/${o.total} download${o.total === 1 ? "" : "s"} complete`,
     graceH: h => `grace ${h}h`,
     backendUnreachable: e => "Backend unreachable: " + e,
     syncFinished: "Sync pass finished",
@@ -4086,7 +4090,7 @@ const I18N = {
     machineHead: "Machine",
     mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
     mSync: "Last sync", mSyncing: "running",
-    mSubs: "Subscriptions", mReady: "Episodes ready",
+    mSubs: "Subscriptions", mDownloads: "Downloads complete",
     mGrace: "In grace", mWaiting: "Awaiting mikan",
     censusHead: "The census", censusNone: "Nothing shelved yet",
     censusVols: "volumes", censusSpan: "years", censusMean: "mean bgm rating",
@@ -4115,6 +4119,13 @@ const I18N = {
     ep_downloading: "downloading", ep_downloaded: "downloaded",
     ep_seeding: "seeding", ep_watched: "watched",
     legendAired: "aired", legendReady: "on disk", legendWatched: "watched",
+    gaugeHolding: "waiting for ANi — no download rule yet",
+    gaugeUnmatched: "not on mikan yet — nothing to download from",
+    progressNoToken: "bangumi token missing — progress unavailable",
+    progressUnavailable: "progress unavailable",
+    gaugeUnavailable: "episode ledger unavailable",
+    peekOpenKey: "Enter opens the full card",
+    gaugeReadHint: "watched / aired",
     // --- sorting / filtering ---
     sortHead: "Order", sortDefault: "Default",
     sort_air: "Airtime", sort_updated: "Updated", sort_progress: "Progress",
@@ -4166,7 +4177,7 @@ const I18N = {
     via: "字幕组", switch: "切换", waitingAni: "等待 ANi", lockBest: "锁定当前最优",
     noEpisodes: "已订阅 — feed 中暂无剧集",
     notOnMikan: "mikan 上尚未出现 — 每 5 分钟检查一次",
-    epReady: o => `${o.done}/${o.total} 集准备完成，可以观看`,
+    epReady: o => `${o.done}/${o.total} 个下载已完成`,
     graceH: h => `宽限 ${h} 小时`,
     backendUnreachable: e => "后端无法连接：" + e,
     syncFinished: "本轮同步完成",
@@ -4241,7 +4252,7 @@ const I18N = {
     machineHead: "机器状态",
     mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
     mSync: "上次同步", mSyncing: "进行中",
-    mSubs: "订阅", mReady: "已就绪剧集",
+    mSubs: "订阅", mDownloads: "下载完成",
     mGrace: "宽限中", mWaiting: "等待 mikan",
     censusHead: "藏书年谱", censusNone: "书架上还没有藏书",
     censusVols: "卷", censusSpan: "年份", censusMean: "bgm 均分",
@@ -4267,6 +4278,13 @@ const I18N = {
     ep_downloading: "下载中", ep_downloaded: "已下载",
     ep_seeding: "做种中", ep_watched: "已看",
     legendAired: "已播", legendReady: "在盘", legendWatched: "已看",
+    gaugeHolding: "等待 ANi — 尚未建立下载规则",
+    gaugeUnmatched: "尚未匹配 mikan — 无处可下",
+    progressNoToken: "缺少 bangumi token — 进度不可用",
+    progressUnavailable: "进度不可用",
+    gaugeUnavailable: "分集账暂不可用",
+    peekOpenKey: "回车展开完整卡片",
+    gaugeReadHint: "已看 / 已播",
     // --- 排序 / 筛选 ---
     sortHead: "排序", sortDefault: "默认",
     sort_air: "开播时间", sort_updated: "更新时间", sort_progress: "追番进度",
@@ -5097,7 +5115,10 @@ function spineFurniture(b, archive) {
   return out;
 }
 
-// Episodes sitting in qBittorrent, ready to watch. Drives the corner pip.
+// Torrents finished in qBittorrent, out of those it holds. The cold fallback
+// for the corner pip: /api/overview ships {progress} per torrent and nothing
+// else, so this cannot tell a finished episode from a finished-and-watched
+// one — the ledger can, and takes over the moment it is warm.
 function readyCount(s) {
   if (!s.torrents || !s.torrents.length) return null;
   return { done: s.torrents.filter(tr => tr.progress >= 1).length, total: s.torrents.length };
@@ -5114,15 +5135,27 @@ function bookUnit(s, type) {
   // the only way to reach these is dismissible, and dismissing it is exactly
   // what makes the show unreachable.
   const nomk = !!s.no_mikan;
+  const p = showProgress(s.bgm_id);
   let pip = "";
   if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
     // A grace window is the one state that expires on its own — it has to be
     // visible from the wall, not only once the card is open.
     pip = `<span class="upip wait" title="${esc(t("waitingAni"))}">${esc(t("gracePip"))}</span>`;
-  } else if (r) {
-    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;
   } else if (nomk || s.status === "unresolved") {
+    // Before the ledger, not after: an unmatched show has a warm ledger too,
+    // and it would read "−N" in the waiting colour — true, but not the fact
+    // that matters, which is that nothing can be downloaded from anywhere.
     pip = `<span class="upip none">?</span>`;
+  } else if (p && !p.cold && p.total) {
+    // The ledger is the reading: episodes finished and not yet watched, or
+    // the depth when nothing is in hand. A level show wears no tag at all —
+    // the one reading available without a click has to mean something, and
+    // "8/8" in the ok colour on a level show and on one three behind did not.
+    // Same guard as depthOf, so the pip and the progress sort key agree.
+    pip = p.ready ? `<span class="upip">+${p.ready}</span>`
+        : p.depth ? `<span class="upip wait">−${p.depth}</span>` : "";
+  } else if (r) {
+    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;   // cold: what qB knows
   }
   const slip = nomk
     ? `<span class="slip" aria-hidden="true"><span class="slip-rule"></span></span>` : "";
@@ -5228,7 +5261,11 @@ function card(show) {
       </div>`;
   }
 
-  // Episode summary instead of per-torrent rows: "done/total ready to watch".
+  // The downloader's summary instead of per-torrent rows: "done/total
+  // downloads complete". It is labelled for what it counts — a torrent that
+  // has finished, watched or not — because the sounding above already says
+  // what is ready to watch, and a second line saying "ready" from a different
+  // count contradicted it on every card where the two differed.
   let torrents = "";
   if (show.torrents.length) {
     const done = show.torrents.filter(tr => tr.progress >= 1).length;
@@ -6190,23 +6227,41 @@ function gaugeColumns(n) {
 // Which way the needle is about to travel, from facts rather than from a
 // remembered history the panel does not keep.
 //
-//   rising   episodes are finished and waiting — the gap can be closed now
-//   stalled  behind, with nothing in hand; the move is the downloader's
-//   sinking  level, but still on the air: the next broadcast puts you one down
-//   settled  finished and fully watched; nothing is going to move
-function gaugeTrend(p, airing) {
+//   rising     episodes are finished and waiting — the gap can be closed now
+//   holding    behind, inside an ANi grace window: no rule exists yet, so there
+//              is no downloader to wait on — the wait is for the group
+//   unmatched  behind, and mikan has no entry: nothing to download from at all
+//   stalled    behind, with nothing in hand; the move is the downloader's
+//   sinking    level, but still on the air: the next broadcast puts you one down
+//   settled    finished and fully watched; nothing is going to move
+//
+// The two waiting states are told apart from the plain stall because the card
+// says why underneath: a stall foot reading "waiting on the downloader" over
+// a grace bar reading "waiting for ANi" was two sentences for one wait, and
+// only the second was true.
+//
+// `airing` is the only gate for sinking. bgm's episode list for a running
+// show is often shorter than the run — episodes are appended as it goes — so
+// aired === total says nothing about whether it is finished.
+function gaugeTrend(p, show) {
   if (!p || !p.total) return null;
-  if (p.depth > 0) return p.ready > 0 ? "rising" : "stalled";
-  return airing ? "sinking" : "settled";
+  if (p.depth > 0) {
+    if (p.ready > 0) return "rising";
+    if (show.status === "grace" && show.grace && show.grace.expires > Date.now() / 1000) return "holding";
+    if (show.status === "unresolved") return "unmatched";
+    return "stalled";   // an expired grace lands here: grace_ended already says the next sync locks a group
+  }
+  return show.airing ? "sinking" : "settled";
 }
 
-const TREND_TEXT = { rising: "gaugeRising", stalled: "gaugeStalled",
-                     sinking: "gaugeSinking", settled: "gaugeSettled" };
+const TREND_TEXT = { rising: "gaugeRising", stalled: "gaugeStalled", holding: "gaugeHolding",
+                     unmatched: "gaugeUnmatched", sinking: "gaugeSinking", settled: "gaugeSettled" };
 
 // Chevrons point the way the needle is going: toward the surface when there is
 // ground to make up, away from it when the schedule is about to pull ahead.
-const TREND_DRIFT = { rising: ["up", "›"], stalled: ["up stall", "›"],
-                      sinking: ["down", "‹"], settled: null };
+// Every trend with a direction has an entry: a missing one drops the chevrons.
+const TREND_DRIFT = { rising: ["up", "›"], stalled: ["up stall", "›"], holding: ["up stall", "›"],
+                      unmatched: ["up stall", "›"], sinking: ["down", "‹"], settled: null };
 
 const gaugeSink = depth =>
   Math.min(1, Math.sqrt(Math.max(0, depth) / GAUGE_FULL_DEPTH)).toFixed(3);
@@ -6240,7 +6295,7 @@ function gaugeHtml(show, opts) {
   const airI = lastIndex(eps, e => e.state !== "unaired");
   const diskI = lastIndex(eps, e => ["downloaded", "seeding", "watched"].includes(e.state));
   const watchI = lastIndex(eps, e => e.state === "watched");
-  const trend = gaugeTrend(p, show.airing);
+  const trend = gaugeTrend(p, show);
   const drift = TREND_DRIFT[trend];
   const readCls = p.depth === 0 ? "level" : p.depth >= 4 ? "deep" : "";
   const readTxt = p.depth === 0 ? t("gaugeLevel") : t("gaugeDepth", p.depth);
@@ -6366,9 +6421,15 @@ document.addEventListener("pointerleave", () =>
 function soundingRow(s) {
   const p = showProgress(s.bgm_id);
   const title = displayTitle(s);
+  // A row that is not a plain subscription says so beside its name — inside
+  // .sn, because the grid is `1fr auto` and a third column would fight the
+  // depth figure for the right edge.
+  const tag = STATUS_KEY[s.status]
+    ? ` <span class="stag">${esc(t(STATUS_KEY[s.status]))}</span>` : "";
+  const name = `<span class="sn">${esc(title)}${tag}</span>`;
   if (!p || p.cold) {
     return `<button class="sound" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})">
-      <span class="sn">${esc(title)}</span><span class="sd cold">…</span>
+      ${name}<span class="sd cold">…</span>
       <span class="sbar"></span></button>`;
   }
   const span = Math.max(p.total || 1, p.aired || 1);
@@ -6376,7 +6437,7 @@ function soundingRow(s) {
   const read = p.depth === 0 ? "0" : `−${p.depth}`;
   return `<button class="sound" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})"
       title="${esc(`${title} · ${p.watched}/${p.aired}`)}">
-    <span class="sn">${esc(title)}</span>
+    ${name}
     <span class="sd ${cls}">${esc(read)}</span>
     <span class="sbar">
       <i style="width:${((p.watched / span) * 100).toFixed(1)}%"></i>
@@ -6390,8 +6451,14 @@ function renderSoundings() {
   const el = $("soundings");
   // Deepest first: the rail is a duty list, and the show you are furthest
   // behind on is the one it should be putting in front of you.
+  //
+  // Every show with a warm ledger belongs on it, not only the subscribed:
+  // a show in its grace window is behind just the same, the grid's progress
+  // sort already ranks it, and a list that omits the one show it cannot fix
+  // is not a duty list. Hand-managed legacy shows stay off — there is no duty
+  // to be done on them here.
   const rows = state.shows
-    .filter(s => s.status === "subscribed")
+    .filter(s => s.status !== "manual" && (s.status === "subscribed" || showProgress(s.bgm_id)))
     .map(s => [showProgress(s.bgm_id), s])
     .sort((a, b) => ((b[0] && b[0].depth) || 0) - ((a[0] && a[0].depth) || 0))
     .map(([, s]) => soundingRow(s)).join("");
@@ -7375,7 +7442,7 @@ function renderMachine() {
   html += row(state.sync_running ? "warn" : "", t("mSync"),
     state.sync_running ? t("mSyncing") : fmtStamp(state.last_sync));
   html += row("", t("mSubs"), String(count("subscribed")));
-  html += row(ready < held ? "warn" : "", t("mReady"), `${ready}/${held}`);
+  html += row(ready < held ? "warn" : "", t("mDownloads"), `${ready}/${held}`);
   if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
   if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
   setHTML($("machine"), html);
