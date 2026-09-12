@@ -3191,6 +3191,13 @@ if (new URLSearchParams(location.search).has("probe")) {
     font-size: calc(.72rem * var(--ui)); color: var(--text-faint);
   }
   .g-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  /* The scale note is not a key entry: pushed to the far end behind a
+     hairline, so it does not read as a fourth swatch that lost its swatch.
+     No italics — the zh face would only get a synthesised oblique. */
+  .g-legend .g-scale { margin-left: auto; color: var(--text-faint); }
+  .g-legend .g-scale::before {
+    content: ""; width: 1px; height: .9em; background: var(--panel-border); margin-right: 6px;
+  }
   .g-legend .g-swatch {
     width: calc(8px * var(--ui)); height: calc(8px * var(--ui));
     border-radius: 1px; display: inline-block; flex: none;
@@ -4474,7 +4481,7 @@ function fixtureData() {
     }];
   };
   const progress = Object.fromEntries([
-    roll(1001, 13, 8, 8, 8, 8),          // level, one still seeding
+    roll(1001, 13, 8, 8, 8, 8),          // level, all in hand (watched wins over seeding in eps())
     roll(1002, 13, 8, 5, 8),             // 3 behind, all three in hand
     roll(1003, 13, 8, 8, 0),             // level but nothing on disk
     roll(1004, 52, 46, 31, 46, 45),      // long-runner, 15 behind, compressed
@@ -5797,10 +5804,23 @@ function peekHtml(s, opts) {
     `<div class="prow"><span class="k">${esc(k)}</span><span class="v ${cls || ""}">${esc(v)}</span></div>`;
   // A show with no rule, no ledger and no slot still has to say something.
   // The status is the one fact every show has, so it leads and the peek is
-  // never reduced to a single line that explains nothing.
-  let rows = row(t("peekStatus"),
-    STATUS_KEY[s.status] ? t(STATUS_KEY[s.status]) : t("peekSubscribed"),
-    s.status === "unresolved" ? "warn" : s.status === "subscribed" ? "ok" : "");
+  // never reduced to a single line that explains nothing. Watching shows
+  // carry the daemon's status; a collection entry carries none, so its
+  // collection type stands in — it used to fall through to "Subscribed",
+  // which named a subscription nothing had made — and a volume mikan has no
+  // entry for says so, matching the '?' pip and the slip on the wall.
+  let stText, stCls = "";
+  if (STATUS_KEY[s.status]) {
+    stText = t(STATUS_KEY[s.status]);
+    stCls = s.status === "unresolved" ? "warn" : "";
+  } else if (s.status === "subscribed") {
+    stText = t("peekSubscribed"); stCls = "ok";
+  } else if (s.no_mikan) {
+    stText = t("t_no_mikan"); stCls = "warn";
+  } else {
+    stText = t("t_" + (s.type || "want"));
+  }
+  let rows = row(t("peekStatus"), stText, stCls);
   if (p && !p.cold && p.total) {
     rows += row(t("peekEpisodes"), `${p.watched} / ${p.aired} / ${p.total}`);
     if (p.ready) rows += row(t("peekReady"), String(p.ready), "ok");
@@ -6475,14 +6495,23 @@ function gaugeHtml(show, opts) {
        type="button" tabindex="-1"
        aria-label="${esc(`#${e.ep} ${t("ep_" + e.state)}`)}"></button>`).join("");
 
-  // The legend swatches are drawn from .g-swatch, not .g-cell: they are not
+  // The legend keys the states this track actually paints, in track order —
+  // a downloading cell in the waiting colour or a seeding cell pulsing beside
+  // the "on disk" swatch went unkeyed, while a show with neither got entries
+  // for colours that were not there. Unaired stays unkeyed: it is the ground.
+  // The swatches are drawn from .g-swatch, not .g-cell: they are not
   // episodes, and anything counting the cells on the track (the probe does,
-  // and so would anyone reading the DOM) must not find three extra ones
-  // sitting in the caption.
+  // and so would anyone reading the DOM) must not find extra ones sitting in
+  // the caption. The scale note is a separate thing from the key and is set
+  // apart as one, not appended as a fourth swatch-less entry.
+  const LEGEND = [["s-aired", "legendAired"], ["s-downloading", "ep_downloading"],
+                  ["s-downloaded", "legendReady"], ["s-seeding", "ep_seeding"],
+                  ["s-watched", "legendWatched"]];
+  const on = new Set(eps.map(e => e.state));
   const legend = compactLegend ? `<div class="g-legend">${
-    [["s-aired", "legendAired"], ["s-downloaded", "legendReady"], ["s-watched", "legendWatched"]]
+    LEGEND.filter(([c]) => on.has(c.slice(2)))
       .map(([c, k]) => `<span><i class="g-swatch ${c}"></i>${esc(t(k))}</span>`).join("")
-  }<span>${esc(eps.length <= GAUGE_LINEAR_MAX
+  }<span class="g-scale">${esc(eps.length <= GAUGE_LINEAR_MAX
       ? t("gaugeScaleNote", eps.length)
       : t("gaugeScaleSplit", eps.length - Math.min(GAUGE_WINDOW, eps.length - 1),
           Math.min(GAUGE_WINDOW, eps.length - 1)))}</span></div>` : "";
@@ -6492,7 +6521,7 @@ function gaugeHtml(show, opts) {
       style="--sink:${gaugeSink(p.depth)}">
     <div class="gauge-head">
       <span>${esc(t("gaugeHead"))}</span>
-      <span class="gauge-read ${readCls}"><b>${p.watched}/${p.aired}</b> ${esc(readTxt)}</span>
+      <span class="gauge-read ${readCls}"><b title="${esc(t("gaugeReadHint"))}">${p.watched}/${p.aired}</b> ${esc(readTxt)}</span>
     </div>
     <div class="g-body">
       <div class="g-water"></div>
