@@ -6376,10 +6376,12 @@ function noteColdShows() {
 // Nothing is on its way: the backend said so (code), or the ledger has been
 // cold for COLD_POLLS answers running — a fill that failed and was skipped,
 // not one still warming. Re-read every poll, so it clears when a fill lands.
+// The poll that first saw it cold counts as one of them: coldSince holds the
+// poll number of that sighting, so the span is inclusive of both ends.
 function ledgerStalled(bgmId) {
   if (progress && progress.code) return true;
   const since = coldSince.get(String(bgmId));
-  return since !== undefined && progressPoll - since >= COLD_POLLS;
+  return since !== undefined && progressPoll - since + 1 >= COLD_POLLS;
 }
 // The header chip for the whole-panel case. Painted from here by both the
 // progress poll and renderHeader, so a language switch (which redraws the
