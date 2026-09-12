@@ -16,12 +16,14 @@
 #   long       the compressed 52-episode scale, mid-scrub
 #   timetable  a day column lit under the pointer
 #   picker     the subgroup picker open
+#   desk       the duty desk drawer open, at 1400px (below the room's breakpoint,
+#              where the header button that opens it exists at all)
 #
 # Fixture-driven; the live panel is never opened. See scripts/_bench.ps1.
 
 [CmdletBinding()]
 param(
-    [ValidateSet("shelf", "gauge", "long", "timetable", "picker", "all")]
+    [ValidateSet("shelf", "gauge", "long", "timetable", "picker", "desk", "all")]
     [string]$Scene = "all",
     [ValidateSet("en", "zh", "both")] [string]$Lang = "en",
     [ValidateSet("dark", "light", "both")] [string]$Theme = "both",
@@ -31,7 +33,7 @@ param(
 
 . (Join-Path $PSScriptRoot "_bench.ps1")
 
-$scenes = if ($Scene -eq "all") { @("shelf", "gauge", "long", "timetable", "picker") } else { @($Scene) }
+$scenes = if ($Scene -eq "all") { @("shelf", "gauge", "long", "timetable", "picker", "desk") } else { @($Scene) }
 $langs  = if ($Lang -eq "both") { @("en", "zh") } else { @($Lang) }
 $themes = if ($Theme -eq "both") { @("dark", "light") } else { @($Theme) }
 $dir = New-ShotDir
@@ -42,17 +44,21 @@ try {
     foreach ($s in $scenes) {
         foreach ($l in $langs) {
             foreach ($th in $themes) {
+                # The desk drawer only exists below the room's 1800px
+                # breakpoint, so its scene is shot at laptop width unless one
+                # was asked for explicitly.
+                $w = if ($s -eq "desk" -and -not $PSBoundParameters.ContainsKey("Width")) { 1400 } else { $Width }
                 $name = "state-$s-$l-$th.png"
                 $path = Join-Path $dir $name
                 $url = "http://127.0.0.1:$($bench.Port)/_states.html?" +
-                       "scene=$s&lang=$l&theme=$th&w=$Width&h=$Height"
+                       "scene=$s&lang=$l&theme=$th&w=$w&h=$Height"
                 # Reduced motion here too: the states page forces the *end*
                 # state of every hover rule, and an entry animation still
                 # mid-flight would paint over it at whatever opacity the first
                 # frame happened to land on.
                 Invoke-Chrome -ChromeArgs @(
                     "--screenshot=$path",
-                    "--window-size=$Width,$Height",
+                    "--window-size=$w,$Height",
                     "--force-prefers-reduced-motion",
                     "--hide-scrollbars",
                     "--virtual-time-budget=10000",

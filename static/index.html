@@ -2570,6 +2570,13 @@ if (new URLSearchParams(location.search).has("probe")) {
      panels are wildly different heights, and grid would align them into rows
      and leave a hole beside the shortest. Columns let them flow and pack. */
   .desk { columns: 330px; column-gap: 16px; margin-top: 26px; position: relative; }
+  /* The same instruments, standing in the desk drawer while the room is too
+     narrow for the pedestal (placeDesk() moves them; nothing is drawn twice).
+     No lamp hangs over the drawer, so the wash the rail paints across the top
+     of the desk is not painted here, and the drawer body's own padding already
+     stands the first case off the head. */
+  #desk .desk { margin-top: 0; }
+  #desk .desk::before { content: none; }
   /* Each panel is a drawer front: cockbead moulding around the edge, a lit top
      roll and a dark bottom one, and a shadow cast to the lower right by the
      lamp above and to the left. */
@@ -3758,6 +3765,12 @@ if (new URLSearchParams(location.search).has("probe")) {
     <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
     <span class="chip" id="synchip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
     <button class="btn" id="syncbtn" onclick="runSync()">Sync now</button>
+    <!-- The readings, for a window too narrow to stand the right pedestal:
+         below 1800px the duty desk is reached from here and opens as a drawer.
+         placeDesk() hides the button again once the room is wide enough to put
+         the instruments on the rail, where nothing needs opening. -->
+    <button class="btn ghost compact" id="deskbtn" onclick="openDesk()"
+            aria-expanded="false" aria-controls="desk" data-i18n="dutyDesk" hidden>Duty desk</button>
     <!-- Everything that is a setting rather than a reading now lives behind
          the gear: theme, language, subgroup priority, the daemon log. -->
     <button class="btn ghost compact" id="gearbtn" onclick="openSettings()"
@@ -3865,7 +3878,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   <div class="rail-head">
     <h2 id="desk-h" data-i18n="dutyDesk">Duty desk</h2>
   </div>
-  <div class="desk">
+  <!-- One of the desk's two homes; the other is the drawer's #desk-host. The
+       five panels below are moved between them by placeDesk(), never copied. -->
+  <div class="desk" id="desk-rail">
     <section class="deskpanel">
       <h3 data-i18n="upNext">Next 48 hours</h3>
       <div class="clocks" id="clocks"></div>
@@ -3959,6 +3974,23 @@ if (new URLSearchParams(location.search).has("probe")) {
       </div>
       <div class="logs" id="logs" role="log"></div>
     </div>
+  </div>
+</aside>
+
+<!-- The duty desk as a drawer: the five instruments the right pedestal carries
+     past 1800px, reached from the header while the pedestal is gone. Readings,
+     not settings, so it is its own drawer rather than a group under the gear.
+     The body is an empty host — placeDesk() moves the real panels in and out
+     instead of cloning them, so every id stays unique and the builders never
+     learn which of the two homes they are drawing into. -->
+<aside class="drawer" id="desk" data-open="0" role="dialog" aria-modal="true"
+       aria-labelledby="desk-dh" hidden inert>
+  <div class="drawer-head">
+    <h2 id="desk-dh" data-i18n="dutyDesk">Duty desk</h2>
+    <button class="drawer-close" onclick="closeDrawers()" aria-label="close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="desk" id="desk-host"></div>
   </div>
 </aside>
 
@@ -4095,6 +4127,7 @@ const I18N = {
     schedFootLeft: "Set in local time",
     schedFootRight: n => `${n} slots this week`,
     dayEmpty: "nothing scheduled",
+    sort_score: "Rating",   // the grid's own score key; sortScore above is the archive's
     // --- the sounding ---
     // The panel is a sounding by construction (see the gauge), but it is
     // labelled in the plainest words that describe what it answers. The
@@ -4250,6 +4283,7 @@ const I18N = {
     schedFootLeft: "按本地时区排印",
     schedFootRight: n => `本周共 ${n} 场`,
     dayEmpty: "本日无放送",
+    sort_score: "评分",   // 书架排序键；上面的 sortScore 是藏书阁那一把
     // --- 测深 ---
     soundHead: "进度表", soundNone: "暂无追番",
     gaugeHead: "追番进度",
@@ -5310,7 +5344,17 @@ function hidePanel(id) {
 }
 
 function showPanel(id) {
-  for (const other of ["cardsheet", "settings"]) if (other !== id) hidePanel(other);
+  // A panel retired by another one has to give up its opener's expanded state
+  // too: closeDrawers() resets both buttons, but opening a card from a row
+  // inside the desk drawer (or pressing the gear while it is out) never goes
+  // through it, and the button would go on announcing "expanded" to a screen
+  // reader while its drawer is shut.
+  for (const other of ["cardsheet", "settings", "desk"]) {
+    if (other === id) continue;
+    hidePanel(other);
+    const opener = other === "desk" ? "deskbtn" : other === "settings" ? "gearbtn" : null;
+    if (opener) $(opener).setAttribute("aria-expanded", "false");
+  }
   drawerReturn = document.activeElement;
   const d = $(id);
   // `display: flex` on a panel beats [hidden]'s display:none, so `inert` is
@@ -5336,10 +5380,12 @@ function showPanel(id) {
 function closeDrawers(silent) {
   hidePanel("cardsheet");
   hidePanel("settings");
+  hidePanel("desk");
   document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = false);
   document.body.classList.remove("drawer-open");
   document.querySelectorAll(".unit.open, .spine.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
+  $("deskbtn").setAttribute("aria-expanded", "false");
   setCoverGhost(null);
   openBgm = null;
   if (!silent && drawerReturn && drawerReturn.isConnected) drawerReturn.focus();
@@ -5604,6 +5650,10 @@ const SORT_KEYS = {
   updated:  { num: s => markedMs(s) || null, not: "watching" },
   season:   { str: s => s.season || null },
   title:    { str: s => displayTitle(s) },
+  // Every card and peek prints the bgm rating, and the archive can shelve by
+  // it — so the grid can be ordered by it too, on every tab. An unrated show
+  // scores 0 on bangumi, which is "unknown" here rather than "the lowest".
+  score:    { num: s => finite(+s.score) || null },
 };
 
 const sortKeysFor = tab => Object.keys(SORT_KEYS).filter(k => {
@@ -6386,7 +6436,7 @@ function soundingRow(s) {
 }
 
 function renderSoundings() {
-  if (!roomOn() || !state) return;
+  if (!deskOn() || !state) return;
   const el = $("soundings");
   // Deepest first: the rail is a duty list, and the show you are furthest
   // behind on is the one it should be putting in front of you.
@@ -6580,7 +6630,7 @@ async function refresh() {
     // it is here now, so restate them before anything is shown.
     await refreshPremieres();
     bootDone();
-    refreshLedger();   // right rail only; a no-op while the room is collapsed
+    refreshLedger();   // a no-op unless the desk is showing (room on, or the desk drawer open)
   } catch (e) {
     if (q !== seqO) return;
     // Toast once per outage, then hold a persistent indicator in the header —
@@ -7107,11 +7157,42 @@ async function pullLogs() {
    data the centre column already fetched — the single extra call is the
    ledger, which reads the append-only log the daemon writes.
 
-   Every builder returns early while the room is collapsed, so a laptop never
-   pays to render markup it cannot see.
+   Every builder returns early while its furniture is out of sight, so a laptop
+   never pays to render markup it cannot see. The desk has a second home: below
+   1800px its five panels stand in the #desk drawer (placeDesk() moves them),
+   and its builders ask deskOn() — room on, or that drawer open — rather than
+   roomOn(). The archive stays on the left rail alone.
 --------------------------------------------------------------------------- */
 const roomMedia = window.matchMedia("(min-width: 1800px)");
 const roomOn = () => roomMedia.matches;
+
+// The desk is showing in one of two places: on the right pedestal while the
+// room is on, or in its drawer while that is open. Every desk builder asks
+// this, so the drawer is drawn down the same path as the rail — the 30s poll,
+// the ledger fetch and the one-second clock tick included — and stays as
+// cheap as the rail when neither is on screen.
+const deskOn = () => roomOn() || $("desk").dataset.open === "1";
+
+// Stand the five instruments wherever they are shown from at this width.
+// Moved, not cloned: ids stay unique, setHTML's memo stays on the node it was
+// taken from, and appending in document order keeps the nth-of-type edging in
+// sequence. The header button exists only while the pedestal does not.
+function placeDesk() {
+  const on = roomOn();
+  const home = on ? $("desk-rail") : $("desk-host");
+  const from = on ? $("desk-host") : $("desk-rail");
+  for (const sec of [...from.querySelectorAll(":scope > section.deskpanel")]) home.appendChild(sec);
+  $("deskbtn").hidden = on;
+}
+
+// Opening draws the desk at once rather than waiting for the next poll: the
+// panels have drawn nothing since the last time they were on screen.
+function openDesk() {
+  $("deskbtn").setAttribute("aria-expanded", "true");
+  showPanel("desk");
+  renderRoom();
+  refreshLedger();
+}
 
 // ?sort=score joins ?lang/?theme/?tab as a per-visit override, so a deep link
 // or a screenshot can pin how the archive is shelved without touching storage.
@@ -7245,7 +7326,7 @@ const clockFace = (id, zoneKey) => {
 };
 
 function renderClocks() {
-  if (!roomOn()) return;
+  if (!deskOn()) return;
   setHTML($("clocks"), clockFace("cl-local", "tzLocal") + clockFace("cl-jst", "tzTokyo"));
   tickClocks();
 }
@@ -7272,7 +7353,7 @@ function setClock(id, h, m, s) {
 }
 
 function tickClocks() {
-  if (!roomOn()) return;
+  if (!deskOn()) return;
   const now = new Date();
   setClock("cl-local", now.getHours(), now.getMinutes(), now.getSeconds());
   const jp = tokyoNow();
@@ -7295,7 +7376,7 @@ function nextSlot(s) {
 }
 
 function renderUpcoming() {
-  if (!roomOn() || !collections) return;
+  if (!deskOn() || !collections) return;
   const now = Date.now(), end = now + 48 * 3600e3;
   const pool = [...(collections.groups.watching || []), ...(collections.groups.want || [])];
   const soon = pool
@@ -7323,7 +7404,7 @@ function renderUpcoming() {
 const GROUP_RE = /^\[([^\]]{1,24})\]/;
 
 async function refreshLedger() {
-  if (!roomOn()) return;
+  if (!deskOn()) return;
   const q = ++seqL;
   try {
     const d = await (await fetch("/api/events?limit=200")).json();
@@ -7334,7 +7415,7 @@ async function refreshLedger() {
 }
 
 function renderLedger() {
-  if (!roomOn() || !ledger) return;
+  if (!deskOn() || !ledger) return;
   const today = new Date().toDateString();
   const rows = ledger.filter(e => e.kind === "episode.landed").slice(-16).reverse();
   const html = rows.map(e => {
@@ -7356,7 +7437,7 @@ function renderLedger() {
 }
 
 function renderMachine() {
-  if (!roomOn() || !state) return;
+  if (!deskOn() || !state) return;
   const shows = state.shows;
   // /api/overview sends each torrent as {progress} and nothing else, so all
   // that can be said about the queue is how much of it has finished. That is
@@ -7397,7 +7478,7 @@ function censusYear(s) {
 }
 
 function renderCensus() {
-  if (!roomOn() || !collections) return;
+  if (!deskOn() || !collections) return;
   const shows = (collections.groups.done || []);
   const years = new Map();
   let scored = 0, total = 0;
@@ -7464,7 +7545,10 @@ function censusPick(y) {
 // the fingerprint being a study that goes blank from one card downwards while
 // the console stays quiet because nobody was catching anything either.
 function renderRoom() {
-  if (!roomOn()) return;
+  // The desk's gate, not the room's: below 1800px this is also what draws the
+  // drawer. The spine wall keeps its own roomOn() guard, so asking for it
+  // here while only the drawer is up costs nothing.
+  if (!deskOn()) return;
   guardPanel("clocks", renderClocks);
   guardPanel("upcoming", renderUpcoming);
   guardPanel("soundings", renderSoundings);
@@ -7477,7 +7561,12 @@ function renderRoom() {
 // Crossing the breakpoint builds the room for the first time. Collapsing it
 // also drops any parallax offset: the scroll handler stops updating while the
 // rails are gone, and a stale offset would be waiting the next time they open.
+// Either way the desk changes home, and a drawer still up would be left open
+// over an empty host — so it is closed first, silently: the button focus
+// would return to is the one placeDesk() is about to hide.
 roomMedia.addEventListener("change", () => {
+  if ($("desk").dataset.open === "1") closeDrawers(true);
+  placeDesk();
   if (!roomOn()) { document.documentElement.style.removeProperty("--par"); return; }
   renderRoom();
   refreshLedger();
@@ -7530,6 +7619,7 @@ setInterval(() => {
 applyTheme();    // set data-theme first so the initial paint uses the right palette
 applyUiScale();  // …and --ui, so nothing is laid out at the wrong size and reflowed
 setLang(lang);   // apply static labels + <html lang> on first paint
+placeDesk();     // stand the desk in the rail or behind its header button, by width
 refresh();
 setInterval(refresh, 30000);
 </script>
