@@ -1108,8 +1108,12 @@ if (new URLSearchParams(location.search).has("probe")) {
      dark, and one specular band crosses the pane. The gilt rule the paper
      used to carry is kept, set just inside the edge, so the plate still reads
      as this desk's stationery under glass rather than as a phone's sheet. */
+     Only the panes that genuinely have a room behind them are blurred. A chip
+     or a key sits flat on the leather, where a backdrop filter has nothing to
+     blur and buys a backdrop root per element for it; those get the glass
+     edges and the sheen without the filter. */
   .card, .deskpanel, .premiere, .peek, .gpick-list, #toast, .stale, .sched-sheet,
-  .nomikan-box, .logs, aside.drawer, .sheet-head .drawer-close, .chip, .btn.ghost, .search {
+  aside.drawer, .sheet-head .drawer-close {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
   }
@@ -2010,7 +2014,7 @@ if (new URLSearchParams(location.search).has("probe")) {
      scrim, and closing cannot scroll back to a book that never moved. The
      scrollbar's width is put back as padding by showPanel() so the room grid
      does not shift when it goes. */
-  body.drawer-open { overflow: hidden; }
+  body.scroll-locked { overflow: hidden; }
   /* The settings drawer really is a drawer now: it slides out of the right
      pedestal, its front face carries a brass pull and cockbead moulding, and
      its inside is bare timber. */
@@ -2836,13 +2840,14 @@ if (new URLSearchParams(location.search).has("probe")) {
   .cbar.nil {
     height: 2px; background: color-mix(in srgb, var(--text-faint) 40%, transparent);
     box-shadow: none; cursor: default;
-    /* Rendered disabled, and kept out of the pointer's reach too: :hover still
-       matches a disabled button, and a hairline that brightens and stretches
-       under the finger is promising something it cannot do. */
-    pointer-events: none;
   }
-  /* A bar stays pressed for as long as its year is lit on the wall. */
-  .cbar:hover, .cbar:focus-visible, .cbar[aria-pressed="true"] { filter: brightness(1.35); transform: scaleY(1.06); }
+  /* A bar stays pressed for as long as its year is lit on the wall. The
+     hairline years are left out of it — they cannot be pressed — but they keep
+     the pointer, because their tooltip is the only place the year and its
+     count are written down. */
+  .cbar:not(.nil):hover, .cbar:not(.nil):focus-visible, .cbar[aria-pressed="true"] {
+    filter: brightness(1.35); transform: scaleY(1.06);
+  }
   .caxis {
     display: flex; justify-content: space-between; margin-top: 5px;
     font-family: var(--mono); font-size: calc(.78rem * var(--ui)); color: var(--text-faint);
@@ -3154,7 +3159,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     display: grid; gap: 1px; padding: 3px 0 0;
   }
   .g-cell {
-    border: 0; padding: 0; margin: 0; cursor: default;   /* a click does nothing here */
+    border: 0; padding: 0; margin: 0; cursor: default;   /* a click does nothing on the card */
     position: relative;
     border-radius: 1px 1px 0 0;
     background: color-mix(in srgb, var(--text) 12%, transparent);
@@ -3168,8 +3173,11 @@ if (new URLSearchParams(location.search).has("probe")) {
      pseudo-element: the cell's own box — the one measured against the 2px
      floor — is unchanged, hit-testing still names the cell, and the body's
      overflow clips whatever hangs past the bottom. */
-  .g-cell::after { content: ""; position: absolute; left: -1px; right: 0; top: 0; height: 300%; }
+  .g-cell::after { content: ""; position: absolute; left: -1px; right: 0; top: 0; height: 340%; }
   /* .at is the episode the transport is parked on: the keyboard's hover. */
+  /* …but inside the peek the whole layer is the way into the card, and the
+     strip is part of it. */
+  #peek .g-cell { cursor: inherit; }
   .g-cell:hover, .g-cell:focus-visible, .g-cell.at { transform: scaleY(1.22); outline: none; }
   .g-cell:focus-visible { box-shadow: 0 0 0 1px var(--accent-b); }
   /* The track is the one focus stop in the instrument — a slider, walked with
@@ -3313,13 +3321,16 @@ if (new URLSearchParams(location.search).has("probe")) {
   .sound:hover { background: color-mix(in srgb, var(--brass) 12%, transparent); }
   .sound:focus-visible { outline: 1px solid var(--accent-b); outline-offset: -1px; }
   .sound .sn {
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: flex; align-items: baseline; gap: 5px; min-width: 0;
     font-size: calc(.85rem * var(--ui)); color: var(--text);
   }
+  /* The title ellipsises; the tag beside it does not — a long title is exactly
+     the row whose tag is worth reading. */
+  .sound .sn > .snm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   /* The status of a row that is not a plain subscription, set beside the name
      in the waiting colour: the rail lists every show with a reading, and a
      grace or an unmatched show has to say why its depth is not yours to fix. */
-  .sound .stag { font-size: .72em; color: var(--warn); font-family: var(--mono); }
+  .sound .stag { font-size: .72em; color: var(--warn); font-family: var(--mono); flex: none; }
   .sound .sd { font-family: var(--mono); font-size: calc(.8rem * var(--ui)); }
   .sound .sd.level { color: var(--ok); }
   .sound .sd.deep { color: var(--warn); }
@@ -3429,7 +3440,14 @@ if (new URLSearchParams(location.search).has("probe")) {
     background: none; color: var(--text); font: inherit; text-align: left;
     cursor: pointer; font-size: calc(.84rem * var(--ui));
   }
-  .gopt:hover, .gopt:focus-visible { background: color-mix(in srgb, var(--brass) 15%, transparent); outline: none; }
+  .gopt:hover { background: color-mix(in srgb, var(--brass) 15%, transparent); }
+  /* Arrow keys move real focus between the options, so the focused one has to
+     be findable without the pointer: the same lit ground, and the ring every
+     other control in the room uses. */
+  .gopt:focus-visible {
+    background: color-mix(in srgb, var(--brass) 15%, transparent);
+    outline: 2px solid var(--accent-b); outline-offset: -2px;
+  }
   .gopt .gn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gopt .gid { font-family: var(--mono); font-size: .84em; color: var(--text-faint); }
   .gopt .gtag {
@@ -5653,6 +5671,7 @@ function basicCard(s) {
    Escape, click-outside, focus return.
 --------------------------------------------------------------------------- */
 let drawerReturn = null;
+let unlockTimer = null;
 // The opener can be rebuilt by a poll before the panel closes (the upcoming
 // rows change every minute), the same way markOpenUnit() below re-marks the
 // rebuilt copy of the open volume. Keep enough to find the replacement in
@@ -5706,8 +5725,10 @@ function showPanel(id) {
   // The scrollbar it loses is replaced by padding of exactly its width so the
   // room grid does not shift — measured only on the first panel, since a
   // second one opening over the first would measure a scrollbar already gone.
-  if (!document.body.classList.contains("drawer-open"))
+  clearTimeout(unlockTimer);   // a panel opening inside a close's 400ms keeps the lock
+  if (!document.body.classList.contains("scroll-locked"))
     document.body.style.paddingRight = `${window.innerWidth - document.documentElement.clientWidth}px`;
+  document.body.classList.add("scroll-locked");
   // `display: flex` on a panel beats [hidden]'s display:none, so `inert` is
   // what actually keeps a closed panel out of the tab order.
   d.hidden = false;
@@ -5733,8 +5754,18 @@ function closeDrawers(silent) {
   hidePanel("settings");
   hidePanel("desk");
   document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = false);
+  // The lock comes off on the same 400ms hidePanel() keeps the panel in the
+  // tree for. Restoring the scrollbar immediately re-narrows the viewport
+  // under a card that is still sliding out and centred on it, so the sheet
+  // jumped sideways on the way. Cancelled by the next open, and guarded so a
+  // panel opened inside that window keeps its lock.
   document.body.classList.remove("drawer-open");
-  document.body.style.paddingRight = "";
+  clearTimeout(unlockTimer);
+  unlockTimer = setTimeout(() => {
+    if (document.querySelector('aside.drawer[data-open="1"], .sheet[data-open="1"]')) return;
+    document.body.classList.remove("scroll-locked");
+    document.body.style.paddingRight = "";
+  }, 400);
   document.querySelectorAll(".unit.open, .spine.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
   $("deskbtn").setAttribute("aria-expanded", "false");
@@ -5981,7 +6012,10 @@ function renderFilters() {
   // leaving a blank grid with no chip highlighted. Resolving the last unmatched
   // show empties the no-mikan tab the same way, so it retargets too.
   if (activeType !== "schedule" && !visible.includes(activeType)
-      && !(activeType === "no_mikan" && nm)) activeType = visible[0] || "schedule";
+      && !(activeType === "no_mikan" && nm)) {
+    activeType = visible[0] || "schedule";
+    seasonPick = null;     // setFilter's rule: a narrowing belongs to the shelf it was made on
+  }
   const chips = visible.map(k => fchipBtn(k, t("t_" + k), c[k], activeType === k, "setFilter"));
   if (nm) chips.push(fchipBtn("no_mikan", t("t_no_mikan"), nm, activeType === "no_mikan", "setFilter"));
   chips.push(fchipBtn("schedule", t("t_schedule"), null, activeType === "schedule", "setFilter"));
@@ -6342,7 +6376,12 @@ document.addEventListener("pointerover", e => {
     if (peekFor !== null) { clearTimeout(peekHide); peekHide = setTimeout(hidePeek, 150); }
     return;
   }
-  if (+unit.dataset.bgm === peekFor) { clearTimeout(peekHide); return; }
+  // Cancel the pending hide for whichever volume was reached, not only for
+  // the one the layer already belongs to: the hide is armed at 150ms and the
+  // dwell at 240ms, so crossing to a neighbour used to put the layer away
+  // before its replacement could ever be built.
+  clearTimeout(peekHide);
+  if (+unit.dataset.bgm === peekFor) return;
   clearTimeout(peekTimer);
   // A short dwell, so sweeping the pointer across a shelf on the way somewhere
   // else does not deal out a layer per volume.
@@ -6631,7 +6670,7 @@ function renderSchedule() {
   // column below the caret: the caret must not announce the day over while a
   // later slot is merely filtered out. Sorted so [0] is the nearest.
   const laterToday = all.filter(s => colOf(s) === today && minuteOf(s) > nowMin)
-    .sort((a, b) => minuteOf(a) - minuteOf(b));
+    .sort((a, b) => minuteOf(a) - minuteOf(b) || byAir(a, b));   // two TBA shows both read Infinity
   const col = (name, isToday, list, dated, wd) => {
     const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
     const items = list.map(s => schedItem(s, occOf.get(s)));
@@ -6644,7 +6683,7 @@ function renderSchedule() {
     // carries what the reading needs (data-next: the next slot's minute;
     // data-tba: that slot has no time of day; data-hidden: it is on the sheet
     // only under other chips) and tickNowLine() writes the words.
-    if (isToday && items.length) {
+    if (isToday && (items.length || laterToday.length)) {
       let at = list.findIndex(s => minuteOf(s) > nowMin);
       const next = at === -1 ? null : list[at];
       if (at === -1) at = items.length;
@@ -6734,7 +6773,10 @@ function renderSchedule() {
   // again would double them on every poll.
   if (board2 && board2 !== prev) {
     if (sl) board2.scrollLeft = sl;
-    if (litWd) {
+    // Presence, not truthiness: the Later and TBA columns are rendered with
+    // data-wd="", and an empty string would drop the lit class on exactly the
+    // two columns whose slips have no weekday to fall back on.
+    if (lit) {
       const c = board2.querySelector(`.sched-col[data-wd="${litWd}"]`);
       if (c) c.classList.add("lit");
     }
@@ -6756,7 +6798,16 @@ function tickNowLine() {
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const next = el.dataset.next === "" ? null : +el.dataset.next;
-  if (next !== null && next <= nowMin) { renderCards(); return; }
+  if (next !== null && next <= nowMin) {
+    // The caret has been passed, so the sheet needs rebuilding — but never
+    // from here: this runs from inside renderSchedule (and from a 1 s ticker
+    // that can land mid-drag), and re-entering would leave the outer pass
+    // finishing against a detached board. Next task, and not while a pan is
+    // in flight — the ticker comes round again a second later.
+    el.dataset.next = "";
+    if (!$("cards").querySelector(".sched-board.dragging")) setTimeout(renderCards, 0);
+    return;
+  }
   const clock = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const gap = el.dataset.tba === "1" ? t("nowNextTBA")
     : next === null ? t("nowLast")
@@ -6905,7 +6956,13 @@ function schedItem(s, o) {
   // collection type) and still says which state it is in without the colour.
   const aired = hasAired(s);
   const title = displayTitle(s);
-  const when = fmtLocal(s.airing_at, dateOf(s));
+  // Episode 1's date for a show still to premiere — that IS the news — but the
+  // occurrence's date for one already running, because the Later column exists
+  // to hold a slot the ledger pushed past this week and it must not print the
+  // premiere as if that were the broadcast being filed.
+  const when = aired && typeof o === "number" && s.airing_at && o !== s.airing_at * 1000
+    ? fmtLocal(Math.round(o / 1000), null)
+    : fmtLocal(s.airing_at, dateOf(s));
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(aired ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   // Each print is pasted down at its own angle, taken from the show's own id,
@@ -7154,7 +7211,7 @@ function gaugeHtml(show, opts) {
       <div class="g-water"></div>
       <div class="g-surface"></div>
       <div class="g-track" style="grid-template-columns:${gaugeColumns(eps.length)}"${keys ? `
-           tabindex="0" role="slider" aria-label="${esc(t("gaugeHead"))}"
+           id="gtrack-${show.bgm_id}" tabindex="0" role="slider" aria-label="${esc(t("gaugeHead"))}"
            aria-valuemin="1" aria-valuemax="${eps.length}" aria-valuenow="${Math.max(1, watchI + 1)}"
            aria-valuetext="${esc(trend ? t(TREND_TEXT[trend]) : "")}"` : ""}>${cells}</div>
       <span class="g-flag"></span>
@@ -7162,7 +7219,7 @@ function gaugeHtml(show, opts) {
       <span class="g-needle"></span>
       ${drift ? `<span class="g-drift ${drift[0]}"><i>${drift[1]}</i><i>${drift[1]}</i><i>${drift[1]}</i></span>` : ""}
     </div>
-    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}" aria-live="polite">
+    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}"${keys ? ' aria-live="polite"' : ""}>
       <span class="st">${esc(trend ? t(TREND_TEXT[trend]) : "")}</span>
     </div>
     ${legend}
@@ -7239,7 +7296,10 @@ function gaugeScrub(g, i) {
     (date ? `<span class="dt">${esc(date)}</span>` : "");
   const track = g.querySelector(".g-track[tabindex]");
   if (track) {
-    track.setAttribute("aria-valuenow", String(e.ep));
+    // The index, not e.ep: aria-valuemax is the episode COUNT, and a ledger
+    // that numbers from 0 (or skips a recap) would put the value out of range.
+    // The human number stays in aria-valuetext.
+    track.setAttribute("aria-valuenow", String(i + 1));
     track.setAttribute("aria-valuetext", `#${e.ep} ${t("ep_" + e.state)}`);
   }
 }
@@ -7339,7 +7399,7 @@ function soundingRow(s) {
   // depth figure for the right edge.
   const tag = STATUS_KEY[s.status]
     ? ` <span class="stag">${esc(t(STATUS_KEY[s.status]))}</span>` : "";
-  const name = `<span class="sn">${esc(title)}${tag}</span>`;
+  const name = `<span class="sn"><span class="snm">${esc(title)}</span>${tag}</span>`;
   if (!p || p.cold) {
     // An ellipsis while the ledger warms; a dash once it is known not to come.
     const sd = ledgerStalled(s.bgm_id) ? "—" : "…";
@@ -7715,11 +7775,14 @@ async function refreshPremieres() {
     const swapped = host._last !== html;
     const key = el => `${el.dataset.bgm}:${el.classList.contains("completed") ? "c" : "p"}`;
     const seen = new Set([...host.querySelectorAll(".premiere")].map(key));
+    // Only a banner the reader could actually have seen is settled. Under the
+    // curtain nothing has been seen yet, and this pass runs twice there.
+    const settle = document.body.classList.contains("booted");
     setHTML(host, html);
     if (swapped) {
       let k = 0;
       for (const el of host.querySelectorAll(".premiere")) {
-        if (seen.has(key(el))) el.classList.add("settled");
+        if (settle && seen.has(key(el))) el.classList.add("settled");
         else el.style.setProperty("--i", k++);
       }
     }
@@ -7808,8 +7871,9 @@ async function refreshUnresolved() {
     }
     if (swapped) {
       let k = 0;
+      const settle = document.body.classList.contains("booted");   // see refreshPremieres
       for (const el of host.querySelectorAll(".premiere")) {
-        if (seen.has(el.dataset.bgm)) el.classList.add("settled");
+        if (settle && seen.has(el.dataset.bgm)) el.classList.add("settled");
         else el.style.setProperty("--i", k++);
       }
     }
@@ -8070,7 +8134,7 @@ async function toggleGroupPicker(bgmId, mikanId, currentGid) {
         g.id === currentGid ? `<b>${esc(t("gpickCurrent"))}</b>` : "",
         rank ? esc(t("gpickPriority", rank)) : "",
       ].filter(Boolean).join(" · ");
-      return `<button class="gopt" role="option" type="button" data-gid="${g.id}"
+      return `<button class="gopt" role="option" type="button"
           aria-current="${g.id === currentGid}" aria-selected="${g.id === currentGid}"
           onclick="switchGroup(${bgmId}, ${g.id})">
         <span class="gn">${g.name ? esc(g.name) : esc(t("gpickUnknown"))}</span>
@@ -8135,7 +8199,9 @@ async function switchGroup(bgmId, gid) {
   // resolve to another group whose id ends the same way.
   const groups = await (gpickCache.get(show.rule.mikan_id) || Promise.resolve([])).catch(() => []);
   const g = groups.find(x => x.id === gid);
-  if (!confirm(t("switchConfirm", (g && g.name) || t("gpickUnknown")))) return;
+  // The id stays in the fallback: an unnamed group is still a specific one,
+  // and a confirm that deletes a season's files must not name it "unnamed".
+  if (!confirm(t("switchConfirm", (g && g.name) || `${t("gpickUnknown")} #${gid}`))) return;
   try {
     const r = await fetch("/api/rule/switch", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -8324,14 +8390,19 @@ function renderSpineWall(animate) {
   // The opening replay belongs to bootDone(), which starts the grid and the
   // archive off one shared offset. Claiming it here would run the wall's
   // stagger under the curtain and finish it before anyone saw it.
-  wall.classList.toggle("anim",
-    !!(animate || (spineFirst && document.body.classList.contains("booted"))));
-  // The .3s offset bootDone() set on the wall belongs to the opening replay.
-  // A redraw that runs without the waterfall drops it, so no later replay
-  // can inherit a stale delay.
-  if (!wall.classList.contains("anim")) wall.style.removeProperty("--stagger-base");
+  const want = !!(animate || (spineFirst && document.body.classList.contains("booted")));
   spineFirst = false;
-  setHTML(wall, shows.map(spineHtml).join(""));
+  // Decide the class with the swap, never before it: setHTML skips identical
+  // markup, and a poll that changes nothing would otherwise strip .anim off a
+  // waterfall still in flight — every spine popping to full opacity at once.
+  // The .3s offset bootDone() set belongs to that one replay, so it goes with
+  // the same swap and no later redraw can inherit a stale delay.
+  const html = shows.map(spineHtml).join("");
+  if (wall._last !== html) {
+    wall.classList.toggle("anim", want);
+    wall.style.removeProperty("--stagger-base");
+  }
+  setHTML(wall, html);
   // Stagger rank is the shelf a volume ended up on, not its position in the
   // run. Volumes on one shelf all carry the same rank and rise together.
   stampLamp(wall, stampShelves(wall.children));
@@ -8474,10 +8545,14 @@ function ledgerSlot(s, ms) {
   const floor = tokyoDay(ms - 86400e3);
   // By date, not by state: an episode that leaked early reads "downloaded",
   // not "unaired", and would be skipped.
-  const nx = p.episodes.find(e => e.airdate && e.airdate >= floor);
+  // Shape-checked, not merely truthy: bgm hands airdates through unnormalised
+  // (webui.py passes `ep.get("airdate") or None` straight out), and one
+  // "2026" or "2026-13-40" would sort into the run by string comparison, parse
+  // to NaN, and push every later episode of that show off the sheet for good.
+  const nx = p.episodes.find(e => /^\d{4}-\d{2}-\d{2}$/.test(e.airdate || "") && e.airdate >= floor);
   if (!nx) return ms;                                                  // ledger exhausted: trust the slot
   const gap = Math.round((Date.parse(nx.airdate + "T00:00:00Z") - Date.parse(day + "T00:00:00Z")) / 86400e3);
-  if (gap <= 1) return ms;                                             // same broadcast, give or take the date line
+  if (!Number.isFinite(gap) || gap <= 1) return ms;                    // same broadcast, give or take the date line
   return ms + Math.ceil((gap - 1) / 7) * WEEK_MS;                      // bgm dates the next episode a later week
 }
 function nextSlot(s) {
