@@ -5251,12 +5251,18 @@ function card(show) {
   if (st === "grace" && show.grace) {
     // Render the already-expired state directly: the 30s re-render must not
     // resurrect a dead 0:00:00 countdown + button for the ticker to re-kill.
+    //
+    // The countdown itself is left empty here and filled by tickCountdowns()
+    // straight after the insertion. Baking h:mm:ss into the markup made a
+    // grace card differ on every poll, so setHTML's memo never hit and the
+    // whole body was torn down and rebuilt every 30 s — the button re-created
+    // under the pointer, the needle swimming in from the edge again.
     graceRow = show.grace.expires <= Date.now() / 1000
       ? `<div class="gracebar">${t("grace_ended")}</div>`
       : `
       <div class="gracebar">
         <span>${t("waitingAni")}</span>
-        <span class="cd" data-expires="${show.grace.expires}">${fmtCountdown(show.grace.expires)}</span>
+        <span class="cd" data-expires="${show.grace.expires}"></span>
         <button class="btn ghost small" onclick="endGrace(${show.bgm_id})">${t("lockBest")}</button>
       </div>`;
   }
@@ -5427,6 +5433,7 @@ function openCard(bgmId) {
   openBgm = bgmId;
   hidePeek();
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
+  tickCountdowns();   // the grace bar is inserted with its countdown empty
   setCoverGhost(found.show.image);
   markOpenUnit();
   showPanel("cardsheet");
@@ -5439,15 +5446,34 @@ function openCard(bgmId) {
 // sounding, the ready count and the subgroup all go stale otherwise. Never
 // while the subgroup picker is open: rebuilding the card would take the list
 // out from under a choice being made, on the one control here that deletes
-// files.
+// files. And never over the reader's hands: a docket box with text in it, or
+// a gauge mid-scrub, means the card is being used, and a swap would take the
+// half-pasted link, its focus and the reading away in one go. The poll after
+// next lands the same data anyway.
 function refreshCard() {
   if (openBgm === null) return;
   markOpenUnit();
   if (groupPickerOpen()) return;
+  const body = $("cardsheet-body");
+  const a = document.activeElement;
+  // Only a docket field that HOLDS text defers: resolveWith clears the box and
+  // calls refresh() without blurring it, and that refresh has to land — it is
+  // the one that takes the docket off the card.
+  if (body.contains(a) && typingInField(a) && a.value) return;
+  if (body.querySelector(".gauge.scrub")) return;
   const found = findShow(openBgm);
   if (!found) { closeDrawers(); return; }
-  setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
-  tuneGauges($("cardsheet-body"));
+  // Unfocused boxes with text survive the swap the way the banner's do
+  // (refreshUnresolved): value only. Focus is put back on whichever control
+  // had it, so a rebuild under a keyboard user does not drop them to <body>.
+  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"]')]
+    .filter(i => i.value).map(i => [i.id, i.value]);
+  const fid = body.contains(a) && a.id ? a.id : "";
+  setHTML(body, found.watching ? card(found.show) : basicCard(found.show));
+  for (const [id, v] of keep) { const inp = $(id); if (inp && !inp.value) inp.value = v; }
+  if (fid) { const el = $(fid); if (el && document.activeElement !== el) el.focus(); }
+  tuneGauges(body);
+  tickCountdowns();
   setCoverGhost(found.show.image);
 }
 
@@ -6361,13 +6387,17 @@ function tuneGauges(root) {
       const c = cells[Math.min(i, cells.length - 1)];
       return c ? ((c.offsetLeft + c.offsetWidth / 2) / w) * 100 : 0;
     };
-    const gx = at(+g.dataset.watch);
+    // A gauge mid-scrub keeps its needle on the scrubbed episode: this runs on
+    // every poll and resize, and snapping the needle home while the foot still
+    // reads "#4 watched…" left the two disagreeing until the pointer moved.
+    const home = at(+g.dataset.watch);
+    const gx = g.classList.contains("scrub") && g._scrubI != null ? at(g._scrubI) : home;
     g.style.setProperty("--gx", `${gx.toFixed(2)}%`);
     const flag = g.querySelector(".g-flag");
     const disc = g.querySelector(".g-disc");
     if (flag) flag.style.left = `${at(+g.dataset.air).toFixed(2)}%`;
     if (disc) disc.style.left = `${at(+g.dataset.disk).toFixed(2)}%`;
-    g._home = gx;
+    g._home = home;
     g._at = at;
   });
 }
@@ -6382,6 +6412,7 @@ function gaugeScrub(g, i) {
   const cell = g.querySelectorAll(".g-cell")[i];
   const foot = g.querySelector(".g-foot");
   g.classList.add("scrub");
+  g._scrubI = i;   // where the needle is parked, for the tuner to respect
   g.style.setProperty("--gx", `${g._at(i).toFixed(2)}%`);
   if (!cell || !foot) return;
   const p = showProgress(g.dataset.gauge);
@@ -6401,6 +6432,7 @@ function gaugeScrub(g, i) {
 function gaugeHome(g) {
   if (!g) return;
   g.classList.remove("scrub");
+  g._scrubI = null;
   if (g._home != null) g.style.setProperty("--gx", `${g._home.toFixed(2)}%`);
   const foot = g.querySelector(".g-foot");
   if (foot) foot.innerHTML = `<span class="st">${esc(foot.dataset.rest || "")}</span>`;
@@ -7579,8 +7611,11 @@ window.addEventListener("resize", () => {
   tuneQueued = setTimeout(() => tuneGauges(document), 120);
 });
 
-// live countdowns
-setInterval(() => {
+// Live countdowns. Its own function rather than the interval's body because
+// the markup carries the countdown empty (see card()'s grace row) — whoever
+// inserts a grace bar calls this straight after, so the bar never shows a
+// blank for the second until the ticker comes round.
+function tickCountdowns() {
   document.querySelectorAll(".cd[data-expires]").forEach(el => {
     const exp = parseFloat(el.dataset.expires);
     if (exp - Date.now() / 1000 <= 0) {
@@ -7592,7 +7627,8 @@ setInterval(() => {
     }
     el.textContent = fmtCountdown(exp);
   });
-}, 1000);
+}
+setInterval(tickCountdowns, 1000);
 
 applyTheme();    // set data-theme first so the initial paint uses the right palette
 applyUiScale();  // …and --ui, so nothing is laid out at the wrong size and reflowed
