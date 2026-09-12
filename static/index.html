@@ -3775,6 +3775,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     </div>
     <span class="chip warn" id="qbwarn" hidden></span>
     <span class="chip warn" id="anilistwarn" hidden></span>
+    <span class="chip warn" id="progresswarn" hidden></span>
     <span class="chip"><span data-i18n="season">Season</span> <b id="season">—</b></span>
     <span class="chip" id="synchip"><span data-i18n="lastSync">Last sync</span> <b id="lastsync">—</b></span>
     <button class="btn" id="syncbtn" onclick="runSync()">Sync now</button>
@@ -6260,6 +6261,47 @@ const GAUGE_FULL_DEPTH = 12;   // a whole cour behind reaches the bottom
 const showProgress = bgmId =>
   (progress && progress.shows && progress.shows[String(bgmId)]) || null;
 
+// ---- when the ledger is not coming -----------------------------------------
+// A skeleton that is not waiting on anything is a lie about the state of the
+// machine (the .skel rules say as much), and two things make a ledger never
+// come: the backend has no bangumi token and says so with a code, or a fill
+// that failed was skipped and the show is reported cold on every poll for the
+// life of the tab. Neither is "still warming", so neither gets the shimmer.
+//
+// Polls a show has been seen cold for. Bumped once per /api/progress answer,
+// never per render, so a tab or language switch cannot age a ledger.
+const COLD_POLLS = 4;
+let progressPoll = 0;
+const coldSince = new Map();   // bgm id -> progressPoll when first seen cold
+
+function noteColdShows() {
+  if (!state) return;
+  for (const s of state.shows) {
+    const id = String(s.bgm_id), p = showProgress(id);
+    if (p && !p.cold) coldSince.delete(id);
+    else if (!coldSince.has(id)) coldSince.set(id, progressPoll);
+  }
+}
+// Nothing is on its way: the backend said so (code), or the ledger has been
+// cold for COLD_POLLS answers running — a fill that failed and was skipped,
+// not one still warming. Re-read every poll, so it clears when a fill lands.
+function ledgerStalled(bgmId) {
+  if (progress && progress.code) return true;
+  const since = coldSince.get(String(bgmId));
+  return since !== undefined && progressPoll - since >= COLD_POLLS;
+}
+// The header chip for the whole-panel case. Painted from here by both the
+// progress poll and renderHeader, so a language switch (which redraws the
+// header from state) re-localises it instead of leaving it in the old
+// language until the next poll.
+function renderProgressWarn() {
+  const el = $("progresswarn");
+  if (!el) return;
+  const code = progress && progress.code;
+  el.hidden = !code;
+  if (code) el.textContent = code === "no_token" ? t("progressNoToken") : t("progressUnavailable");
+}
+
 // Grid template for the episode track. The head columns are given a pixel floor
 // so a 52-episode run still offers 52 hit targets rather than a smear.
 function gaugeColumns(n) {
@@ -6327,7 +6369,15 @@ function gaugeHtml(show, opts) {
   const keys = !(opts && opts.keys === false);
   if (!p || p.cold) {
     // A gauge reading zero and a gauge that has not loaded look identical, and
-    // only one of them is true — so say which this is.
+    // only one of them is true — so say which this is. And a ledger that is
+    // not coming at all (see ledgerStalled) gets a plain terminal line, not a
+    // shimmer promising something in flight.
+    if (ledgerStalled(show.bgm_id)) {
+      return `<div class="gauge" data-gauge="${show.bgm_id}">
+        <div class="gauge-head"><span>${esc(t("gaugeHead"))}</span></div>
+        <div class="g-foot"><span class="st">${esc(t("gaugeUnavailable"))}</span></div>
+      </div>`;
+    }
     return `<div class="gauge" data-gauge="${show.bgm_id}">
       <div class="gauge-head"><span>${esc(t("gaugeHead"))}</span></div>
       <div class="skel-row"><span class="skel"></span><span class="skel"></span></div>
@@ -6564,8 +6614,10 @@ function soundingRow(s) {
     ? ` <span class="stag">${esc(t(STATUS_KEY[s.status]))}</span>` : "";
   const name = `<span class="sn">${esc(title)}${tag}</span>`;
   if (!p || p.cold) {
+    // An ellipsis while the ledger warms; a dash once it is known not to come.
+    const sd = ledgerStalled(s.bgm_id) ? "—" : "…";
     return `<button class="sound" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})">
-      ${name}<span class="sd cold">…</span>
+      ${name}<span class="sd cold">${sd}</span>
       <span class="sbar"></span></button>`;
   }
   const span = Math.max(p.total || 1, p.aired || 1);
@@ -6626,6 +6678,7 @@ function renderHeader() {
   const al = $("anilistwarn");
   al.hidden = !state.anilist_faults;
   if (!al.hidden) al.textContent = t("anilistDown");
+  renderProgressWarn();   // so a language switch re-localises it with the rest
   if (state.sync_running) watchSync();
   syncBtnUI();
 }
@@ -6807,6 +6860,9 @@ async function refreshProgress() {
     const d = await (await fetch("/api/progress")).json();
     if (q !== seqP) return;
     progress = d;
+    progressPoll++;
+    noteColdShows();
+    renderProgressWarn();
     if (!state) return;
     guardPanel("cards", renderCards);   // the pips and the sort key both move
     guardPanel("soundings", renderSoundings);
