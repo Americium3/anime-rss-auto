@@ -1126,8 +1126,9 @@ if (new URLSearchParams(location.search).has("probe")) {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
   }
   .card h3 a, .stitle a, .ptitle a { color: inherit; text-decoration: none; }
-  /* bgm / mikan jump buttons next to a title. The only per-card navigation now
-     that cards no longer open on a bare click. */
+  /* bgm / mikan jump buttons next to a title. A bare click on a slip or a
+     volume opens the in-app card; these are the only *external* navigation,
+     so a grab-drag never opens a bgm tab. */
   .show-links { display: inline-flex; gap: 4px; flex: 0 0 auto; }
   /* Small + uppercase + tracked is three legibility penalties at once. The size
      goes up and the other two come off, which is what actually makes 12px
@@ -1734,9 +1735,12 @@ if (new URLSearchParams(location.search).has("probe")) {
   .sched-item {
     display: grid; grid-template-columns: 46px 46px 1fr; gap: 0 11px;
     align-items: start; padding: 9px 2px 9px 0; position: relative;
-    cursor: grab; border-radius: var(--r-s);
+    cursor: pointer; border-radius: var(--r-s);
     transition: background .18s ease;
   }
+  /* The slip opens its card, so it takes focus; the ring sits inside the slip
+     rather than over the margin rule beside it. */
+  .sched-item:focus-visible { outline-offset: -2px; }
   .sched-item + .sched-item { box-shadow: inset 0 1px 0 var(--paper-rule); }
   .sched-item:hover { background: color-mix(in srgb, var(--brass) 11%, transparent); }
   /* Hovering an entry pencils a tick into the sheet's outer margin, in the
@@ -1780,6 +1784,9 @@ if (new URLSearchParams(location.search).has("probe")) {
     padding: 14px 0 4px; margin-left: 56px;
     font-family: var(--mono); color: var(--text-faint); font-size: calc(.9rem * var(--ui));
   }
+  /* The one notice for a pair of chips that between them select nothing:
+     above the board, with the reset beside it, so the columns stay in place. */
+  .sched-nomatch { padding: 8px 20px; display: flex; gap: 8px; align-items: center; }
 
   /* ---------- toast: a slip pushed across the desk ---------- */
   #toast {
@@ -3363,7 +3370,15 @@ if (new URLSearchParams(location.search).has("probe")) {
     background: color-mix(in srgb, var(--brass) 7%, transparent);
   }
   .sched-col.lit .sched-day { color: var(--text); }
-  .sched-day { cursor: pointer; }
+  /* Only a head that goes somewhere promises a click; the › at its end is the
+     visible sign of that (the title says where), brightening with the column. */
+  .sched-day[role="button"] { cursor: pointer; }
+  .sched-day .d-pull {
+    margin-left: auto; color: var(--brass); font-size: calc(1rem * var(--ui)); opacity: .55;
+  }
+  .sched-col.lit .d-pull, .sched-day:hover .d-pull, .sched-day:focus-visible .d-pull {
+    opacity: 1; color: var(--brass-hi);
+  }
   .now-line { position: relative; }
   /* The now marker used to be a rule with nothing to read off it. It carries
      the time it represents and how long until the next slot in this column. */
@@ -4152,7 +4167,7 @@ const I18N = {
     weekdayAll: "All days",
     timeTBA: "Time TBA", today: "Today",
     scheduleEmpty: "Nothing in your watching or plan-to-watch lists yet",
-    sched_all: "All", sched_aired: "Airing", sched_upcoming: "Upcoming",
+    sched_all: "All", sched_aired: "Premiered", sched_upcoming: "Upcoming",
     sched_season_only: "This season only",
     noSeason: "SEASON UNKNOWN",
     archive: "Archive", volumes: n => `${n} volume${n === 1 ? "" : "s"}`,
@@ -4231,6 +4246,13 @@ const I18N = {
     band_afternoon: "Afternoon", band_evening: "Evening",
     nowRead: "now", nowNext: h => `next in ${h}`,
     nowLast: "last slot passed",
+    nowNextHidden: h => `next in ${h} · filtered out`,
+    nowNextTBA: "next slot today, time TBA",
+    laterCol: "Later",
+    upTimeTBA: "time TBA",
+    weekdayOnly: d => `Only ${d} — opens the Watching shelf`,
+    noMatchDay: d => `Nothing airs on ${d}`,
+    schedNoMatch: "No slots match these filters",
     // --- housekeeping ---
     staleShell: "The panel was updated on disk",
     reload: "Reload",
@@ -4308,7 +4330,7 @@ const I18N = {
     t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
     t_no_mikan: "待接入",
-    airsLabel: "开播", airedLabel: "开播", updatesLabel: "更新",
+    airsLabel: "将开播", airedLabel: "已开播", updatesLabel: "更新",
     cour_half: "半年番", cour_year: "年番",
     themeAuto: "跟随系统", themeDark: "深色", themeLight: "浅色",
     t_schedule: "时刻表",
@@ -4393,6 +4415,13 @@ const I18N = {
     band_afternoon: "下午", band_evening: "晚间",
     nowRead: "此刻", nowNext: h => `${h} 后开播`,
     nowLast: "今日已播完",
+    nowNextHidden: h => `${h} 后开播 · 已被筛掉`,
+    nowNextTBA: "今日还有一场，时间待定",
+    laterCol: "更晚",
+    upTimeTBA: "时间待定",
+    weekdayOnly: d => `只看${d} — 跳到在看`,
+    noMatchDay: d => `${d}没有放送`,
+    schedNoMatch: "没有符合筛选的放送",
     // --- 杂务 ---
     staleShell: "面板文件已更新",
     reload: "重新载入",
@@ -4457,15 +4486,17 @@ const FAULT = new Set((QS.get("fault") || "").split(",").filter(Boolean));
 function fixtureData() {
   const DAY = 86400, now = Math.floor(Date.now() / 1000);
   // A weekly slot on weekday `wd` days from today, at local hour `hour`,
-  // placed three weeks back so the show reads as already on the air and the
-  // panel projects the slot forward. wd 0 lands in today's column, which is
+  // placed three exact weeks back in absolute time, so the show reads as
+  // already on the air and projecting the slot forward lands on today's clock
+  // in any DST regime (three calendar weeks back would drift by an hour for
+  // the three weeks after a switch). wd 0 lands in today's column, which is
   // what puts a now-line on the timetable at all; the hours are spread across
   // all four time-of-day bands so the band filter has something to bite on.
   const slot = (wd, hour) => {
     const d = new Date();
     d.setHours(hour, 5, 0, 0);
-    d.setDate(d.getDate() - wd - 21);
-    return Math.floor(d.getTime() / 1000);
+    d.setDate(d.getDate() - wd);                 // weekday offset in local days
+    return Math.floor((d.getTime() - 3 * 7 * 86400e3) / 1000);
   };
   // Eight shows chosen to cover every state the instruments have to draw:
   // level, behind with episodes in hand, behind with nothing downloaded, a
@@ -4477,7 +4508,7 @@ function fixtureData() {
     season, pinned: false, cour_kind: null, long_current: false, airing: true,
     image: "", score: 7.4, status: "subscribed", rule: null, grace: null,
     no_mikan: false,
-    torrents: [], premiere_date: "2026-07-05", airing_at: slot(0, 23),
+    torrents: [], premiere_date: "2026-07-05", airing_at: slot(0, 23), air_date: null,
   }, o);
   const rule = (gid, name) => ({ name: "fixture", mikan_id: 3300 + gid, subgroup: gid, subgroup_name: name });
   const shows = [
@@ -4504,8 +4535,11 @@ function fixtureData() {
        { status: "manual", airing: false, airing_at: slot(6, 18) }),
   ];
   // Episode ledgers. depth = aired - watched, and each show is built to land on
-  // the reading its name promises.
-  const eps = (n, airedTo, watchedTo, onDisk, seedFrom) => {
+  // the reading its name promises. Airdates are anchored to the show's own
+  // slot (at + 21 days is this week's occurrence), not to today: the 48h
+  // board checks the ledger against the projected slot, and dates anchored
+  // to today's weekday would read as a break week for every other show.
+  const eps = (n, airedTo, watchedTo, onDisk, seedFrom, at) => {
     const out = [];
     for (let i = 1; i <= n; i++) {
       const aired = i <= airedTo;
@@ -4517,14 +4551,15 @@ function fixtureData() {
       else if (aired) st = "aired";
       out.push({
         ep: i, state: st, name: `第 ${i} 话`,
-        airdate: new Date((now - (airedTo - i) * 7 * DAY) * 1000).toISOString().slice(0, 10),
+        airdate: new Date((at + 21 * DAY + (i - airedTo) * 7 * DAY) * 1000).toISOString().slice(0, 10),
         progress: disk ? 1 : null,
       });
     }
     return out;
   };
   const roll = (id, n, airedTo, watchedTo, onDisk, seedFrom) => {
-    const list = eps(n, airedTo, watchedTo, onDisk, seedFrom);
+    const at = shows.find(s => s.bgm_id === id).airing_at;
+    const list = eps(n, airedTo, watchedTo, onDisk, seedFrom, at);
     return [String(id), {
       cold: false, episodes: list, total: n, aired: airedTo, watched: watchedTo,
       downloaded: onDisk, ready: Math.max(0, onDisk - watchedTo),
@@ -4840,6 +4875,31 @@ function stampLamp(wall, rects) {
 
 const bgmLink = (id, text) => `<a href="https://bgm.tv/subject/${id}" target="_blank" rel="noopener">${text}</a>`;
 
+// A date-only string ("YYYY-MM-DD…") as local midnight, or null. The one
+// parser for every date bgm or AniList hands over without a time of day:
+// Date.parse would read the same string as UTC midnight, which is the previous
+// evening anywhere west of Greenwich — so a slip turned green the night
+// before the date printed on its own airline.
+function parseYmd(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str || "");
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+
+// The date a show can be filed by when no clock time is known. bgm's premiere
+// date leads; when bgm only knows the year ("2026"), AniList's start date
+// (shipped as air_date) keeps the show on a weekday instead of in TBA.
+const dateOf = s => /^\d{4}-\d{2}-\d{2}/.test(s.premiere_date || "")
+  ? s.premiere_date : (s.air_date || s.date || "");
+
+// Occurrence the desk should read: the next broadcast for a show still on the
+// air (a JST-fixed slot lands on a different local hour — sometimes a
+// different local weekday — after a DST switch, and ep1's clock would go on
+// reading the old one), else episode 1. Null when nothing is datable.
+function slotDate(s) {
+  const ms = nextSlot(s) ?? airMs(s);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
 // Local-timezone premiere string; falls back to the (date-only) bgm premiere
 // date when AniList has no timestamp — localized either way so neighboring
 // cards don't mix formats.
@@ -4848,20 +4908,22 @@ function fmtLocal(airingAt, premiereDate) {
     return new Date(airingAt * 1000).toLocaleString(loc(),
       { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit" });
   }
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(premiereDate || "");
-  if (!m) return "";
-  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(loc(),
+  const d = parseYmd(premiereDate);
+  if (!d) return "";
+  return d.toLocaleDateString(loc(),
     { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
 }
 
 // Airing weekday (0=Mon..6=Sun) from the AniList slot, else the bgm premiere/air
 // date. Returns null when nothing datable is known (so the show only shows under
-// the "all days" filter). The weekly slot repeats, so ep1's weekday is the show's.
+// the "all days" filter). The weekly slot repeats in JST, so the weekday is
+// read off the next local occurrence (slotDate) — ep1's local weekday drifts
+// by an hour, sometimes a day, across DST.
 function airWeekday(s) {
-  if (s.airing_at) return (new Date(s.airing_at * 1000).getDay() + 6) % 7;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.premiere_date || s.date || "");
-  if (!m) return null;
-  return (new Date(+m[1], +m[2] - 1, +m[3]).getDay() + 6) % 7;
+  if (s.airing_at) return (slotDate(s).getDay() + 6) % 7;
+  const d = parseYmd(dateOf(s));
+  if (!d) return null;
+  return (d.getDay() + 6) % 7;
 }
 
 // Compact weekly-slot label for the cards: "周四 · 09:00" (weekday + local time),
@@ -4871,7 +4933,7 @@ function fmtAirSlot(s) {
   if (wd === null) return "";
   const day = t("daysShort")[wd];
   if (!s.airing_at) return day;
-  const d = new Date(s.airing_at * 1000);
+  const d = slotDate(s);
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   return `${day} · ${hm}`;
 }
@@ -5064,8 +5126,9 @@ function seasonClass(season) {
 // Two external-link buttons shown next to a card title. bangumi always resolves
 // to the subject page; mikan deep-links to the show's page when we know its
 // mikan_id, else falls back to a mikan title search (for want / unmatched shows
-// that have no mikan feed yet). Cards no longer open on a bare click — these
-// buttons are the only navigation, so a grab-drag on the board never mis-fires.
+// that have no mikan feed yet). A bare click on a slip or a volume opens the
+// in-app card; these buttons are the only *external* navigation, so a
+// grab-drag on the board never opens a bgm tab.
 function showLinks(s) {
   const bgm = "https://bgm.tv/subject/" + s.bgm_id;
   const mid = s.rule && s.rule.mikan_id;
@@ -5402,7 +5465,7 @@ function card(show) {
 
 // Compact card for non-在看 collection types (no rule/torrent enrichment).
 function basicCard(s) {
-  const when = fmtLocal(s.airing_at, s.premiere_date);
+  const when = fmtLocal(s.airing_at, dateOf(s));
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(s) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   const seasonTag = s.season
@@ -5773,11 +5836,11 @@ function setFilter(k) {
   renderCards();
 }
 
-// Sort key: precise AniList timestamp, else the bgm premiere date; unknown last.
+// Sort key: precise AniList timestamp, else the bgm premiere date (local
+// midnight, like every other reading of it); unknown last.
 function airMs(s) {
   if (s.airing_at) return s.airing_at * 1000;
-  const p = Date.parse(s.premiere_date || s.date || "");
-  return Number.isNaN(p) ? Infinity : p;
+  return parseYmd(dateOf(s))?.getTime() ?? Infinity;
 }
 const byAir = (a, b) => airMs(a) - airMs(b);
 
@@ -5813,10 +5876,12 @@ function withSeasonDividers(shows, renderFn) {
       // The label sits on its own plate so the brass holder (::before) and the
       // shelf rail running out of it (::after) can be drawn around it. The
       // plate is a button: a cour label that names the block under it is the
-      // obvious handle for "show me only this cour", and it was inert.
+      // obvious handle for "show me only this cour", and it was inert. The
+      // undated block's plate passes "" — a real pick, not a clear, so the
+      // volumes nothing can date are one cour the grid can be narrowed to.
       out.push(`<div class="season-divider ${seasonClass(season)}"><button class="plate"
         aria-pressed="${seasonPick === season}"
-        onclick="pickSeason(${season ? `'${season}'` : "null"})">${
+        onclick="pickSeason('${season}')">${
         season ? esc(season) : t("noSeason")}</button></div>`);
       prev = season;
     }
@@ -5890,14 +5955,15 @@ function applyGridSort(list) {
 // Season narrowing, driven by clicking a cour plate in the grid or a season
 // badge on a card. Deliberately not persisted: it is a way of looking at the
 // list you already have open, not a setting.
+// "" is the season-less cour and a legitimate pick; only null means "none".
 function pickSeason(s) {
-  seasonPick = seasonPick === s ? null : (s || null);
+  seasonPick = (s == null || seasonPick === s) ? null : s;
   animateCards = true;
   renderCards();
 }
 function clearSeason() { seasonPick = null; animateCards = true; renderCards(); }
 
-const inScope = s => searchMatch(s) && (!seasonPick || (s.season || "") === seasonPick);
+const inScope = s => searchMatch(s) && (seasonPick === null || (s.season || "") === seasonPick);
 
 function renderSortBar(total, shown) {
   const bar = $("sortbar");
@@ -5915,8 +5981,9 @@ function renderSortBar(total, shown) {
       onclick="setGridSort('${k}')">${esc(t("sort_" + k))}<span class="ar">${on ? arrow : ""}</span></button>`;
   }).join("");
   if (!gridSort.key) html += `<span class="lab">${esc(t("sortDefault"))}</span>`;
-  if (seasonPick) {
-    html += `<span class="sortpick ${seasonClass(seasonPick)}">${esc(t("seasonFilter", seasonPick))}
+  if (seasonPick !== null) {
+    const lab = seasonPick === "" ? t("noSeason") : t("seasonFilter", seasonPick);
+    html += `<span class="sortpick ${seasonClass(seasonPick)}">${esc(lab)}
       <button onclick="clearSeason()" aria-label="${esc(t("clearFilter"))}">✕</button></span>`;
   }
   if (shown != null && total != null && shown !== total) {
@@ -5991,6 +6058,10 @@ function peekHtml(s, opts) {
     const left = slot - Date.now();
     const hrs = Math.floor(left / 3600e3), mins = Math.floor((left % 3600e3) / 60000);
     rows += row(t("peekNext"), `${fmtLocal(Math.round(slot / 1000), null)} · ${hrs}h${String(mins).padStart(2, "0")}`);
+  } else if (!s.airing_at && !hasAired(s) && fmtLocal(null, dateOf(s))) {
+    // Dated by bgm, not yet timed by AniList: the card says "airs <date>",
+    // so the peek must not answer the same question with "no slot".
+    rows += row(t("peekNext"), `${fmtLocal(null, dateOf(s))} · ${t("upTimeTBA")}`);
   } else {
     rows += row(t("peekNext"), t("peekNoSlot"));
   }
@@ -6068,7 +6139,7 @@ function reanchorPeek() {
 document.addEventListener("pointerover", e => {
   const c = e.target.closest ? s => e.target.closest(s) : () => null;
   if (c("#peek")) { clearTimeout(peekHide); clearTimeout(peekTimer); return; }   // on the layer: it stays
-  const unit = c(".unit[data-bgm], .sound[data-bgm]");
+  const unit = c(".unit[data-bgm], .sound[data-bgm], .sched-item[data-bgm]");
   if (!unit) {
     clearTimeout(peekTimer);   // left the shelf before the dwell ran: no layer
     // Not straight away: the 10px between the volume and the layer is desk,
@@ -6172,7 +6243,18 @@ function renderCards() {
       Array.from({ length: 6 }, () => `<div class="skel" style="height:150px;border-radius:4px"></div>`).join(""));
     return;
   }
-  const empty = ($("search").value || "").trim() || seasonPick ? t("noMatch") : "—";
+  // An empty grid says what narrowed it. The weekday chips stay clickable at
+  // zero on purpose, so a day with nothing on it has to be a sentence with a
+  // way back in it, not a bare dash beside a sort bar reading "0 of 8". The
+  // search and the cour plate are asked first: "nothing airs on Sunday" is a
+  // claim about the whole shelf, and it would be a lie made out of a search
+  // box that had hidden that Sunday show.
+  const narrowed = ($("search").value || "").trim() || seasonPick !== null;
+  const byDay = !narrowed && activeType === "watching" && watchWeekday !== "all";
+  const empty = byDay
+    ? `${esc(t("noMatchDay", t("days")[+watchWeekday]))} <button class="chip fchip"
+        onclick="setWatchWeekday('all')">${esc(t("weekdayAll"))}</button>`
+    : narrowed ? t("noMatch") : "—";
   setHTML($("cards"), list.join("") || `<div class="empty">${empty}</div>`);
   applyStagger();
   applyXhl();
@@ -6206,9 +6288,12 @@ function renderWatchFilters() {
   setHTML(bar, html);
 }
 
-function setWatchWeekday(k) {
+// `persist` is off when the weekday arrives from the timetable's day head: that
+// gesture reads as "look at this column", not as a setting, and must not be the
+// reason tomorrow's visit opens on Monday only.
+function setWatchWeekday(k, persist = true) {
   watchWeekday = k;
-  localStorage.setItem("watchWeekday", k);
+  if (persist) localStorage.setItem("watchWeekday", k);
   animateCards = true;
   renderCards();
 }
@@ -6216,8 +6301,12 @@ function setWatchWeekday(k) {
 // Premiere status: episode 1's timestamp (or the bgm date) is in the past.
 const hasAired = s => airMs(s) <= Date.now();
 
+// "1h05" — the gap the now-line reads out. Module-level because the ticker
+// refreshes that reading between renders.
+const hmGap = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+
 // Weekly timetable: watching + plan-to-watch shows, one vertical column per
-// weekday. Columns start at today and wrap around the week; each column is
+// weekday. Columns start at today and run a week forward; each column is
 // sorted by local time of day. A sub-filter narrows the board by premiere
 // status, and the board scrolls horizontally when it doesn't fit.
 function renderSchedule() {
@@ -6234,10 +6323,71 @@ function renderSchedule() {
   // still airing weekly) count as current and are never hidden by this filter.
   const cur = state && state.season;
   if (schedSeasonOnly && cur) all = all.filter(s => s.season === cur || s.pinned || s.long_current);
+  // A finished show has no broadcast this week — the same rule nextSlot() and
+  // the 48h board apply; the sheet must not invent one from ep1's weekday.
+  all = all.filter(s => s.airing || !hasAired(s));
+
+  // The sheet is the local calendar week starting today (setDate: DST-safe).
+  const ws = new Date(); ws.setHours(0, 0, 0, 0);
+  const we = new Date(ws); we.setDate(we.getDate() + 7);
+  const winStart = ws.getTime(), winEnd = we.getTime();
+  // What the sheet files a show by. A number is an occurrence (>= winEnd: the
+  // Later column); "week" is dated, on the air, no time of day — it keeps its
+  // weekday and --:-- (bgm has dated it, AniList has not timed it); null is
+  // undatable (TBA). The columns carry dates, so filing by ep1's weekday was a
+  // promise the sheet could not keep: a finished show, or a premiere three
+  // weeks out, sat under this week's Tuesday with a green time.
+  const occ = s => {
+    if (s.airing_at) {
+      // A running show whose slot already went by today comes back from
+      // nextSlot as next week's; the sheet wants today's, above the now-line.
+      // It is read off the pure weekly walk, so a break week bgm has dated
+      // (which nextSlot honours) cannot unfile a broadcast that already
+      // happened. A premiere is never walked back: that would put next
+      // month's show under this week.
+      if (hasAired(s)) {
+        const prev = projectSlot(s) - WEEK_MS;
+        if (prev >= winStart) return prev;
+      }
+      return nextSlot(s);
+    }
+    const d = parseYmd(dateOf(s));
+    if (!d) return null;
+    return d.getTime() >= Date.now() ? d.getTime() : "week";
+  };
+  const occOf = new Map(all.map(s => [s, occ(s)]));
+  // The column a show lands in: 0..6, "later", or null for TBA.
+  const colOf = s => {
+    const o = occOf.get(s);
+    if (o === null) return null;
+    if (o === "week") return airWeekday(s);
+    if (o >= winEnd) return "later";
+    return (new Date(o).getDay() + 6) % 7;
+  };
+  // Minute of the day, for ordering inside a column. A show we only have a date
+  // for has no time of day, so it sinks below the ones that do.
+  const minuteOf = s => {
+    const o = occOf.get(s);
+    if (!s.airing_at || typeof o !== "number") return Infinity;
+    const d = new Date(o);
+    return d.getHours() * 60 + d.getMinutes();
+  };
+  // Time-of-day band, from the occurrence. The bands are local clock hours
+  // because the sheet is set in local time — an anime schedule kept in JST
+  // would put half the week in "late night", which is true in Tokyo and
+  // useless from here.
+  const bandOf = s => (s.airing_at ? airBand(occOf.get(s)) : null);
+  // The two chip rows count across each other: a status chip says how many
+  // slips it would leave on the board with the band in force, and a band chip
+  // how many with the status in force — so no chip can promise N and deliver
+  // seven blank columns.
+  const inBand = s => schedBand === "all" || bandOf(s) === schedBand;
+  const inStatus = s => schedFilter === "all" || hasAired(s) === (schedFilter === "aired");
+  const scoped = all.filter(inBand);
   const counts = {
-    all: all.length,
-    aired: all.filter(hasAired).length,
-    upcoming: all.filter(s => !hasAired(s)).length,
+    all: scoped.length,
+    aired: scoped.filter(hasAired).length,
+    upcoming: scoped.filter(s => !hasAired(s)).length,
   };
   const chips = ["all", "aired", "upcoming"]
     .map(k => fchipBtn(k, t("sched_" + k), counts[k], schedFilter === k, "setSchedFilter")).join("");
@@ -6245,54 +6395,53 @@ function renderSchedule() {
       aria-pressed="${schedSeasonOnly}" onclick="setSchedSeasonOnly(${!schedSeasonOnly})">
       <span class="track"><span class="knob"></span></span>${t("sched_season_only")}</button>`;
 
-  let shows = schedFilter === "all" ? all : all.filter(s => hasAired(s) === (schedFilter === "aired"));
-  // Time-of-day band. The bands are local clock hours because the sheet is set
-  // in local time — an anime schedule kept in JST would put half the week in
-  // "late night", which is true in Tokyo and useless from here.
   const bandCounts = { late: 0, morning: 0, afternoon: 0, evening: 0 };
-  for (const s of shows) { const b = airBand(s); if (b) bandCounts[b]++; }
-  if (schedBand !== "all") shows = shows.filter(s => airBand(s) === schedBand);
+  for (const s of all.filter(inStatus)) { const b = bandOf(s); if (b) bandCounts[b]++; }
+  const shows = all.filter(s => inStatus(s) && inBand(s));
   const bands = ["all", "late", "morning", "afternoon", "evening"]
     .map(k => fchipBtn(k, t("band_" + k), k === "all" ? null : bandCounts[k],
                        schedBand === k, "setSchedBand")).join("");
   const days = [[], [], [], [], [], [], []];  // Mon..Sun
-  const tba = [];
-  // Weekday comes from airWeekday, so a show bgm has dated but AniList hasn't
-  // given a time for still lands on its real weekday (showing --:--) instead of
-  // being filed as time-unknown. Only a show nothing can date goes to TBA.
+  const tba = [], later = [];
+  // Filed by occurrence (colOf), not by ep1's weekday. A show bgm has dated but
+  // AniList hasn't given a time for still lands on its real weekday (showing
+  // --:--) instead of being filed as time-unknown. Only a show nothing can
+  // date goes to TBA.
   for (const s of shows) {
-    const wd = airWeekday(s);
-    if (wd === null) tba.push(s); else days[wd].push(s);
+    const c = colOf(s);
+    if (c === null) tba.push(s);
+    else if (c === "later") later.push(s);
+    else days[c].push(s);
   }
-  // Minute of the day, for ordering inside a column. A show we only have a date
-  // for has no time of day, so it sinks below the ones that do.
-  const minuteOf = s => {
-    if (!s.airing_at) return Infinity;
-    const d = new Date(s.airing_at * 1000);
-    return d.getHours() * 60 + d.getMinutes();
-  };
   const today = (new Date().getDay() + 6) % 7;
   const names = t("days");
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  const hm = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+  // The unfiltered day, consulted only when the chips have emptied today's
+  // column below the caret: the caret must not announce the day over while a
+  // later slot is merely filtered out. Sorted so [0] is the nearest.
+  const laterToday = all.filter(s => colOf(s) === today && minuteOf(s) > nowMin)
+    .sort((a, b) => minuteOf(a) - minuteOf(b));
   const col = (name, isToday, list, dated, wd) => {
     const badge = isToday ? `<span class="today-badge">${t("today")}</span>` : "";
-    const items = list.map(schedItem);
+    const items = list.map(s => schedItem(s, occOf.get(s)));
     // "Now" marker: slot the caret where the current time falls in today's
-    // column (between the last aired and the next upcoming show). It now
-    // carries a reading — the clock time it stands for and how long until the
-    // next slot below it, which is the question anyone looking at a now-line
-    // was about to ask.
+    // column (between the last aired and the next upcoming show). Its reading
+    // — the clock it stands for and how long until the next slot below it —
+    // is not baked into the markup: that changed every minute, and a sheet
+    // whose markup changed every minute was torn down and rebuilt every
+    // minute, taking a pan in progress and the lit column with it. The marker
+    // carries what the reading needs (data-next: the next slot's minute;
+    // data-tba: that slot has no time of day; data-hidden: it is on the sheet
+    // only under other chips) and tickNowLine() writes the words.
     if (isToday && items.length) {
       let at = list.findIndex(s => minuteOf(s) > nowMin);
       const next = at === -1 ? null : list[at];
       if (at === -1) at = items.length;
-      const gap = next && Number.isFinite(minuteOf(next))
-        ? t("nowNext", hm(minuteOf(next) - nowMin)) : t("nowLast");
-      const clock = `${String(Math.floor(nowMin / 60)).padStart(2, "0")}:${
-        String(nowMin % 60).padStart(2, "0")}`;
-      items.splice(at, 0, `<div class="now-line" data-read="${esc(clock + " · " + gap)}"
-        title="${esc(t("nowRead") + " " + clock)}"></div>`);
+      const say = next || laterToday[0] || null;
+      const m = say ? minuteOf(say) : null;
+      items.splice(at, 0, `<div class="now-line" data-read="" data-next="${
+        say && Number.isFinite(m) ? m : ""}"${say && !Number.isFinite(m) ? ' data-tba="1"' : ""}${
+        say && !next ? ' data-hidden="1"' : ""}></div>`);
     }
     const body = items.length ? items.join("") : `<div class="empty">${t("dayEmpty")}</div>`;
     // The margin rule is drawn by the column, so a column with nothing typed
@@ -6300,13 +6449,19 @@ function renderSchedule() {
     // printing fault rather than as a quiet day.
     // The head is a button: it is the one element that names the day, so it is
     // where "only this day" belongs. It drives the same weekday filter the
-    // 在看 grid uses, which is why picking a day here also switches the tab.
+    // 在看 grid uses, which is why picking a day here also switches the tab —
+    // and why it is only a button over a column with a 在看 slip in it: over a
+    // column of 想看 slips it would open an empty shelf with the show you
+    // pointed at gone. The title says where it goes; the › is the visible
+    // sign that it goes anywhere.
+    const pull = wd != null && list.some(s => s.type === "watching");
     return `<div class="sched-col ${isToday ? "today" : ""}${list.length ? "" : " empty-day"}"
         data-wd="${wd == null ? "" : wd}">
-      <div class="sched-day" ${wd == null ? "" : `role="button" tabindex="0"
-        onclick="pickWeekday(${wd})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pickWeekday(${wd});}"`}
-        title="${esc(wd == null ? "" : t("weekdayAll"))}"><span class="d-name">${name}</span>${
-        dated ? `<span class="d-date">${dated}</span>` : ""}${badge}</div>${body}
+      <div class="sched-day" ${pull ? `role="button" tabindex="0"
+        onclick="pickWeekday(${wd})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pickWeekday(${wd});}"
+        title="${esc(t("weekdayOnly", name))}"` : ""}><span class="d-name">${name}</span>${
+        dated ? `<span class="d-date">${dated}</span>` : ""}${badge}${
+        pull ? `<span class="d-pull" aria-hidden="true">›</span>` : ""}</div>${body}
     </div>`;
   };
   // The head of each column carries its date as well as its weekday: the sheet
@@ -6318,20 +6473,37 @@ function renderSchedule() {
     return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
   let board = "";
-  let slots = 0;
+  let slots = 0;   // the seven dated columns only: "this week" means this week
   for (let off = 0; off < 7; off++) {
     const i = (today + off) % 7;
     days[i].sort((a, b) => minuteOf(a) - minuteOf(b) || byAir(a, b));
     slots += days[i].length;
     board += col(names[i], off === 0, days[i], dayStamp(off), i);
   }
-  if (tba.length) {
-    board += col(t("timeTBA"), false, tba.slice().sort(byAir), "", null);
-    slots += tba.length;
+  // Beyond the week: a premiere further out, or a show bgm dates a break for.
+  // The airline on each slip carries the real date.
+  if (later.length) {
+    board += col(t("laterCol"), false,
+      later.slice().sort((a, b) => occOf.get(a) - occOf.get(b)), "", null);
   }
-  // Keep the horizontal scroll position across re-renders.
+  if (tba.length) board += col(t("timeTBA"), false, tba.slice().sort(byAir), "", null);
+  // Both chip rows persist, so a pair that selects nothing would come back
+  // tomorrow as seven blank columns with no word of why. Said once, above the
+  // board, with the way out beside it. Only when the chips are the reason: a
+  // pool with nothing on the air is seven honest empty columns, and a reset
+  // button there would clear chips that were never the problem.
+  const noMatch = all.length && !shows.length
+    ? `<div class="empty sched-nomatch">${esc(t("schedNoMatch"))} <button class="chip fchip"
+        onclick="resetSchedFilters()">${esc(t("clearFilter"))}</button></div>` : "";
+  // Keep the horizontal scroll position and the lit column across a rebuild.
+  // A board mid-drag is left alone for this poll: pointer capture and the
+  // dragging state live on the element, and a rebuild would drop both while
+  // the button is still held.
   const prev = $("cards").querySelector(".sched-board");
+  if (prev && prev.classList.contains("dragging")) return;
   const sl = prev ? prev.scrollLeft : 0;
+  const lit = prev && prev.querySelector(".sched-col.lit");
+  const litWd = lit ? lit.dataset.wd : "";
   const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").replace(/_/g, " ");
   setHTML($("cards"), `<div class="sched-filters">${chips}${seasonToggle}</div>
     <div class="sched-filters bandbar"><span class="lab">${esc(t("bandHead"))}</span>${bands}</div>
@@ -6340,22 +6512,57 @@ function renderSchedule() {
         <h4>${esc(t("schedSheet"))}</h4>
         <span class="mh-meta">${esc(state && state.season ? state.season : "")}${
           tz ? " · " + esc(tz) : ""}</span>
-      </div>
+      </div>${noMatch}
       <div class="sched-board" tabindex="0" role="region" aria-label="${esc(t("t_schedule"))}">${board}</div>
       <div class="sched-foot"><span>${esc(t("schedFootLeft"))}</span>
         <span class="fn">${esc(t("schedFootRight", slots))}</span></div>
     </div>`);
   const board2 = $("cards").querySelector(".sched-board");
-  if (board2 && sl) board2.scrollLeft = sl;
-  if (board2) { attachSchedDrag(board2); attachColumnLight(board2); }
+  // Only a fresh board gets wired up: when setHTML found the markup unchanged
+  // the old board is still there with its listeners on it, and attaching
+  // again would double them on every poll.
+  if (board2 && board2 !== prev) {
+    if (sl) board2.scrollLeft = sl;
+    if (litWd) {
+      const c = board2.querySelector(`.sched-col[data-wd="${litWd}"]`);
+      if (c) c.classList.add("lit");
+    }
+    attachSchedDrag(board2); attachColumnLight(board2);
+  }
+  tickNowLine();
   applyXhl();
 }
 
-// Time-of-day band, from the local slot. Null when nothing has given the show
-// a time — a date alone cannot be filed under a part of the day.
-function airBand(s) {
-  if (!s.airing_at) return null;
-  const h = new Date(s.airing_at * 1000).getHours();
+// The now-line's words. Written onto the marker after every render and once a
+// second between them, so the reading keeps time without the markup — and so
+// the board — changing under it. When the clock crosses the slot the marker
+// sits above, the marker has to move down a slip: that is a real change to
+// the sheet, so it goes through a render rather than printing a negative gap
+// until the next poll.
+function tickNowLine() {
+  const el = $("cards").querySelector(".now-line");
+  if (!el) return;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const next = el.dataset.next === "" ? null : +el.dataset.next;
+  if (next !== null && next <= nowMin) { renderCards(); return; }
+  const clock = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const gap = el.dataset.tba === "1" ? t("nowNextTBA")
+    : next === null ? t("nowLast")
+    : el.dataset.hidden === "1" ? t("nowNextHidden", hmGap(next - nowMin))
+    : t("nowNext", hmGap(next - nowMin));
+  const read = `${clock} · ${gap}`;
+  if (el.dataset.read !== read) {
+    el.dataset.read = read;
+    el.title = `${t("nowRead")} ${clock}`;
+  }
+}
+
+// Time-of-day band of an occurrence (a timestamp). Null when there is no time
+// of day to file under — a date alone cannot be filed under a part of the day.
+function airBand(ms) {
+  if (typeof ms !== "number") return null;
+  const h = new Date(ms).getHours();
   if (h < 6) return "late";
   if (h < 12) return "morning";
   if (h < 18) return "afternoon";
@@ -6373,14 +6580,14 @@ function setSchedBand(k) {
 // you there — the two views already shared the filter, they had just never
 // been wired to each other.
 function pickWeekday(wd) {
-  setWatchWeekday(String(wd));
+  setWatchWeekday(String(wd), false);
   setFilter("watching");
 }
 
 // Pointing anywhere in a column lights the whole column. Delegated per board
-// rather than per column: the board is rebuilt on every poll, and seven
-// listeners re-attached thirty times a minute is seven listeners leaked
-// thirty times a minute.
+// rather than per column: the board is rebuilt whenever its data changes, and
+// seven listeners re-attached per rebuild is seven listeners leaked per
+// rebuild.
 function attachColumnLight(board) {
   const light = col => {
     board.querySelectorAll(".sched-col.lit").forEach(c => {
@@ -6399,38 +6606,71 @@ function attachColumnLight(board) {
 
 // Grab-to-pan the timetable: press anywhere on the board and drag left/right to
 // scroll it. A small movement threshold keeps ordinary clicks working — under
-// the threshold it's a click (cards still open their bgm page), past it we enter
-// drag mode and swallow the trailing click so a pan never mis-fires a card.
+// the threshold it's a click (the slip opens its card), past it we enter drag
+// mode and swallow the trailing click so a pan never opens a card.
 function attachSchedDrag(board) {
   let down = false, moved = false, startX = 0, startLeft = 0, pid = null;
   board.addEventListener("pointerdown", e => {
+    // Every press starts clean, whatever it lands on: a flag left armed by a
+    // press that ended without a click (a finger the browser took for a
+    // scroll) must not eat the next tap on a link.
+    moved = false;
     if (e.button !== 0) return;
+    // Only a mouse needs the grab: a finger or pen already pans the board
+    // natively through overflow-x, and fighting the browser for that gesture
+    // ends in a pointercancel with the board nudged a few px by our hand.
+    if (e.pointerType !== "mouse") return;
     // Leave real controls (toggle, subtitle-group select, links) to themselves.
     if (e.target.closest("button, select, a, input")) return;
-    down = true; moved = false; startX = e.clientX; startLeft = board.scrollLeft; pid = e.pointerId;
+    down = true; startX = e.clientX; startLeft = board.scrollLeft; pid = e.pointerId;
   });
   board.addEventListener("pointermove", e => {
     if (!down) return;
     const dx = e.clientX - startX;
     if (!moved && Math.abs(dx) > 5) {
       moved = true; board.classList.add("dragging");
+      // The peek is fixed to the viewport and anchored to a slip that is about
+      // to slide out from under it.
+      hidePeek();
       try { board.setPointerCapture(pid); } catch (_) {}
     }
     if (moved) { board.scrollLeft = startLeft - dx; e.preventDefault(); }
   });
-  const end = () => { if (!down) return; down = false; board.classList.remove("dragging"); };
+  const end = e => {
+    if (!down) return;
+    down = false; board.classList.remove("dragging");
+    // A cancelled pointer never delivers a click, so there is nothing to eat.
+    if (e.type === "pointercancel") moved = false;
+  };
   board.addEventListener("pointerup", end);
   board.addEventListener("pointercancel", end);
-  // Capture-phase: if the press turned into a drag, eat the click before it
-  // reaches a card's handler. Reset here so the next press starts clean.
+  // Capture-phase: if the press turned into a drag, eat the trailing click
+  // before it reaches a slip. (The mouse click is dispatched in the same task
+  // as pointerup, so it is still seen with moved=true.)
   board.addEventListener("click", e => {
     if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
   }, true);
+  // A cover print is natively draggable, so a grab that started on one became
+  // a ghost-image drag at the browser's own 3px threshold, before ours.
+  board.addEventListener("dragstart", e => e.preventDefault());
+  // The board's own scroll (wheel, trackpad) also moves the slips out from
+  // under a peek; only window scroll hides it otherwise.
+  board.addEventListener("scroll", hidePeek, { passive: true });
 }
 
 function setSchedFilter(k) {
   schedFilter = k;
   localStorage.setItem("schedFilter", k);
+  animateCards = true;
+  renderCards();
+}
+
+// Both chip rows back to "all" in one render — the way out of a pair of
+// persisted chips that between them select nothing.
+function resetSchedFilters() {
+  schedFilter = "all"; schedBand = "all";
+  localStorage.setItem("schedFilter", "all");
+  localStorage.setItem("schedBand", "all");
   animateCards = true;
   renderCards();
 }
@@ -6442,14 +6682,19 @@ function setSchedSeasonOnly(on) {
   renderCards();
 }
 
-function schedItem(s) {
-  const d = s.airing_at ? new Date(s.airing_at * 1000) : null;
+// `o` is the occurrence the sheet filed the show by (see renderSchedule): the
+// clock is that occurrence's, not episode 1's, so the slip agrees with the 48h
+// board once a DST switch has moved the JST slot to a different local hour.
+function schedItem(s, o) {
+  const d = s.airing_at && typeof o === "number" ? new Date(o) : null;
   const hm = d ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "--:--";
-  // Air status lives in the time's color (green = aired, dim = upcoming) so
-  // each entry carries a single pill — the collection type.
+  // Air status lives in the time's colour (green = aired, dim = upcoming), in
+  // the airline's label, and in an sr-only prefix on the time — three
+  // readings of one fact, so each entry still carries a single pill (the
+  // collection type) and still says which state it is in without the colour.
   const aired = hasAired(s);
   const title = displayTitle(s);
-  const when = fmtLocal(s.airing_at, s.premiere_date);
+  const when = fmtLocal(s.airing_at, dateOf(s));
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(aired ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   // Each print is pasted down at its own angle, taken from the show's own id,
@@ -6458,8 +6703,16 @@ function schedItem(s) {
   const tilt = (((bookHash(s.bgm_id) >>> 9) % 81) / 10 - 4).toFixed(1);
   // data-bgm puts the slip on the cross-highlight bus, so pointing at a show
   // anywhere else on the desk lights it here too, and vice versa.
-  return `<div class="sched-item t-${s.type}" data-bgm="${s.bgm_id}" style="--tilt:${tilt}deg">
-    <span class="s-time ${aired ? "aired" : "upcoming"}">${hm}</span>
+  // The slip opens the in-app card like every other show surface on the desk;
+  // the title and the ext-links stay external, so the click checks it did not
+  // land on one, and the keydown checks it is the slip itself that has focus
+  // (Enter on a focused link must stay the link's).
+  return `<div class="sched-item t-${s.type}" data-bgm="${s.bgm_id}" style="--tilt:${tilt}deg"
+      role="button" tabindex="0"
+      onclick="if(!event.target.closest('a,button'))openCard(${s.bgm_id})"
+      onkeydown="if(event.target===this&&(event.key==='Enter'||event.key===' ')){event.preventDefault();openCard(${s.bgm_id});}">
+    <span class="s-time ${aired ? "aired" : "upcoming"}"><span class="sr-only">${
+      t(aired ? "airedLabel" : "airsLabel")} </span>${hm}</span>
     <div class="scover">${coverHtml(s.image)}</div>
     <div class="sbody">
       <div class="stitle" title="${esc(title)}">${bgmLink(s.bgm_id, esc(title))}</div>
@@ -7130,6 +7383,7 @@ async function refreshProgress() {
     if (!state) return;
     guardPanel("cards", renderCards);   // the pips and the sort key both move
     guardPanel("soundings", renderSoundings);
+    guardPanel("upcoming", renderUpcoming);   // the ledger can move a slot off a break week
     refreshCard();
     reanchorPeek();
   } catch (e) { /* transient — the last good reading stays up */ }
@@ -7907,7 +8161,8 @@ function tickClocks() {
 // calls airing may be walked: projecting a finished show's old slot forward
 // would invent a broadcast that is never going to happen.
 const WEEK_MS = 7 * 86400e3;
-function nextSlot(s) {
+// The pure weekly walk: the first occurrence of the slot at or after now.
+function projectSlot(s) {
   if (!s.airing_at) return null;             // date-only shows can't be promised to the hour
   let ms = s.airing_at * 1000;
   if (ms >= Date.now()) return ms;           // premiere still ahead of us
@@ -7915,27 +8170,63 @@ function nextSlot(s) {
   ms += Math.ceil((Date.now() - ms) / WEEK_MS) * WEEK_MS;
   return ms;
 }
+// bgm's per-episode airdates, when the ledger is warm, know about a recap or
+// hiatus week the weekly arithmetic cannot. Dates are compared as Tokyo
+// calendar days with a day of slack either side: a 25:00 slot is dated the
+// next day by bgm and lands the previous evening for a viewer west of Japan.
+const TOKYO_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo",
+  year: "numeric", month: "2-digit", day: "2-digit" });      // YYYY-MM-DD
+const tokyoDay = ms => TOKYO_DAY.format(new Date(ms));
+function ledgerSlot(s, ms) {
+  const p = showProgress(s.bgm_id);
+  if (!p || p.cold || !p.episodes || !p.episodes.length) return ms;   // cold: trust the arithmetic
+  const day = tokyoDay(ms);
+  const floor = tokyoDay(ms - 86400e3);
+  // By date, not by state: an episode that leaked early reads "downloaded",
+  // not "unaired", and would be skipped.
+  const nx = p.episodes.find(e => e.airdate && e.airdate >= floor);
+  if (!nx) return ms;                                                  // ledger exhausted: trust the slot
+  const gap = Math.round((Date.parse(nx.airdate + "T00:00:00Z") - Date.parse(day + "T00:00:00Z")) / 86400e3);
+  if (gap <= 1) return ms;                                             // same broadcast, give or take the date line
+  return ms + Math.ceil((gap - 1) / 7) * WEEK_MS;                      // bgm dates the next episode a later week
+}
+function nextSlot(s) {
+  const ms = projectSlot(s);
+  // The premiere is its own date; only a walked slot can land on a week the
+  // ledger says is dark.
+  if (ms === null || !hasAired(s)) return ms;
+  return ledgerSlot(s, ms);
+}
 
 function renderUpcoming() {
   if (!deskOn() || !collections) return;
   const now = Date.now(), end = now + 48 * 3600e3;
   const pool = [...(collections.groups.watching || []), ...(collections.groups.want || [])];
   const soon = pool
-    .map(s => [nextSlot(s), s])
+    .map(s => {
+      const ms = nextSlot(s);
+      if (ms !== null) return [ms, s, false];
+      // Dated by bgm, not yet timed by AniList: a line on the board (the
+      // timetable already files it under its weekday as --:--), never a
+      // countdown to a midnight nobody scheduled.
+      if (!s.airing_at && !hasAired(s) && Number.isFinite(airMs(s))) return [airMs(s), s, true];
+      return [null, s, false];
+    })
     .filter(([ms]) => ms !== null && ms >= now && ms <= end)
     .sort((a, b) => a[0] - b[0]).slice(0, 12);
-  const html = soon.map(([slot, s]) => {
+  const html = soon.map(([slot, s, tba]) => {
     const left = slot - now;
     const hrs = Math.floor(left / 3600e3);
     const mins = Math.floor((left % 3600e3) / 60000);
     const d = new Date(slot);
-    const when = `${t("daysShort")[(d.getDay() + 6) % 7]} ${
+    const day = t("daysShort")[(d.getDay() + 6) % 7];
+    const when = tba ? `${day} --:--` : `${day} ${
       String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    return `<button class="up${hrs < 6 ? " soon" : ""}" data-bgm="${s.bgm_id}"
-      onclick="openCard(${s.bgm_id})">
+    return `<button class="up${!tba && hrs < 6 ? " soon" : ""}" data-bgm="${s.bgm_id}"
+      onclick="openCard(${s.bgm_id})"${tba ? ` title="${esc(t("upTimeTBA"))}"` : ""}>
       <span class="uw">${esc(when)}</span>
       <span class="un">${esc(displayTitle(s))}</span>
-      <span class="ucd">${hrs}h${String(mins).padStart(2, "0")}</span>
+      <span class="ucd">${tba ? "—" : `${hrs}h${String(mins).padStart(2, "0")}`}</span>
     </button>`;
   }).join("");
   setHTML($("upcoming"), html || `<div class="none">${esc(t("upNone"))}</div>`);
@@ -8160,6 +8451,9 @@ function tickCountdowns() {
   });
 }
 setInterval(tickCountdowns, 1000);
+// The now-line's reading, kept to the minute between polls. One querySelector
+// that finds nothing off the timetable tab.
+setInterval(tickNowLine, 1000);
 
 applyTheme();    // set data-theme first so the initial paint uses the right palette
 applyUiScale();  // …and --ui, so nothing is laid out at the wrong size and reflowed

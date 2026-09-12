@@ -563,6 +563,10 @@ frame.addEventListener("load", async () => {
     must(slip.classList.contains("xhl"), "the slip did not light itself");
     return slip.dataset.bgm;
   });
+  // Slips deal out a peek too now; under the virtual clock its dwell has
+  // already collapsed, and a layer left out here would satisfy the peek
+  // check below without the volume it is meant to prove.
+  hidePeek_(d);
   check("picking a day off the sheet narrows the shelf to it", () => {
     const head = d.querySelector('#cards .sched-col[data-wd] .sched-day[role="button"]');
     must(head, "day heads are not buttons");
