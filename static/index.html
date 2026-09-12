@@ -4489,9 +4489,19 @@ function fixtureData() {
     ["1005", { cold: true, episodes: [], total: null, aired: 0, downloaded: 3,
                watched: 0, ready: 0, depth: 0 }],
   ]);
-  const asColl = (s, type) => Object.assign({}, s, {
-    type, updated_at: new Date((now - (s.bgm_id % 9) * DAY) * 1000).toISOString(),
-  });
+  // Shaped the way /api/collections answers, which is a bgm list row and
+  // nothing else: no status, no rule — those belong to the daemon, and only
+  // 在看 is fetched with them. Carrying mk()'s defaults through made every
+  // shelved volume look subscribed to the panel, and the fixture's job is to
+  // reproduce the backend's shape, not to paper over it.
+  const asColl = (s, type) => {
+    const e = Object.assign({}, s, {
+      type, updated_at: new Date((now - (s.bgm_id % 9) * DAY) * 1000).toISOString(),
+    });
+    delete e.status;
+    delete e.rule;
+    return e;
+  };
   const groups = {
     watching: shows.map(s => asColl(s, "watching")),
     want: [
