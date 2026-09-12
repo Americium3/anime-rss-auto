@@ -3057,15 +3057,28 @@ if (new URLSearchParams(location.search).has("probe")) {
     display: grid; gap: 1px; padding: 3px 0 0;
   }
   .g-cell {
-    border: 0; padding: 0; margin: 0; cursor: pointer;
+    border: 0; padding: 0; margin: 0; cursor: default;   /* a click does nothing here */
+    position: relative;
     border-radius: 1px 1px 0 0;
     background: color-mix(in srgb, var(--text) 12%, transparent);
     transition: background-color .18s, transform .18s;
     transform-origin: bottom center;
     min-width: 0;
   }
-  .g-cell:hover, .g-cell:focus-visible { transform: scaleY(1.22); outline: none; }
+  /* The hit area reaches down through the water and one gap to the left, so a
+     pointer that drops below the cell strip, or sweeps the compressed head of
+     a long run, still resolves to an episode rather than to nothing. It is a
+     pseudo-element: the cell's own box — the one measured against the 2px
+     floor — is unchanged, hit-testing still names the cell, and the body's
+     overflow clips whatever hangs past the bottom. */
+  .g-cell::after { content: ""; position: absolute; left: -1px; right: 0; top: 0; height: 300%; }
+  /* .at is the episode the transport is parked on: the keyboard's hover. */
+  .g-cell:hover, .g-cell:focus-visible, .g-cell.at { transform: scaleY(1.22); outline: none; }
   .g-cell:focus-visible { box-shadow: 0 0 0 1px var(--accent-b); }
+  /* The track is the one focus stop in the instrument — a slider, walked with
+     the arrow keys — so the ring goes on it, drawn inward to stay inside the
+     body's clip. */
+  .g-track:focus-visible { outline: 1px solid var(--accent-b); outline-offset: -1px; }
   .g-cell.s-unaired, .g-swatch.s-unaired { background: color-mix(in srgb, var(--text) 9%, transparent); }
   .g-cell.s-aired, .g-swatch.s-aired { background: color-mix(in srgb, var(--accent-a) 55%, transparent); }
   .g-cell.s-downloading, .g-swatch.s-downloading { background: color-mix(in srgb, var(--warn) 52%, transparent); }
@@ -3141,7 +3154,10 @@ if (new URLSearchParams(location.search).has("probe")) {
      up, but the move is not yours to make, so it is drawn in the waiting
      colour rather than the acting one. */
   .g-drift.stall { color: var(--warn); }
-  .g-body:hover .g-drift, .gauge:focus-within .g-drift { opacity: .95; }
+  /* Out while the pointer is on the body, while the track has keyboard focus
+     (the drift is a later sibling of the track, hence ~), and while the
+     transport is parked on an episode by any input — a tap, a keystroke. */
+  .g-body:hover .g-drift, .g-track:focus-visible ~ .g-drift, .gauge.scrub .g-drift { opacity: .95; }
   .g-drift i { font-style: normal; animation: driftUp 1.25s ease-in-out infinite; }
   .g-drift i:nth-child(2) { animation-delay: .16s; }
   .g-drift i:nth-child(3) { animation-delay: .32s; }
@@ -5529,6 +5545,10 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     // Innermost first. A picker is open over a card; closing both at once
     // would take the card away as the answer to "cancel this menu".
+    // A gauge scrubbed from its focused track is innermost of all: Escape
+    // parks the needle before it is allowed to close anything.
+    const sg = e.target.closest && e.target.closest(".gauge.scrub");
+    if (sg) { gaugeHome(sg); return; }
     if (groupPickerOpen()) { closeGroupPickers(); return; }
     if (peekFor !== null) { hidePeek(); return; }
     if (document.body.classList.contains("drawer-open")) closeDrawers();
@@ -5783,7 +5803,7 @@ function peekHtml(s) {
   ].join("");
   return `<h4>${esc(displayTitle(s))}</h4>
     <div class="pmeta">${badges}</div>
-    ${p && !p.cold && p.total ? gaugeHtml(s, { legend: false }) + "<hr>" : ""}
+    ${p && !p.cold && p.total ? gaugeHtml(s, { legend: false, keys: false }) + "<hr>" : ""}
     ${rows}
     <div class="phint">${esc(t("peekOpen"))}</div>`;
 }
@@ -6302,6 +6322,9 @@ function lastIndex(eps, ok) {
 function gaugeHtml(show, opts) {
   const p = showProgress(show.bgm_id);
   const compactLegend = !(opts && opts.legend === false);
+  // The track is a keyboard stop only where a keyboard can reach it: the
+  // peek's copy is aria-hidden and never focused, so it gets no tabindex.
+  const keys = !(opts && opts.keys === false);
   if (!p || p.cold) {
     // A gauge reading zero and a gauge that has not loaded look identical, and
     // only one of them is true — so say which this is.
@@ -6353,13 +6376,16 @@ function gaugeHtml(show, opts) {
     <div class="g-body">
       <div class="g-water"></div>
       <div class="g-surface"></div>
-      <div class="g-track" style="grid-template-columns:${gaugeColumns(eps.length)}">${cells}</div>
+      <div class="g-track" style="grid-template-columns:${gaugeColumns(eps.length)}"${keys ? `
+           tabindex="0" role="slider" aria-label="${esc(t("gaugeHead"))}"
+           aria-valuemin="1" aria-valuemax="${eps.length}" aria-valuenow="${Math.max(1, watchI + 1)}"
+           aria-valuetext="${esc(trend ? t(TREND_TEXT[trend]) : "")}"` : ""}>${cells}</div>
       <span class="g-flag"></span>
       <span class="g-disc"></span>
       <span class="g-needle"></span>
       ${drift ? `<span class="g-drift ${drift[0]}"><i>${drift[1]}</i><i>${drift[1]}</i><i>${drift[1]}</i></span>` : ""}
     </div>
-    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}">
+    <div class="g-foot" data-rest="${esc(trend ? t(TREND_TEXT[trend]) : "")}" aria-live="polite">
       <span class="st">${esc(trend ? t(TREND_TEXT[trend]) : "")}</span>
     </div>
     ${legend}
@@ -6407,13 +6433,20 @@ function tuneGauges(root) {
 // pointer, and the foot reads out that episode instead of the trend. Leaving
 // the instrument lets it swim home. Delegated once from the document, so it
 // covers gauges on the card, in the peek and anywhere else they get drawn.
+//
+// Three ways in, one transport: the pointer scrubs as it passes, a finger
+// parks the reading where it taps (and drags it), and the arrow keys walk it
+// from the track, which is the instrument's one focus stop. Whatever moved
+// it, the track's slider value follows so a screen reader hears the episode.
 function gaugeScrub(g, i) {
   if (!g || !g._at) return;
-  const cell = g.querySelectorAll(".g-cell")[i];
+  const cells = g.querySelectorAll(".g-cell");
+  const cell = cells[i];
   const foot = g.querySelector(".g-foot");
   g.classList.add("scrub");
   g._scrubI = i;   // where the needle is parked, for the tuner to respect
   g.style.setProperty("--gx", `${g._at(i).toFixed(2)}%`);
+  cells.forEach((c, k) => c.classList.toggle("at", k === i));
   if (!cell || !foot) return;
   const p = showProgress(g.dataset.gauge);
   const e = p && p.episodes[i];
@@ -6427,6 +6460,11 @@ function gaugeScrub(g, i) {
     `<span class="st">${esc(t("ep_" + e.state))}</span>` +
     (e.name ? `<span class="nm">${esc(e.name)}</span>` : "") +
     (date ? `<span class="dt">${esc(date)}</span>` : "");
+  const track = g.querySelector(".g-track[tabindex]");
+  if (track) {
+    track.setAttribute("aria-valuenow", String(e.ep));
+    track.setAttribute("aria-valuetext", `#${e.ep} ${t("ep_" + e.state)}`);
+  }
 }
 
 function gaugeHome(g) {
@@ -6434,8 +6472,14 @@ function gaugeHome(g) {
   g.classList.remove("scrub");
   g._scrubI = null;
   if (g._home != null) g.style.setProperty("--gx", `${g._home.toFixed(2)}%`);
+  g.querySelectorAll(".g-cell.at").forEach(c => c.classList.remove("at"));
   const foot = g.querySelector(".g-foot");
   if (foot) foot.innerHTML = `<span class="st">${esc(foot.dataset.rest || "")}</span>`;
+  const track = g.querySelector(".g-track[tabindex]");
+  if (track) {
+    track.setAttribute("aria-valuenow", String(Math.max(1, +g.dataset.watch + 1)));
+    track.setAttribute("aria-valuetext", (foot && foot.dataset.rest) || "");
+  }
 }
 
 document.addEventListener("pointerover", e => {
@@ -6444,8 +6488,68 @@ document.addEventListener("pointerover", e => {
   const g = e.target.closest && e.target.closest(".gauge");
   if (!g) document.querySelectorAll(".gauge.scrub").forEach(gaugeHome);
 });
-document.addEventListener("pointerleave", () =>
-  document.querySelectorAll(".gauge.scrub").forEach(gaugeHome), true);
+// Home only when the pointer actually leaves the instrument. This used to be
+// a capture-phase pointerleave on the document, which fires for every
+// element's own leave — cell to gap, cell to cell, cell to water — so the
+// reading died at every boundary and the pointerover fallback above never
+// got to do its job. A null relatedTarget is the window edge, and homes too.
+// A finger is exempt: the browser fires pointerout the moment it lifts, and
+// a tap has to leave the reading up long enough to be read — the next tap
+// anywhere else homes it through the pointerover fallback.
+document.addEventListener("pointerout", e => {
+  const g = e.target.closest && e.target.closest(".gauge.scrub");
+  if (!g || e.pointerType === "touch") return;
+  if (e.relatedTarget && g.contains(e.relatedTarget)) return;
+  gaugeHome(g);
+});
+// A cell is a hit target, not a control: cancelling pointerdown suppresses
+// the mousedown whose default action is focus, so a click can no longer park
+// focus on a tabindex=-1 button and leave the drift chevrons stuck on.
+document.addEventListener("pointerdown", e => {
+  if (e.target.closest && e.target.closest(".g-cell")) e.preventDefault();
+});
+// A finger dragged along the track scrubs like a slider. Touch captures the
+// pointer to the cell it landed on, so the cell under the finger has to be
+// looked up rather than read from the event; touch-action: pan-y on the body
+// already leaves vertical drags to the page.
+document.addEventListener("pointermove", e => {
+  if (e.pointerType !== "touch") return;
+  const g = e.target.closest && e.target.closest(".gauge.scrub");
+  if (!g) return;
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const cell = under && under.closest && under.closest(".g-cell[data-i]");
+  if (!cell || cell.closest(".gauge") !== g) return;
+  const i = +cell.dataset.i;
+  if (i !== g._scrubI) gaugeScrub(g, i);
+});
+// The keyboard walks the focused track. Only these four keys are taken, so
+// `/` and the digit shortcuts stay with the document handler (which bails on
+// an open drawer anyway); Escape is handled at the head of that handler's
+// Escape chain, ahead of the drawer, so it parks the needle before it closes
+// anything.
+document.addEventListener("keydown", e => {
+  const track = e.target.closest && e.target.closest(".g-track[tabindex]");
+  if (!track) return;
+  const g = track.closest(".gauge");
+  const n = track.children.length;
+  if (!g || !n) return;
+  const cur = g._scrubI != null ? g._scrubI : +g.dataset.watch;
+  let i = null;
+  if (e.key === "ArrowRight") i = Math.min(n - 1, cur + 1);
+  else if (e.key === "ArrowLeft") i = Math.max(0, cur - 1);
+  else if (e.key === "Home") i = 0;
+  else if (e.key === "End") i = n - 1;
+  if (i === null) return;
+  e.preventDefault();
+  gaugeScrub(g, i);
+});
+// Tabbing off the track is leaving the instrument, the same as the pointer
+// going: a reading parked by the keyboard must not outlive the focus that
+// parked it, or the card's refresh would stay deferred behind it.
+document.addEventListener("focusout", e => {
+  const track = e.target.closest && e.target.closest(".g-track[tabindex]");
+  if (track) gaugeHome(track.closest(".gauge.scrub"));
+});
 
 // ---- the rail reading ----------------------------------------------------
 // The same three tracks, one line each: a hairline for what has been watched,
