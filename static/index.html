@@ -1007,7 +1007,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   html[data-theme="light"] { --plank-face: rgba(150,104,42,.26); --plank-lip: rgba(255,246,226,.75); }
 
   /* The shelf label: only for the volume under the pointer, so the wall stays
-     a wall. Its box is always reserved, so revealing it never reflows. */
+     a wall — on a pointer device; see the (hover: none) block under "small
+     screens / touch". Its box is always reserved, so revealing it never
+     reflows. */
   .ulabel {
     margin-top: 8px; width: 142px; height: calc(2.13rem * var(--ui));
     font-size: calc(.82rem * var(--ui)); line-height: 1.3; color: var(--text-dim);
@@ -1031,6 +1033,30 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .upip.wait { background: var(--warn); }
   .upip.none { background: var(--muted); }
+  /* The key to the pips, one line under the sort bar. Its swatches are their
+     own class: .upip is pinned to a volume's corner, and the class the
+     harness counts must never double as a swatch (the gauge's legend keeps
+     the same rule). The paper slip gets a sliver of its own stock. */
+  .pipkey {
+    display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0 8px;
+    font-size: calc(.72rem * var(--ui)); color: var(--text-faint);
+  }
+  .pipkey[hidden] { display: none; }
+  .pipkey > span { display: inline-flex; align-items: center; gap: 5px; }
+  .pk {
+    display: inline-block; min-width: 14px; padding: 1px 4px; border-radius: var(--r-xs);
+    font-family: var(--mono); font-style: normal; font-size: .9em; line-height: 1.2;
+    color: var(--btn-text); background: var(--ok);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.25);
+  }
+  .pk-wait { background: var(--warn); }
+  .pk-none { background: var(--muted); }
+  .pk-slip {
+    width: 6px; min-width: 0; padding: 0; height: 12px;
+    /* The .slip's own stock: paper is the same colour in either light. */
+    background: linear-gradient(178deg, #fdf6e6, #efe1c4);
+    border: 1px solid rgba(120,96,60,.45); border-left: 0; box-shadow: none;
+  }
 
   /* Entry waterfall: volumes rise onto their planks one after another.
      #cards only carries .anim on user-driven re-renders (first paint, tab or
@@ -1272,19 +1298,6 @@ if (new URLSearchParams(location.search).has("probe")) {
 
   .grouprow { display: flex; align-items: center; gap: 8px; font-size: calc(.88rem * var(--ui)); color: var(--text-dim); }
   .grouprow b { color: var(--text); }
-  .grouprow select {
-    appearance: none;
-    background: var(--input-bg)
-      url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%238b93a3" stroke-width="1.5" stroke-linecap="round"/></svg>')
-      no-repeat right 10px center;
-    color: var(--text); border: 1px solid var(--panel-border);
-    border-radius: var(--r-s); padding: 5px 26px 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
-    flex: 1; min-width: 0; max-width: 190px;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
-  }
-  html[data-theme="light"] .grouprow select {
-    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%235d4a33" stroke-width="1.5" stroke-linecap="round"/></svg>');
-  }
   /* Manual-resolve paste box on the unresolved banner: grouprow skin, but a
      text input and no max-width — mikan links are long. */
   .murl { margin-top: 7px; }
@@ -1295,7 +1308,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     flex: 1; min-width: 0;
     box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
   }
-  html[data-theme="light"] .murl input, html[data-theme="light"] .grouprow select {
+  html[data-theme="light"] .murl input {
     box-shadow: inset 0 2px 4px rgba(92,60,24,.14);
   }
   .murl input::placeholder { color: var(--text-faint); }
@@ -1414,6 +1427,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* The banner's leading emoji waves twice on arrival, then rests. */
   .bemo { display: inline-block; animation: wave .8s ease .5s 2; }
   @keyframes wave { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+  /* A banner that was already on the desk when the list was rebuilt keeps its
+     place: no second slide-in, no second wave. */
+  .premiere.settled, .premiere.settled .bemo { animation: none; }
   .premiere .pcover { width: 48px; min-width: 48px; height: 66px; border-radius: var(--r-xs); overflow: hidden; background: var(--media-bg); position: relative;
     box-shadow: 0 0 0 1px var(--gilt-soft), 1px 2px 5px rgba(0,0,0,.45); }
   .premiere .pcover .ph { font-size: 18px; }
@@ -2360,10 +2376,30 @@ if (new URLSearchParams(location.search).has("probe")) {
      the case going dark toward the floor). Both pseudo-elements sit at -1 in
      the wall's own stacking context, so they are behind the books and in
      front of the panel. */
-  .spinewall {
+  /* The case the wall stands in: a bookcase you scroll, never taller than six
+     shelves. At 1800-2000px a pedestal carries 5-7 spines a row and 146
+     volumes would run to 20-odd shelves, stretching the page four screens
+     past the desk. The scroll box is a wrapper rather than the wall itself,
+     because the planks and the lamp are the wall's own pseudo-elements,
+     absolutely positioned against it: inside a scroll container they would
+     size to the visible window and scroll off with it, leaving every shelf
+     past the sixth standing on nothing. The case reaches 14px into the
+     pedestal's margin on either side so a lit volume's glow at the end of a
+     shelf is not clipped; the wall's own edges stay where they were. */
+  .bookcase {
     /* The row has to grow with the type, because the spines it carries do.
-       The board does not: timber is the same thickness at any type size. */
+       The board does not: timber is the same thickness at any type size.
+       Declared on the case so the height of six rows and the wall's plank
+       profile are cut from one figure. */
     --rowh: calc(244px * var(--ui));
+    max-height: calc(var(--rowh) * 6 + 10px);
+    overflow-y: auto; margin: 0 -14px; padding: 0 14px;
+    scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+  }
+  .bookcase::-webkit-scrollbar { width: 8px; }
+  .bookcase::-webkit-scrollbar-track { background: transparent; }
+  .bookcase::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
+  .spinewall {
     --shelf: 18px;
     position: relative; isolation: isolate;
     display: flex; flex-wrap: wrap; align-items: flex-end; align-content: flex-start;
@@ -2778,8 +2814,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   .cbar.nil {
     height: 2px; background: color-mix(in srgb, var(--text-faint) 40%, transparent);
     box-shadow: none; cursor: default;
+    /* Rendered disabled, and kept out of the pointer's reach too: :hover still
+       matches a disabled button, and a hairline that brightens and stretches
+       under the finger is promising something it cannot do. */
+    pointer-events: none;
   }
-  .cbar:hover, .cbar:focus-visible { filter: brightness(1.35); transform: scaleY(1.06); }
+  /* A bar stays pressed for as long as its year is lit on the wall. */
+  .cbar:hover, .cbar:focus-visible, .cbar[aria-pressed="true"] { filter: brightness(1.35); transform: scaleY(1.06); }
   .caxis {
     display: flex; justify-content: space-between; margin-top: 5px;
     font-family: var(--mono); font-size: calc(.78rem * var(--ui)); color: var(--text-faint);
@@ -2798,11 +2839,37 @@ if (new URLSearchParams(location.search).has("probe")) {
     .brand small { display: none; }
     .search { margin-left: 0; }
     .cornice { height: 14px; }
+    /* The opened card stacks on a phone: the poster becomes a landscape band
+       and the body takes the full sheet width, so a long-runner's gauge cells
+       stay tappable instead of sharing 177px beside a 132px poster column.
+       The second max-height is for engines that know dvh — 100vh on a phone
+       is the bar-collapsed height, and the docket at the sheet's foot would
+       otherwise sit under the browser's toolbar. */
+    .sheet { width: min(520px, 96vw); max-height: 92vh; max-height: 92dvh; }
+    .sheet .card { flex-direction: column; }
+    .sheet .cover { flex: none; width: 100%; min-width: 0; height: 170px; }
+    .sheet .card-body { flex: none; padding: 14px 14px 16px; }
   }
   @media (pointer: coarse) {
     .btn.small, .fchip, .seg button, .drawer-close, .up { min-height: 44px; }
-    .grouprow select { font-size: 16px; min-height: 44px; }
     .murl input { font-size: 16px; min-height: 44px; }
+    /* The sort keys, the cour narrowing (plate, badge and the ✕ that undoes
+       it), the subgroup picker and its options, the outbound links, and the
+       timetable's day heads and toggle — every control a finger reaches in
+       the centre column. The rails only exist past 1800px and are left
+       alone: the census bar's height is the datum, and the spine wall's
+       spacing is the wall. */
+    .sortk, .sortdef, .season-divider > button.plate, button.season-tag,
+    .gpick-btn, .gopt, .ext-link, .sched-toggle { min-height: 44px; }
+    .sortpick button { padding: 0 12px; min-width: 44px; min-height: 44px; }
+    .sched-day[role="button"] { min-height: 44px; padding-top: 10px; }
+  }
+  /* No pointer, no hover. On a touch screen the shelf label above would never
+     come on, and the only way to read a title would be to open the card — so
+     here every plank keeps its label. The wall-stays-a-wall rule (see .ulabel)
+     is for rooms with a pointer. */
+  @media (hover: none) {
+    .unit .ulabel { opacity: 1; transform: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -2925,7 +2992,10 @@ if (new URLSearchParams(location.search).has("probe")) {
     color: var(--text-faint); font-size: calc(.76rem * var(--ui));
     letter-spacing: .09em; text-transform: uppercase;
   }
-  .sortk {
+  /* .sortdef is the "Default" pill: the same pill as a key, so the way back
+     to the tab's own order is visible without hovering. Shared by selector
+     list rather than by class, because the harness counts .sortk as keys. */
+  .sortk, .sortdef {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 9px; border-radius: 999px; cursor: pointer;
     border: 1px solid var(--panel-border); background: transparent;
@@ -2933,8 +3003,8 @@ if (new URLSearchParams(location.search).has("probe")) {
     font-size: calc(.8rem * var(--ui));
     transition: color .18s, border-color .18s, background-color .18s;
   }
-  .sortk:hover { color: var(--text); border-color: var(--hover-border); }
-  .sortk[aria-pressed="true"] {
+  .sortk:hover, .sortdef:hover { color: var(--text); border-color: var(--hover-border); }
+  .sortk[aria-pressed="true"], .sortdef[aria-pressed="true"] {
     color: var(--text); border-color: var(--gilt);
     background: color-mix(in srgb, var(--brass) 12%, transparent);
   }
@@ -2977,6 +3047,11 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   button.season-tag:hover { filter: brightness(1.2); }
   button.season-tag:focus-visible { outline: 2px solid var(--accent-b); outline-offset: 1px; }
+  /* The plate's pressed look, so a badge whose cour is the one showing says
+     so before it is pressed again. */
+  button.season-tag[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px currentColor, 0 0 0 2px var(--gilt-soft);
+  }
 
   /* ----- skeletons -------------------------------------------------------- */
   /* Shown only where something is genuinely on its way. A skeleton that is not
@@ -3357,6 +3432,12 @@ if (new URLSearchParams(location.search).has("probe")) {
     border: 1px solid var(--panel-border); border-radius: 4px;
     padding: 0 3px; margin-left: 6px;
   }
+  /* The shortcuts, written out in the settings drawer rather than only in
+     the search box's tooltip (which is hidden on the timetable). Only where
+     there is a keyboard to press them on. */
+  .kbd-row { display: none; }
+  .kbd-text { color: var(--text-faint); font-size: calc(.8rem * var(--ui)); }
+  @media (hover: hover) and (pointer: fine) { .kbd-row { display: flex; } }
 
   /* Every moving thing added above, stopped in one place. A reading that only
      exists while something is animating would be unreadable here, so each of
@@ -3737,7 +3818,10 @@ if (new URLSearchParams(location.search).has("probe")) {
       <button onclick="setSpineSort('year')" data-v="year" data-i18n="sortYear">Year</button>
     </div>
   </div>
-  <div class="spinewall" id="spinewall"></div>
+  <!-- The case is the scroll box; the wall inside it keeps its own planks. -->
+  <div class="bookcase" id="bookcase">
+    <div class="spinewall" id="spinewall"></div>
+  </div>
 </aside>
 
 <main class="wrap">
@@ -3783,6 +3867,15 @@ if (new URLSearchParams(location.search).has("probe")) {
        stagger ranks its own children by the shelf they land on, and a control
        strip standing among the volumes would be given a shelf of its own. -->
   <div class="sortbar" id="sortbar" hidden></div>
+  <!-- The key to the corner pips and the paper slip. Static markup, outside
+       #cards and #sortbar for the same reason the sort bar is; relabelled by
+       the [data-i18n] pass, shown or hidden by renderCards(). -->
+  <div class="pipkey" id="pipkey" hidden>
+    <span><i class="pk">n/m</i><span data-i18n="pipKeyReady">ready to watch</span></span>
+    <span><i class="pk pk-wait">0/m</i><span data-i18n="pipKeyWait">downloading</span></span>
+    <span><i class="pk pk-wait" data-i18n="gracePip">HOLD</i><span data-i18n="st_grace">ANi grace</span></span>
+    <span><i class="pk pk-none">?</i><i class="pk pk-slip"></i><span data-i18n="t_no_mikan">Awaiting mikan</span></span>
+  </div>
 
   <h2 class="sr-only" data-i18n="showsHeading">Shows</h2>
   <div class="grid" id="cards"><div class="empty"><span class="spin">◌</span> <span data-i18n="loading">Loading…</span></div></div>
@@ -3941,6 +4034,11 @@ if (new URLSearchParams(location.search).has("probe")) {
           <button onclick="setUiScale('l')" data-v="l" data-i18n="sizeL">Large</button>
           <button onclick="setUiScale('xl')" data-v="xl" data-i18n="sizeXL">Larger</button>
         </div>
+      </div>
+      <!-- The shortcuts, spelled out. Hidden by CSS where there is no keyboard. -->
+      <div class="set-row kbd-row">
+        <span class="lab" data-i18n="shortcuts">Shortcuts</span>
+        <span class="kbd-text" data-i18n="kbdHint"></span>
       </div>
     </div>
 
@@ -4124,6 +4222,15 @@ const I18N = {
     seasonFilter: s => `Season ${s}`,
     clearFilter: "clear",
     matchCount: (n, m) => `${n} of ${m}`,
+    // The corner pips, and the key to them under the sort bar.
+    pipDownloading: n => `${n} episode${n === 1 ? "" : "s"} downloading`,
+    pipKeyReady: "ready to watch", pipKeyWait: "downloading",
+    // The archive's arrows state the order the wall is in, not the sign of
+    // the comparator behind it.
+    dirNewest: "newest first", dirOldest: "oldest first",
+    dirHighest: "highest first", dirLowest: "lowest first",
+    sortReverse: "press again to reverse",
+    shortcuts: "Shortcuts",
     // --- peek ---
     peekEpisodes: "Episodes", peekNext: "Next", peekGroup: "Subgroup",
     peekReady: "Ready", peekSeeding: "Seeding", peekDepth: "Behind",
@@ -4276,6 +4383,12 @@ const I18N = {
     seasonFilter: s => `${s} 季`,
     clearFilter: "清除",
     matchCount: (n, m) => `${n} / ${m}`,
+    pipDownloading: n => `${n} 集下载中`,
+    pipKeyReady: "可观看", pipKeyWait: "下载中",
+    dirNewest: "最新在前", dirOldest: "最早在前",
+    dirHighest: "高分在前", dirLowest: "低分在前",
+    sortReverse: "再按一次反向",
+    shortcuts: "快捷键",
     // --- 悬停展开 ---
     peekEpisodes: "集数", peekNext: "下次放送", peekGroup: "字幕组",
     peekReady: "可看", peekSeeding: "做种", peekDepth: "落后",
@@ -4528,6 +4641,28 @@ function setHTML(el, html) {
   if (el._last === html) return;
   el._last = html;
   el.innerHTML = html;
+}
+
+// The grid's own writer. The entry gate (pendingAnim, armed by renderCards
+// from the one-shot animateCards) is decided here, and only when nodes are
+// actually replaced: a poll that re-rendered identical markup used to strip
+// .anim from #cards regardless, and unmatching the rule cancels every entrance
+// still in its delay — the wall popped instead of dealing. The gate is
+// consumed whether or not a swap follows, so a switch that changed nothing
+// cannot arm the next silent poll.
+let pendingAnim = false;
+function setCards(html) {
+  const c = $("cards");
+  const anim = pendingAnim;
+  pendingAnim = false;
+  if (c._last === html) return false;
+  c.classList.toggle("anim", anim);
+  // Any real swap also drops the boot-time waterfall offset — user-driven
+  // replays must start instantly.
+  c.style.removeProperty("--stagger-base");
+  c._last = html;
+  c.innerHTML = html;
+  return true;
 }
 
 /* ---------------------------------------------------------------------------
@@ -5114,19 +5249,29 @@ function bookUnit(s, type) {
   // the only way to reach these is dismissible, and dismissing it is exactly
   // what makes the show unreachable.
   const nomk = !!s.no_mikan;
-  let pip = "";
+  // One phrase per pip, doing double duty: the tooltip on the pip, and part
+  // of the unit's accessible name. An aria-label replaces the button's
+  // content, so without this a reader tabbing the wall heard the title and
+  // nothing of what the pip says; a finger got nothing at all.
+  let pip = "", pipText = "";
   if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
     // A grace window is the one state that expires on its own — it has to be
     // visible from the wall, not only once the card is open.
-    pip = `<span class="upip wait" title="${esc(t("waitingAni"))}">${esc(t("gracePip"))}</span>`;
+    pipText = t("waitingAni");
+    pip = `<span class="upip wait" title="${esc(pipText)}">${esc(t("gracePip"))}</span>`;
   } else if (r) {
-    pip = `<span class="upip${r.done ? "" : " wait"}">${r.done}/${r.total}</span>`;
+    pipText = r.done ? t("epReady", r) : t("pipDownloading", r.total);
+    pip = `<span class="upip${r.done ? "" : " wait"}" title="${esc(pipText)}">${r.done}/${r.total}</span>`;
   } else if (nomk || s.status === "unresolved") {
-    pip = `<span class="upip none">?</span>`;
+    pipText = nomk ? t("t_no_mikan") : t("st_unresolved");
+    pip = `<span class="upip none" title="${esc(pipText)}">?</span>`;
   }
+  // The slip stays decorative: it is the twin of a state the label carries.
   const slip = nomk
     ? `<span class="slip" aria-hidden="true"><span class="slip-rule"></span></span>` : "";
   const title = displayTitle(s);
+  const label = [title, pipText, nomk && pipText !== t("t_no_mikan") ? t("t_no_mikan") : ""]
+    .filter(Boolean).join(" — ");
   // Every face is a stack of material layers painted in DOM order (see the
   // .l rules): the cloth, its texture, what is pasted on it, the lamp, the
   // wear. The class names the harness asserts on (.unit .tome .f-cover
@@ -5134,7 +5279,7 @@ function bookUnit(s, type) {
   return `<button class="unit t-${type}${nomk ? " nomikan" : ""}" data-bgm="${s.bgm_id}"
       style="--cloth:${b.cloth};--foil:${b.foil};--label:${b.label};--hb:${b.hb};--wear:${b.wear};--gx:${b.gx}px;--vh:${Math.round(144 * b.tall)}px"
       onclick="openCard(${s.bgm_id})"
-      aria-label="${esc(nomk ? title + " — " + t("t_no_mikan") : title)}">
+      aria-label="${esc(label)}">
     ${pip}
     <span class="tome k-${b.kind}">
       <span class="f f-top"></span>
@@ -5198,13 +5343,16 @@ function card(show) {
     // "#202" and nothing else — not what the group is called, not whether the
     // automation ranks it, and not that choosing it destroys the season on
     // disk. All three are decision-grade facts and all three are now on the
-    // option itself. The confirm stays exactly where it was.
+    // option itself. The confirm stays exactly where it was. The accessible
+    // name leads with the group in force — the one fact the button exists to
+    // state — because an aria-label replaces the visible text, and the old
+    // "via — <title>" dropped it.
     groupRow = `
       <div class="grouprow gpick" data-gpick="${show.bgm_id}">
         <span>${t("via")}</span>
         <button class="gpick-btn" type="button" id="gp-${show.bgm_id}"
                 aria-haspopup="listbox" aria-expanded="false"
-                aria-label="${esc(t("via") + " — " + displayTitle(show))}"
+                aria-label="${esc(groupLabel(show.rule) + " — " + t("via") + " · " + displayTitle(show))}"
                 onclick="toggleGroupPicker(${show.bgm_id}, ${show.rule.mikan_id}, ${show.rule.subgroup})">
           ${esc(groupLabel(show.rule))}<span class="caret">▾</span>
         </button>
@@ -5243,7 +5391,8 @@ function card(show) {
   }
 
   const seasonTag = show.season
-    ? `<button class="season-tag ${seasonClass(show.season)}" onclick="pickSeason('${show.season}')"
+    ? `<button class="season-tag ${seasonClass(show.season)}" onclick="pickSeasonFromCard('${show.season}')"
+         aria-pressed="${seasonPick === show.season}"
          title="${esc(t("seasonFilter", show.season))}">${esc(show.season)}</button>` : "";
   const score = scoreTag(show);
   const cour = courTag(show);
@@ -5269,7 +5418,8 @@ function basicCard(s) {
   const airRow = when
     ? `<div class="airline"><span class="ai">▸</span>${t(hasAired(s) ? "airedLabel" : "airsLabel")} ${esc(when)}</div>` : "";
   const seasonTag = s.season
-    ? `<button class="season-tag ${seasonClass(s.season)}" onclick="pickSeason('${s.season}')"
+    ? `<button class="season-tag ${seasonClass(s.season)}" onclick="pickSeasonFromCard('${s.season}')"
+         aria-pressed="${seasonPick === s.season}"
          title="${esc(t("seasonFilter", s.season))}">${esc(s.season)}</button>` : "";
   const score = scoreTag(s);
   const cour = courTag(s);
@@ -5512,6 +5662,14 @@ function renderFilters() {
 }
 
 function setFilter(k) {
+  // A shelf change drops the cour narrowing and the sort with it. The pick is
+  // a way of looking at the list you had open (see pickSeason), and it used
+  // to outlive that list — emptying the next shelf to one cour, and staying
+  // armed but invisible on the timetable, where the pill that clears it is
+  // not drawn. The sort went the same way, except that whether it survived
+  // depended on which tab you passed through. One rule instead; re-pressing
+  // the active chip keeps both.
+  if (k !== activeType) { seasonPick = null; gridSort = { key: null, dir: 1 }; }
   activeType = k;
   localStorage.setItem("tab", k);
   animateCards = true;
@@ -5586,7 +5744,8 @@ function searchMatch(s) {
    state on top of them rather than a replacement: first press sorts ascending,
    second descending, third puts the tab back the way it was. That is why the
    reset exists at all — without it, touching the control once would cost you a
-   default you cannot get back without reloading.
+   default you cannot get back without reloading. "Default" sits on the bar as
+   a pill of its own too, so the way back is visible without hovering a key.
 
    Shows that cannot answer a key (no airtime, no ledger yet, no season) sort
    last in both directions rather than piling up at whichever end the sign
@@ -5639,13 +5798,30 @@ function pickSeason(s) {
 }
 function clearSeason() { seasonPick = null; animateCards = true; renderCards(); }
 
+// Season badge on an open card. The narrowing is a way of looking at the
+// list, and the list is behind the scrim while the card is up — pressing the
+// badge used to redraw the grid under the blur with nothing on the card to
+// show for it, and the shelf came back narrowed once the card was closed. So
+// the card gives way to the list. No toast: the wall replaying its stagger
+// and the pill appearing (or going) in the sort bar are the feedback.
+function pickSeasonFromCard(s) {
+  const bgm = openBgm;
+  closeDrawers(true);               // silent: the opener is about to be rebuilt
+  pickSeason(s);
+  // Put the reader back on the volume they were reading (it survives a
+  // narrowing to its own cour); if it is not on this tab, on the pill that
+  // names the narrowing.
+  const back = document.querySelector(`#cards .unit[data-bgm="${bgm}"]`)
+            || document.querySelector("#sortbar .sortpick button");
+  if (back) back.focus();
+}
+
 const inScope = s => searchMatch(s) && (!seasonPick || (s.season || "") === seasonPick);
 
 function renderSortBar(total, shown) {
   const bar = $("sortbar");
   if (activeType === "schedule") { bar.hidden = true; setHTML(bar, ""); return; }
   const keys = sortKeysFor(activeType);
-  if (gridSort.key && !keys.includes(gridSort.key)) gridSort = { key: null, dir: 1 };
   const arrow = gridSort.dir === 1 ? "▲" : "▼";
   let html = `<span class="lab">${esc(t("sortHead"))}</span>`;
   html += keys.map(k => {
@@ -5656,7 +5832,10 @@ function renderSortBar(total, shown) {
     return `<button class="sortk" aria-pressed="${on}" title="${esc(title)}"
       onclick="setGridSort('${k}')">${esc(t("sort_" + k))}<span class="ar">${on ? arrow : ""}</span></button>`;
   }).join("");
-  if (!gridSort.key) html += `<span class="lab">${esc(t("sortDefault"))}</span>`;
+  // "Default" is a pill like the keys, pressed while no key is in force, so
+  // the way back is on the bar rather than only in a key's tooltip.
+  html += `<button class="sortdef" aria-pressed="${!gridSort.key}" title="${esc(t("sortReset"))}"
+    onclick="setGridSort(null)">${esc(t("sortDefault"))}</button>`;
   if (seasonPick) {
     html += `<span class="sortpick ${seasonClass(seasonPick)}">${esc(t("seasonFilter", seasonPick))}
       <button onclick="clearSeason()" aria-label="${esc(t("clearFilter"))}">✕</button></span>`;
@@ -5669,8 +5848,11 @@ function renderSortBar(total, shown) {
 }
 
 function setGridSort(k) {
-  // key -> ascending -> descending -> back to the tab's own order
-  if (gridSort.key !== k) gridSort = { key: k, dir: 1 };
+  // key -> ascending -> descending -> back to the tab's own order. The
+  // Default pill (k === null) goes straight back, and does nothing — no
+  // redraw, no FLIP — when the tab is already in its own order.
+  if (k === null) { if (!gridSort.key) return; gridSort = { key: null, dir: 1 }; }
+  else if (gridSort.key !== k) gridSort = { key: k, dir: 1 };
   else if (gridSort.dir === 1) gridSort = { key: k, dir: -1 };
   else gridSort = { key: null, dir: 1 };
   flipReorder($("cards"), () => { renderCards(); });
@@ -5772,19 +5954,26 @@ window.addEventListener("scroll", hidePeek, { passive: true });
 function renderCards() {
   $("search").hidden = activeType === "schedule";
   $("cards").classList.toggle("schedule", activeType === "schedule");
-  // Consume the one-shot animation gate set by user-driven switches. Any
-  // re-render also drops the boot-time waterfall offset — user-driven replays
-  // must start instantly.
-  $("cards").classList.toggle("anim", animateCards);
-  $("cards").style.removeProperty("--stagger-base");
+  // Consume the one-shot animation gate set by user-driven switches. The
+  // class itself is toggled inside setCards, and only when the markup
+  // changes; the gate is consumed here on every call, identical markup
+  // included.
+  pendingAnim = animateCards;
   animateCards = false;
   renderWatchFilters();
   if (activeType === "schedule") {
+    $("pipkey").hidden = true;
     renderSchedule();
     applyStagger();
     renderSortBar();
     return;
   }
+  // A sort key this tab does not offer (progress is 在看-only, updated is
+  // everything else) is dropped before the list is ordered, not after: the
+  // poll-time retarget in renderFilters() bypasses setFilter, and normalising
+  // in the sort bar painted one frame of the new shelf in a foreign order, or
+  // flat without its cour plates, before the bar caught up.
+  if (gridSort.key && !sortKeysFor(activeType).includes(gridSort.key)) gridSort = { key: null, dir: 1 };
   // Every non-timetable tab splits into cour blocks, newest season on top.
   let list = null, total = null, shown = null;
   // The no-mikan tab draws from every collection type at once — a show mikan
@@ -5832,14 +6021,20 @@ function renderCards() {
     // The tab was switched before its collection resolved — say so rather
     // than leaving an empty page that reads as "nothing here". A skeleton
     // shelf, not a bare word: something is genuinely in flight.
-    setHTML($("cards"), `<div class="empty"><span class="spin">◌</span> ${t("loading")}</div>` +
+    $("pipkey").hidden = true;
+    setCards(`<div class="empty"><span class="spin">◌</span> ${t("loading")}</div>` +
       Array.from({ length: 6 }, () => `<div class="skel" style="height:150px;border-radius:4px"></div>`).join(""));
     return;
   }
   const empty = ($("search").value || "").trim() || seasonPick ? t("noMatch") : "—";
-  setHTML($("cards"), list.join("") || `<div class="empty">${empty}</div>`);
+  setCards(list.join("") || `<div class="empty">${empty}</div>`);
+  $("pipkey").hidden = false;
   applyStagger();
   applyXhl();
+  // After every rebuild, not only the poll's: a season badge pressed on an
+  // open card redraws the grid too, and the volume it belongs to must still
+  // read as pulled out.
+  markOpenUnit();
 }
 
 // The search box drives a re-render, and a re-render can change what the sort
@@ -5889,7 +6084,7 @@ function renderSchedule() {
   if (!collections) return;
   let all = ["watching", "want"].flatMap(k => collections.groups[k] || []);
   if (!all.length) {
-    setHTML($("cards"), `<div class="empty">${t("scheduleEmpty")}</div>`);
+    setCards(`<div class="empty">${t("scheduleEmpty")}</div>`);
     return;
   }
   // Season-only narrows the pool before everything else, so the premiere-status
@@ -5997,7 +6192,7 @@ function renderSchedule() {
   const prev = $("cards").querySelector(".sched-board");
   const sl = prev ? prev.scrollLeft : 0;
   const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").replace(/_/g, " ");
-  setHTML($("cards"), `<div class="sched-filters">${chips}${seasonToggle}</div>
+  setCards(`<div class="sched-filters">${chips}${seasonToggle}</div>
     <div class="sched-filters bandbar"><span class="lab">${esc(t("bandHead"))}</span>${bands}</div>
     <div class="sched-sheet">
       <div class="sched-masthead">
@@ -6505,10 +6700,15 @@ function bootError(msg) {
   bootRetry = setTimeout(refresh, 5000);
 }
 
+// Single-shot. refresh() calls this from outside its overlapping-poll guard
+// now, so a second call can land inside the floor/wipe window below, and the
+// body there is not idempotent (?card= would open the card twice).
+let bootLifted = false;
 function bootDone() {
   const el = $("boot");
-  if (!el) return;
+  if (!el || bootLifted) return;
   if (QS.has("boothold")) return;   // ?boothold keeps the overlay up for screenshots
+  bootLifted = true;
   clearTimeout(bootRetry);
   const wait = Math.max(0, BOOT_FLOOR - (Date.now() - bootT0));
   setTimeout(() => {
@@ -6567,19 +6767,27 @@ async function refresh() {
     offline = false;
     render();
     bootStage(90, "bootNotif");
-    // The shelves are worth waiting for, but not indefinitely: /api/collections
-    // fans out to five bgm list calls and answers in ~50ms off its two-minute
-    // cache and in seconds when that cache is cold. Four seconds is the most
-    // the opening will hold for it; past that the curtain goes up without the
-    // archive, and the wall animates itself in when it does arrive — which is
-    // the old behaviour, kept for the one case that actually needs it.
-    const held = Promise.race([shelves, new Promise(r => setTimeout(r, 4000))]);
-    await Promise.all([held, notes, stuck, tracks]);
-    if (q !== seqO) return;
+    // The shelves and the soundings are worth waiting for, but not
+    // indefinitely: /api/collections fans out to five bgm list calls and
+    // /api/progress makes one live bgm read, both answering in ms when warm
+    // and in seconds — or a 15 s timeout and a retry — when not. Four seconds
+    // is the most the opening will hold for any of them; past that the
+    // curtain goes up without the archive (the wall animates itself in when
+    // it arrives) and with the gauges on their cold skeleton, the state that
+    // skeleton exists for. Only the shelves used to be raced, so a slow
+    // /api/progress held the curtain over a room that was already drawn.
+    await Promise.race([
+      Promise.all([shelves, notes, stuck, tracks]),
+      new Promise(r => setTimeout(r, 4000)),
+    ]);
     // Banner titles follow the UI language, which needs the collections entry;
-    // it is here now, so restate them before anything is shown.
+    // it is here now, so restate them before anything is shown. Deliberately
+    // not behind the seq guard: a 30 s poll that overlaps a slow first load
+    // must not be able to skip the lift. bootDone is a no-op once the curtain
+    // is gone, so a later poll calling it again costs nothing.
     await refreshPremieres();
     bootDone();
+    if (q !== seqO) return;
     refreshLedger();   // right rail only; a no-op while the room is collapsed
   } catch (e) {
     if (q !== seqO) return;
@@ -6702,8 +6910,26 @@ async function refreshPremieres() {
         <button class="btn ghost small" onclick="dismissAllPremieres()">${t("dismissAll")}</button>
       </div>`);
     }
-    setHTML($("premieres"), banners.join(""));
-    [...$("premieres").children].forEach((el, i) => el.style.setProperty("--i", i));
+    // A rebuild replaces every node, and a fresh .premiere carries the
+    // slide-in and the wave whether or not the reader has seen it before —
+    // "Got it" on one banner used to make the others blink out and cascade
+    // back in. So: which banners were up before the swap, and those settle in
+    // place; the stagger runs over newcomers only. The class goes on before
+    // any frame is painted, so nothing flashes. A skipped swap keeps the same
+    // nodes and is left alone.
+    const host = $("premieres");
+    const html = banners.join("");
+    const swapped = host._last !== html;
+    const key = el => `${el.dataset.bgm}:${el.classList.contains("completed") ? "c" : "p"}`;
+    const seen = new Set([...host.querySelectorAll(".premiere")].map(key));
+    setHTML(host, html);
+    if (swapped) {
+      let k = 0;
+      for (const el of host.querySelectorAll(".premiere")) {
+        if (seen.has(key(el))) el.classList.add("settled");
+        else el.style.setProperty("--i", k++);
+      }
+    }
   } catch (e) { /* transient */ }
 }
 
@@ -6776,12 +7002,24 @@ async function refreshUnresolved() {
     const keep = [...document.querySelectorAll('input[id^="murl-"]')]
       .filter(i => i.value)
       .map(i => [i.id, i.value, document.activeElement === i]);
-    setHTML($("unresolveds"), banners.join(""));
+    // Same reconciliation as the premieres: banners already up settle in
+    // place, the stagger runs over newcomers only.
+    const host = $("unresolveds");
+    const html = banners.join("");
+    const swapped = host._last !== html;
+    const seen = new Set([...host.querySelectorAll(".premiere")].map(el => el.dataset.bgm));
+    setHTML(host, html);
     for (const [id, val, focused] of keep) {
       const inp = $(id);
       if (inp && !inp.value) { inp.value = val; if (focused) inp.focus(); }
     }
-    [...$("unresolveds").children].forEach((el, i) => el.style.setProperty("--i", i));
+    if (swapped) {
+      let k = 0;
+      for (const el of host.querySelectorAll(".premiere")) {
+        if (seen.has(el.dataset.bgm)) el.classList.add("settled");
+        else el.style.setProperty("--i", k++);
+      }
+    }
   } catch (e) { /* transient */ }
 }
 
@@ -7115,7 +7353,11 @@ const roomOn = () => roomMedia.matches;
 
 // ?sort=score joins ?lang/?theme/?tab as a per-visit override, so a deep link
 // or a screenshot can pin how the archive is shelved without touching storage.
-let spineSort = pick(QS.get("sort") || localStorage.getItem("spineSort") || "season",
+// ?sort=score-desc pins the direction as well, so a deep link never inherits
+// a reversed wall from storage.
+const qsSort = QS.get("sort");
+const [qsSortKey, qsSortSuffix] = qsSort ? qsSort.split("-") : [];
+let spineSort = pick(qsSortKey || localStorage.getItem("spineSort") || "season",
   ["season", "score", "year"], "season");
 let ledger = null;
 let seqL = 0;
@@ -7134,7 +7376,21 @@ const SPINE_SORTS = {
 // Third press on a key puts the wall back the way it was shelved. Season is
 // the wall's own order and is therefore the default rather than a third state
 // of its own — pressing it twice reverses it, pressing it again restores it.
-let spineDir = 1;
+// The direction is kept beside the key: a wall left at Score ▼ used to come
+// back as Score ▲ after a reload, because only the key was stored.
+let spineDir = qsSort ? (qsSortSuffix === "desc" ? -1 : 1)
+             : +pick(localStorage.getItem("spineDir") || "1", ["1", "-1"], "1");
+function saveSpineSort() {
+  localStorage.setItem("spineSort", spineSort);
+  localStorage.setItem("spineDir", String(spineDir));
+}
+// What dir=1 means on each key, so the arrow states the order the wall is in
+// (▼ newest/highest first, ▲ oldest/lowest first) — the same reading the
+// grid's sort bar gives its arrows — instead of the internal sign of the
+// comparator. Before this the two "Season ▲" controls on one page sorted in
+// opposite directions.
+const SPINE_FACING = { season: -1, score: -1, year: 1 };
+const spineAsc = () => (SPINE_FACING[spineSort] || 1) * spineDir === 1;
 
 // A volume seen edge-on: same cloth, foil and furniture the wall binds it
 // with, so a show is recognisably the same book on either side of the room.
@@ -7179,6 +7435,10 @@ function renderSpineWall(animate) {
   // stagger under the curtain and finish it before anyone saw it.
   wall.classList.toggle("anim",
     !!(animate || (spineFirst && document.body.classList.contains("booted"))));
+  // The .3s offset bootDone() set on the wall belongs to the opening replay.
+  // A redraw that runs without the waterfall drops it, so no later replay
+  // can inherit a stale delay.
+  if (!wall.classList.contains("anim")) wall.style.removeProperty("--stagger-base");
   spineFirst = false;
   setHTML(wall, shows.map(spineHtml).join(""));
   // Stagger rank is the shelf a volume ended up on, not its position in the
@@ -7189,10 +7449,14 @@ function renderSpineWall(animate) {
     const on = el.dataset.v === spineSort;
     el.setAttribute("aria-pressed", String(on));
     // The direction is stated on the key that is in force, and nowhere else,
-    // so a three-state control needs no legend to be read.
-    el.dataset.dir = on && spineDir === -1 ? "desc" : on ? "asc" : "";
-    el.title = on ? (spineDir === 1 ? t("sortAsc") : t("sortDesc")) + " — " + t("sortReset")
-                  : t("sortAsc");
+    // so a three-state control needs no legend to be read. It states the
+    // effective order (see SPINE_FACING), and the tooltip says what the next
+    // press does.
+    const asc = spineAsc();
+    el.dataset.dir = on ? (asc ? "asc" : "desc") : "";
+    const word = t(spineSort === "score" ? (asc ? "dirLowest" : "dirHighest")
+                                         : (asc ? "dirOldest" : "dirNewest"));
+    el.title = on ? word + " — " + t(spineDir === 1 ? "sortReverse" : "sortReset") : t("sortBy");
   });
   markOpenUnit();
   applyXhl();
@@ -7202,10 +7466,21 @@ function setSpineSort(k) {
   if (spineSort !== k) { spineSort = k; spineDir = 1; }
   else if (spineDir === 1) { spineDir = -1; }
   else { spineSort = "season"; spineDir = 1; }   // third press: back to shelved order
-  localStorage.setItem("spineSort", spineSort);
+  saveSpineSort();
+  // Asking for a different order means asking to see the top of it, so the
+  // case goes back to its first shelf — otherwise a wall re-shelved by score
+  // opens on whatever row the reader had scrolled to. Before the measurement,
+  // not inside the redraw: the FLIP reads viewport rects on both sides, and
+  // scrolling between them would hand every volume the scroll distance as a
+  // move of its own.
+  const box = $("bookcase");
+  if (box) box.scrollTop = 0;
   // The wall is a hundred-odd volumes standing in rows; re-shelving it without
   // showing the move would read as the whole thing having been swapped out.
-  flipReorder($("spinewall"), () => renderSpineWall(true));
+  // Redrawn without the entry waterfall: an animation outranks the inline
+  // transform the FLIP sets, so with the waterfall on the move was never
+  // shown — the wall blanked for its delay and dealt itself back instead.
+  flipReorder($("spinewall"), () => renderSpineWall(false));
 }
 
 // ----- the duty desk -----
@@ -7427,8 +7702,10 @@ function renderCensus() {
     // Columns are keyed to the tallest year, with a floor so a single volume
     // still shows as a mark rather than as nothing.
     const pct = n ? Math.max(9, Math.round((n / peak) * 100)) : 0;
+    // A year with nothing on the shelf is not a control: a tap on the hairline
+    // used to re-shelve the archive to Year and light nothing.
     bars += `<button class="cbar${n === peak ? " top" : ""}${n ? "" : " nil"}"
-      style="--h:${pct}%" data-y="${y}" data-n="${n}" onclick="censusPick(${y})"
+      style="--h:${pct}%" data-y="${y}" data-n="${n}" ${n ? `onclick="censusPick(${y})"` : "disabled"}
       title="${esc(t("censusBar", { y, n }))}" aria-label="${esc(t("censusBar", { y, n }))}"></button>`;
   }
   html += `<div class="cchart">${bars}</div>`;
@@ -7440,23 +7717,45 @@ function renderCensus() {
 // volumes for a moment, so the two rails answer each other.
 let censusFlash = null;
 function censusPick(y) {
-  // Set the key outright rather than going through setSpineSort: that is a
-  // three-state toggle now, and asking it for "year" while the wall is already
-  // on year would reverse or reset it instead of leaving it alone.
-  if (spineSort !== "year" || spineDir !== 1) {
-    spineSort = "year"; spineDir = 1;
-    localStorage.setItem("spineSort", spineSort);
-    flipReorder($("spinewall"), () => renderSpineWall(true));
-  }
-  clearTimeout(censusFlash);
-  const wall = $("spinewall");
-  if (!wall) return;
   const ids = new Set((collections.groups.done || [])
     .filter(s => censusYear(s) === y).map(s => String(s.bgm_id)));
+  if (!ids.size) return;
+  // Set the key outright rather than going through setSpineSort: that is a
+  // three-state toggle now, and asking it for "year" while the wall is already
+  // on year would reverse or reset it instead of leaving it alone. Not written
+  // to storage either: a glance from the census is a way of looking at the
+  // wall, not a setting (the rule pickSeason keeps), and it used to rewrite
+  // the stored sort for every later visit. The re-shelving itself stays —
+  // that is the lasting half of the answer; only the light is momentary.
+  if (spineSort !== "year" || spineDir !== 1) {
+    spineSort = "year"; spineDir = 1;
+    flipReorder($("spinewall"), () => renderSpineWall(false));
+  }
+  clearTimeout(censusFlash);
+  const wall = $("spinewall"), chart = $("census");
+  if (!wall) return;
+  // The bar stays pressed for as long as its year is lit.
+  chart.querySelectorAll(".cbar[aria-pressed]").forEach(b => b.removeAttribute("aria-pressed"));
+  const bar = chart.querySelector(`.cbar[data-y="${y}"]`);
+  if (bar) bar.setAttribute("aria-pressed", "true");
   wall.querySelectorAll(".spine").forEach(el =>
     el.classList.toggle("lit", ids.has(el.dataset.bgm)));
-  censusFlash = setTimeout(() =>
-    wall.querySelectorAll(".spine.lit").forEach(el => el.classList.remove("lit")), 2400);
+  // Bring the lit year's shelf into the six-row case. The shelf is read from
+  // the --i rank stampShelves wrote during the redraw, not from a rect or
+  // scrollIntoView: when the wall was re-shelved a moment ago every moved
+  // spine is still carrying its FLIP transform, and both of those include the
+  // transform and would aim at the volume's old shelf. Only the case scrolls;
+  // the page stays where the reader put it.
+  const first = wall.querySelector(".spine.lit"), box = $("bookcase");
+  if (first && box) {
+    const rowh = first.getBoundingClientRect().height;   // translate leaves height alone
+    const top = (parseInt(first.style.getPropertyValue("--i"), 10) || 0) * rowh;
+    if (top < box.scrollTop || top + rowh > box.scrollTop + box.clientHeight) box.scrollTop = top;
+  }
+  censusFlash = setTimeout(() => {
+    wall.querySelectorAll(".spine.lit").forEach(el => el.classList.remove("lit"));
+    if (bar) bar.removeAttribute("aria-pressed");
+  }, 2400);
 }
 
 // Every panel inside its own boundary. Before this the six calls were bare, so
