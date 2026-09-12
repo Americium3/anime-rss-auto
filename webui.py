@@ -99,9 +99,20 @@ _AIR_MISS_TTL = 6 * 3600
 
 def _load_airing_cache() -> dict:
     try:
-        return json.loads(AIRING_CACHE_PATH.read_text(encoding="utf-8"))
+        cache = json.loads(AIRING_CACHE_PATH.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return {}
+    # One-time migration. Entries written before the "date" key existed carried a
+    # JST-midnight fallback in `at` when AniList only knew a start date — a
+    # fabricated clock time the panel printed as a real slot on the wrong local
+    # weekday. Those are demoted to "time unknown" here; their `t` is long past
+    # _AIR_MISS_TTL, so the next fill pass asks AniList again, and a show whose
+    # slot really is 24:00 JST comes back with its real `at` plus the "date" key
+    # and is never touched again. Idempotent: a migrated entry has `at` None.
+    for v in cache.values():
+        if isinstance(v, dict) and "date" not in v and v.get("at") and (v["at"] + 32400) % 86400 == 0:
+            v["at"] = None
+    return cache
 
 
 _airing_write_lock = threading.Lock()
@@ -246,23 +257,41 @@ def _air_needs_lookup(ent: dict | None) -> bool:
     not read as "filled in" just because its keys are present with null values."""
     if not ent or "en" not in ent:
         return True
-    return ent.get("at") is None and int(time.time()) - ent.get("t", 0) >= _AIR_MISS_TTL
+    if ent.get("at") is not None:
+        return False
+    # A date-only show whose start date is months past is finished: AniList is
+    # not going to schedule it now, and re-asking for dozens of them every TTL
+    # would spend the pacer on shows that can never gain a slot. An upcoming one
+    # keeps the retry — that is what finally delivers its real slot.
+    d = ent.get("date")
+    if d:
+        with contextlib.suppress(ValueError):
+            if (datetime.date.today() - datetime.date.fromisoformat(d)).days > 90:
+                return False
+    return int(time.time()) - ent.get("t", 0) >= _AIR_MISS_TTL
 
 
 def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True) -> dict:
-    """{'at': unix ts of ep1's broadcast or None, 'en': English/romaji title or None}.
+    """{'at': unix ts of ep1's broadcast or None, 'en': English/romaji title or None,
+    'date': AniList's start date ("YYYY-MM-DD") when only a date is known, else None}.
 
     Cached per bgm_id in airing_cache.json. A known time is kept indefinitely; a
     miss is retried once _AIR_MISS_TTL has passed, in case AniList adds the
     schedule later — or in case it was us that was broken. A lookup AniList never
     answered is not a miss and is not written down at all.
+
+    A start date without a time is shipped as a date, never as a timestamp: the
+    old JST-midnight fallback in `at` looked like a real slot to the panel, which
+    printed it as 11:00 on the previous local day, filed it in a time band and
+    counted down to it. The "date" key is always present in entries this code
+    writes, so _load_airing_cache can tell them from the ones it has to migrate.
     """
     key = str(bgm_id)
     now = int(time.time())
     ent = cache.get(key)
     if ent and not _air_needs_lookup(ent):
         return ent
-    at = en = None
+    at = en = date = None
     found = unanswered = False
     for term in (jp, cn):
         if not term:
@@ -284,18 +313,15 @@ def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True
         if nx and nx.get("airingAt"):
             at = int(nx["airingAt"]); break
         sd = m.get("startDate") or {}
-        if sd.get("year") and sd.get("month") and sd.get("day"):  # JST midnight fallback
-            dt = (datetime.datetime(sd["year"], sd["month"], sd["day"],
-                                    tzinfo=datetime.timezone.utc)
-                  - datetime.timedelta(hours=9))
-            at = int(dt.timestamp()); break
+        if sd.get("year") and sd.get("month") and sd.get("day"):  # a date, not a time
+            date = f"{sd['year']:04d}-{sd['month']:02d}-{sd['day']:02d}"; break
     if at is None and unanswered and not found:
         # Nothing was learned, so record nothing — writing a miss here would parrot a
         # rate limit back as "this show has no broadcast time" for the whole TTL. If
         # one term did resolve, the answer stands even though the other was throttled:
         # AniList has the show and simply hasn't scheduled it (and we keep its title).
-        return ent or {"at": None, "en": None, "t": 0}
-    ent = {"at": at, "en": en, "t": now}
+        return ent or {"at": None, "en": None, "date": None, "t": 0}
+    ent = {"at": at, "en": en, "date": date, "t": now}
     cache[key] = ent
     return ent
 
@@ -610,6 +636,7 @@ def api_overview():
         entry["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
         air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache, block=False)
         entry["airing_at"] = air["at"]
+        entry["air_date"] = air.get("date")   # AniList's date when it has no time
         entry["title_en"] = air["en"]
         out_shows.append(entry)
     _save_airing_cache(airing_cache)
@@ -717,6 +744,7 @@ def api_collections():
                 "score": s.get("score"),
                 "updated_at": s.get("updated_at"),
                 "airing_at": None,
+                "air_date": None,
                 "premiere_date": None,
             }
             if inline:  # 在看/想看：只对当前/即将播的番查精确开播时间
@@ -725,6 +753,7 @@ def api_collections():
                 e["premiere_date"] = core.show_premiere_date(s["bgm_id"], s["date"], _span_cache)
                 air = show_air_info(s["bgm_id"], s["name"], s["name_cn"], airing_cache, block=False)
                 e["airing_at"] = air["at"]
+                e["air_date"] = air.get("date")
                 e["title_en"] = air["en"]
             if _air_needs_lookup(airing_cache.get(str(s["bgm_id"]))):
                 # Either a big-list show, or an inline one the pacer made us skip.

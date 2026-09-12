@@ -116,6 +116,9 @@ frame.addEventListener("load", () => {
     } else if (scene === "timetable") {
       const slip = d.querySelector("#cards .sched-col .sched-item");
       fire(slip, "pointerover");
+      // The scene is "a day column lit under the pointer"; the slip's own peek
+      // (it deals one out now, like a volume) would cover the next column.
+      w.hidePeek();
       mark(slip);
       mark(slip.closest(".sched-col").querySelector(".sched-day"));
     } else if (scene === "picker") {
@@ -124,6 +127,20 @@ frame.addEventListener("load", () => {
       btn.click();
       mark(btn);
       setTimeout(() => { mark(d.querySelector("#gpicker .gopt")); done(added); }, 400);
+      return;
+    } else if (scene === "desk") {
+      // The duty desk as a drawer: only reachable below the room's breakpoint
+      // (states.ps1 sizes this scene at 1400px), so the header button is
+      // pressed rather than the rail read, and the fixture's ledger is given
+      // a moment to answer before the shot.
+      const btn = d.getElementById("deskbtn");
+      // Past 1800px the instruments are on the rail and the button is hidden;
+      // clicking it anyway would photograph an empty drawer, which is
+      // indistinguishable from a drawer that failed to fill. Fail loudly.
+      if (btn.hidden) { document.title = "STATES-SKIP desk needs a width under 1800"; return; }
+      mark(btn);
+      btn.click();
+      setTimeout(() => done(added), 400);
       return;
     }
     done(added);
