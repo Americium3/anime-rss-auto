@@ -3237,7 +3237,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* ----- the hover peek --------------------------------------------------- */
   /* A volume pulled half off the shelf: the second layer of a card, without
      leaving the shelf to get it. Anchored by JS to the volume it belongs to,
-     because the grid clips and a popover inside it would be cut off. */
+     because the grid clips and a popover inside it would be cut off.
+
+     Inert while faded out — a layer that is not there must not block clicks —
+     but it takes the pointer once it is up. It stands over the next volumes
+     on the shelf, and a layer the pointer falls through hands the hover, and
+     the click, to whatever is underneath: the peek jumped to the neighbour on
+     approach and opened the neighbour's card when clicked. */
   .peek {
     position: fixed; z-index: 60; width: min(330px, 84vw);
     padding: 11px 13px 12px;
@@ -3253,7 +3259,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     transition: opacity .16s ease-out, transform .16s ease-out;
     pointer-events: none;
   }
-  .peek.on { opacity: 1; transform: none; }
+  .peek.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
   .peek h4 {
     margin: 0 0 2px; font-size: calc(.98rem * var(--ui)); font-weight: 600;
     line-height: 1.3;
@@ -5769,12 +5775,22 @@ function setGridSort(k) {
    feeding it.
 
    Anchored by script against the volume rather than parented to it — the grid
-   clips, so a layer inside it would be cut off at the shelf edge — and it never
-   takes the pointer, so moving toward it does not count as leaving the volume.
---------------------------------------------------------------------------- */
-let peekTimer = null, peekFor = null;
+   clips, so a layer inside it would be cut off at the shelf edge. Once it is
+   up it takes the pointer: it lies across the next one or two volumes on the
+   shelf, and a layer the pointer fell through handed the hover (and the click)
+   to whatever was beneath — the peek jumped to the neighbour on approach, and
+   clicking the line that says "open the full card" opened the neighbour's.
+   The 10px gap between volume and layer is bridged by a short hide delay.
 
-function peekHtml(s) {
+   It is reached three ways: a dwell of the pointer, keyboard focus on a volume
+   (with no dwell — nobody tabs past a book by accident), and a re-anchor on
+   every poll, because the wall is rebuilt underneath it and a layer left at
+   the old coordinates with the old rows is a reading of a volume that is no
+   longer there.
+--------------------------------------------------------------------------- */
+let peekTimer = null, peekFor = null, peekAnchor = null, peekHide = null;
+
+function peekHtml(s, opts) {
   const p = showProgress(s.bgm_id);
   const slot = nextSlot(s);
   const row = (k, v, cls) =>
@@ -5806,15 +5822,24 @@ function peekHtml(s) {
     <div class="pmeta">${badges}</div>
     ${p && !p.cold && p.total ? gaugeHtml(s, { legend: false, keys: false }) + "<hr>" : ""}
     ${rows}
-    <div class="phint">${esc(t("peekOpen"))}</div>`;
+    <div class="phint">${esc(t(opts && opts.fromKeys ? "peekOpenKey" : "peekOpen"))}</div>`;
 }
 
 function showPeek(anchor, bgmId) {
   const found = findShow(+bgmId);
   if (!found) return;
   const el = $("peek");
+  clearTimeout(peekHide);
+  if (peekAnchor && peekAnchor !== anchor) peekAnchor.removeAttribute("aria-describedby");
+  peekAnchor = anchor;
   peekFor = +bgmId;
-  el.innerHTML = peekHtml(found.show);
+  // A keyboard user reached this by focus, and Enter is what opens the card
+  // from there — the hint says so rather than telling them to click.
+  const fromKeys = !!(anchor.matches && anchor.matches(":focus-visible"));
+  // Through the memo, so a re-anchor that changed nothing leaves the layer's
+  // gauge (and whatever is being scrubbed on it) alone.
+  setHTML(el, peekHtml(found.show, { fromKeys }));
+  anchor.setAttribute("aria-describedby", "peek");
   el.setAttribute("aria-hidden", "false");
   // Measure, then place: right of the volume if it fits, otherwise left, and
   // clamped inside the viewport so a volume on the bottom shelf still shows
@@ -5833,23 +5858,69 @@ function showPeek(anchor, bgmId) {
 
 function hidePeek() {
   clearTimeout(peekTimer);
+  clearTimeout(peekHide);
   peekFor = null;
+  if (peekAnchor) peekAnchor.removeAttribute("aria-describedby");
+  peekAnchor = null;
   const el = $("peek");
   el.classList.remove("on");
   el.setAttribute("aria-hidden", "true");
 }
 
+// The wall and the rail are rebuilt under the layer on every poll. If the
+// same element is still there it is re-read in place — fresh rows, fresh
+// place; if the poll replaced it, the replacement carries the same data-bgm
+// and the layer moves to it; if the show is gone, so is the layer. Mirrors
+// refreshCard(), which does this for the sheet. Deliberately not testing
+// :hover on the replacement — Chrome recomputes hover only after the next
+// layout, so it reads false here and would close a layer whose volume is
+// still under the pointer. If the pointer really is elsewhere now, the
+// browser's synthetic pointerover routes through the handler below.
+function reanchorPeek() {
+  if (peekFor === null) return;
+  if (peekAnchor && peekAnchor.isConnected) { showPeek(peekAnchor, peekFor); return; }
+  const kind = peekAnchor && peekAnchor.classList.contains("sound") ? ".sound" : ".unit";
+  const again = document.querySelector(`${kind}[data-bgm="${peekFor}"]`);
+  if (again) showPeek(again, peekFor); else hidePeek();
+}
+
 document.addEventListener("pointerover", e => {
-  const unit = e.target.closest && e.target.closest(".unit[data-bgm], .sound[data-bgm]");
+  const c = e.target.closest ? s => e.target.closest(s) : () => null;
+  if (c("#peek")) { clearTimeout(peekHide); clearTimeout(peekTimer); return; }   // on the layer: it stays
+  const unit = c(".unit[data-bgm], .sound[data-bgm]");
   if (!unit) {
-    if (peekFor !== null && !(e.target.closest && e.target.closest("#peek"))) hidePeek();
+    clearTimeout(peekTimer);   // left the shelf before the dwell ran: no layer
+    // Not straight away: the 10px between the volume and the layer is desk,
+    // and crossing it on the way to the layer must not put the layer away.
+    if (peekFor !== null) { clearTimeout(peekHide); peekHide = setTimeout(hidePeek, 150); }
     return;
   }
-  if (+unit.dataset.bgm === peekFor) return;
+  if (+unit.dataset.bgm === peekFor) { clearTimeout(peekHide); return; }
   clearTimeout(peekTimer);
   // A short dwell, so sweeping the pointer across a shelf on the way somewhere
   // else does not deal out a layer per volume.
   peekTimer = setTimeout(() => showPeek(unit, unit.dataset.bgm), 240);
+});
+document.addEventListener("pointerleave", hidePeek);   // the pointer left the window
+// The layer's own hint says click to open the card, so a click on the layer
+// opens the card — the volume it belongs to, not whichever neighbour happens
+// to sit underneath.
+$("peek").addEventListener("click", () => { if (peekFor !== null) openCard(peekFor); });
+// The layer is not focusable, so pressing on it would move focus to <body>;
+// with the anchoring volume focused (the card just closed and handed focus
+// back to it) that focusout would put the layer away before the click lands.
+// Cancelling pointerdown keeps focus where it is; the click still fires.
+$("peek").addEventListener("pointerdown", e => e.preventDefault());
+// Keyboard: focus on a volume brings the layer out at once, gated on
+// :focus-visible so a mouse click — whose focus lands before the click —
+// does not flash it on the way to opening the card. Leaving the volume puts
+// it away.
+document.addEventListener("focusin", e => {
+  const unit = e.target.closest && e.target.closest(".unit[data-bgm], .sound[data-bgm]");
+  if (unit && unit.matches(":focus-visible")) { clearTimeout(peekTimer); showPeek(unit, unit.dataset.bgm); }
+});
+document.addEventListener("focusout", e => {
+  if (peekAnchor && e.target === peekAnchor) hidePeek();
 });
 window.addEventListener("scroll", hidePeek, { passive: true });
 
@@ -6707,6 +6778,7 @@ function render() {
   guardPanel("prio", renderPrio);
   renderRoom();
   refreshCard();
+  reanchorPeek();   // the wall and the rail were just rebuilt under the layer
 }
 
 function syncBtnUI() {
@@ -6867,6 +6939,7 @@ async function refreshProgress() {
     guardPanel("cards", renderCards);   // the pips and the sort key both move
     guardPanel("soundings", renderSoundings);
     refreshCard();
+    reanchorPeek();
   } catch (e) { /* transient — the last good reading stays up */ }
 }
 
