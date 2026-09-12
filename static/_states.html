@@ -116,6 +116,9 @@ frame.addEventListener("load", () => {
     } else if (scene === "timetable") {
       const slip = d.querySelector("#cards .sched-col .sched-item");
       fire(slip, "pointerover");
+      // The scene is "a day column lit under the pointer"; the slip's own peek
+      // (it deals one out now, like a volume) would cover the next column.
+      w.hidePeek();
       mark(slip);
       mark(slip.closest(".sched-col").querySelector(".sched-day"));
     } else if (scene === "picker") {
