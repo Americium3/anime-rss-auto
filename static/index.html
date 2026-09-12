@@ -104,6 +104,27 @@ if (new URLSearchParams(location.search).has("probe")) {
     --scroll-thumb: rgba(255,225,170,.20);
     --drawer-bg: #251508;                 /* bare timber, inside the drawer */
 
+    /* Glass. Every surface that floats above the desk — the opened card, the
+       drawer fronts, a banner, the peek, a toast — is a plate of smoked glass
+       with a polished edge: a lit top rim where the lamp catches the bevel, a
+       dark underside, a specular band across the pane, and the room showing
+       through it blurred. Four radius tiers, so a chip and a sheet are not
+       rounded by the same amount. */
+    --r-xl: 20px; --r-l: 16px; --r-m: 12px; --r-s: 8px; --r-xs: 5px;
+    --glass: rgba(46,30,16,.58);          /* smoked, warm: the room through it */
+    --glass-strong: rgba(34,22,12,.76);   /* the sheet: more body, less see-through */
+    --glass-hi: rgba(255,240,214,.34);    /* the lit top rim of the bevel */
+    --glass-hi-soft: rgba(255,240,214,.09);
+    --glass-edge: rgba(255,226,172,.20);  /* the 1px polished edge */
+    --glass-edge-lo: rgba(0,0,0,.55);     /* the dark underside */
+    --glass-sheen: rgba(255,248,230,.085);/* the specular band */
+    --glass-blur: 16px;
+    --glass-sat: 1.35;
+    /* Timber figure: a second noise tile, stretched along the board, laid
+       under the grain lines at a few percent so the boards show real figure
+       instead of a ruled stripe. */
+    --figure: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.22 .012' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='260' height='260' filter='url(%23f)' opacity='.6'/%3E%3C/svg%3E");
+
     /* Materials */
     --wood-a: #33190b;                    /* rail carcass, lit end */
     --wood-b: #1d0f05;                    /* rail carcass, shadowed end */
@@ -150,6 +171,28 @@ if (new URLSearchParams(location.search).has("probe")) {
     --lamp-pool-a: .85;
     --lamp-glow: rgba(255,206,132,.20);
 
+    /* The bound volume under the lamp. Key and specular are the lamp itself,
+       warm, from above and to the left; shade is what the far side of any
+       rounded surface falls into; grime is shelf-wear. The two texture tiles
+       are 50%-grey height maps laid over the cloth colour with overlay, so one
+       tile serves every colour on the wall. */
+    --vol-key: rgba(255,214,150,.26);
+    --vol-spec: rgba(255,236,196,.40);
+    --vol-ambient: rgba(255,255,255,0);      /* daylight lift: off at night */
+    --vol-shade: rgba(26,12,4,.45);
+    --vol-shade-a: 1;
+    --vol-grime: rgba(44,28,12,.60);
+    --vol-leaf: #efe4c8;                     /* the page block, cream */
+    --vol-leaf-lo: #c4b48d;                  /* the shadow between two leaves */
+    --vol-contact: rgba(0,0,0,.72);          /* where the base meets the timber */
+    --vol-cast: rgba(0,0,0,.50);             /* what the lamp throws to the right */
+    --plank-a: #6c4724; --plank-b: #3f2712; --plank-c: #1d1007;   /* bullnose crest / face / underside */
+    /* Buckram: white warp, black weft, the weft breaking where it goes under. */
+    --weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect width='6' height='6' fill='%23808080'/%3E%3Cpath d='M0 1.5H6M0 4.5H6' stroke='%23fff' stroke-opacity='.42'/%3E%3Cpath d='M1.5 0V6M4.5 0V6' stroke='%23000' stroke-opacity='.38'/%3E%3Cpath d='M0 1.5H1.5M3 4.5H4.5' stroke='%23000' stroke-opacity='.3'/%3E%3C/svg%3E");
+    /* Hide: fractal noise lit as a height map from the lamp's own corner, then
+       pulled back to mid-grey so overlay leaves the cloth's colour alone. */
+    --hide: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='h' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.11' numOctaves='3' seed='9' stitchTiles='stitch'/%3E%3CfeDiffuseLighting surfaceScale='2.2' diffuseConstant='1' lighting-color='%23fff'%3E%3CfeDistantLight azimuth='225' elevation='58'/%3E%3C/feDiffuseLighting%3E%3CfeColorMatrix type='matrix' values='1 0 0 0 -.36 0 1 0 0 -.36 0 0 1 0 -.36 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23h)'/%3E%3C/svg%3E");
+
     --stamp-ink: rgba(228,146,110,.80);
     --ledger-rule: rgba(255,235,200,.09);
     --ledger-margin: rgba(214,102,88,.52);
@@ -159,6 +202,24 @@ if (new URLSearchParams(location.search).has("probe")) {
        and a whole floating panel are not given the same weight. */
     --drop: rgba(0,0,0,.42);
     --drop-soft: rgba(0,0,0,.34);
+    /* The bookcase. The board is opaque timber, not a tint over the carcass;
+       the sliver of its top face seen past the books is lit from above; what
+       a shelf casts onto the back panel below it; how much darker the bottom
+       of the case is than the top, which is how far the lamp reaches. */
+    --plank-edge: #3a2210;
+    --plank-top: rgba(255,222,160,.14);
+    --shelf-drop: rgba(0,0,0,.50);
+    --case-depth: rgba(0,0,0,.44);
+    /* The lamp in a spine: its reflection, the sheen on the head nearest it,
+       and the dimness a volume far from it stands in. */
+    --spec: rgba(255,230,176,.34);
+    --spec-top: rgba(255,236,196,.26);
+    --veil: rgba(0,0,0,.42);
+    /* How fast the light falls off: per shelf down, toward the case sides,
+       and the floor it never drops below (the wall stays readable). */
+    --lit-k: .15;
+    --lit-x: .20;
+    --lit-floor: .38;
 
     /* One face for prose, one for figures. There is no sans anywhere on the
        page: the room is a desk, so it sets its words in a book face and its
@@ -197,6 +258,14 @@ if (new URLSearchParams(location.search).has("probe")) {
     --scroll-thumb: rgba(92,60,24,.24);
     --drawer-bg: #e3d6b8;
 
+    --glass: rgba(255,251,242,.58);       /* milk glass in daylight */
+    --glass-strong: rgba(255,252,246,.80);
+    --glass-hi: rgba(255,255,255,.95);
+    --glass-hi-soft: rgba(255,255,255,.42);
+    --glass-edge: rgba(92,60,24,.22);
+    --glass-edge-lo: rgba(92,60,24,.28);
+    --glass-sheen: rgba(255,255,255,.30);
+
     --wood-a: #ddcda6;
     --wood-b: #c3b088;
     --wood-grain-hi: rgba(255,255,255,.17);
@@ -232,11 +301,37 @@ if (new URLSearchParams(location.search).has("probe")) {
     --lamp-pool-a: .12;
     --lamp-glow: rgba(255,214,150,.10);
 
+    /* By day the key is the window on the left, same direction, no colour,
+       and every board is lifted by ambient; shadows are brown and shallower. */
+    --vol-key: rgba(255,255,255,.30);
+    --vol-spec: rgba(255,255,255,.42);
+    --vol-ambient: rgba(255,255,255,.12);
+    --vol-shade: rgba(70,44,20,.30);
+    --vol-shade-a: .72;
+    --vol-grime: rgba(70,50,26,.32);
+    --vol-leaf: #f7f0e1;
+    --vol-leaf-lo: #d8cbad;
+    --vol-contact: rgba(60,38,16,.55);
+    --vol-cast: rgba(60,38,16,.34);
+    --plank-a: #d4ae74; --plank-b: #ab7f4a; --plank-c: #6e4b27;
+
     --stamp-ink: rgba(150,58,44,.70);
     --ledger-rule: rgba(92,60,24,.14);
     --ledger-margin: rgba(178,72,58,.52);
     --drop: rgba(92,60,24,.30);
     --drop-soft: rgba(92,60,24,.20);
+    --plank-edge: #c4ad83;
+    --plank-top: rgba(255,255,255,.34);
+    --shelf-drop: rgba(92,60,24,.24);
+    --case-depth: rgba(92,60,24,.16);
+    /* Daylight is diffuse and cool: a whiter, weaker reflection, a brown
+       shadow, and almost no difference between the top shelf and the bottom. */
+    --spec: rgba(255,255,255,.30);
+    --spec-top: rgba(255,255,255,.22);
+    --veil: rgba(70,44,18,.24);
+    --lit-k: .07;
+    --lit-x: .10;
+    --lit-floor: .62;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -451,10 +546,14 @@ if (new URLSearchParams(location.search).has("probe")) {
   .brand small { color: var(--text-faint); letter-spacing: .05em; font-size: calc(.85rem * var(--ui)); }
   /* Readings are ivory tickets slipped under the brass rail, not pills. */
   .chip {
-    padding: 6px 13px; border-radius: 3px; font-size: calc(.85rem * var(--ui));
-    border: 1px solid var(--panel-border); background: var(--panel); color: var(--text-dim);
+    padding: 6px 13px; border-radius: var(--r-s); font-size: calc(.85rem * var(--ui));
+    border: 1px solid var(--glass-edge); color: var(--text-dim);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 55%),
+      var(--glass);
     white-space: nowrap;
-    box-shadow: inset 0 1px 0 rgba(255,240,215,.09), 0 1px 2px rgba(0,0,0,.30);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft);
   }
   .chip b { color: var(--text); font-weight: 600; }
   .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
@@ -463,15 +562,22 @@ if (new URLSearchParams(location.search).has("probe")) {
   .btn {
     appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 650;
     font-size: calc(.95rem * var(--ui)); letter-spacing: .02em;
-    color: var(--key-text); padding: 9px 20px; border-radius: 4px;
-    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    color: var(--key-text); padding: 9px 20px; border-radius: 10px;
+    /* A cast key with a polished crown: the face rolls from a lit top through
+       the body to a darker foot, and a specular sits just under the top edge. */
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 46%),
+      linear-gradient(180deg, var(--key-a), var(--key-b) 78%, color-mix(in srgb, var(--key-b) 78%, #000));
     transition: transform .15s ease, box-shadow .15s ease, filter .15s ease, opacity .15s;
-    box-shadow: inset 0 1px 0 rgba(255,248,220,.55), inset 0 -3px 3px -2px rgba(0,0,0,.45),
-                0 2px 6px rgba(0,0,0,.42);
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.7), inset 0 0 0 1px rgba(255,236,190,.18),
+                inset 0 -3px 3px -2px rgba(0,0,0,.45),
+                0 1px 0 rgba(0,0,0,.35), 0 3px 8px -1px rgba(0,0,0,.45);
     text-shadow: 0 1px 0 rgba(255,246,214,.35);
     position: relative; overflow: hidden;
   }
-  .btn:hover { transform: translateY(-1px); filter: brightness(1.09); box-shadow: inset 0 1px 0 rgba(255,248,220,.6), 0 4px 10px rgba(0,0,0,.5); }
+  .btn:hover { transform: translateY(-1px); filter: brightness(1.09);
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.75), inset 0 0 0 1px rgba(255,236,190,.22),
+                inset 0 -3px 3px -2px rgba(0,0,0,.45), 0 1px 0 rgba(0,0,0,.35), 0 6px 14px -2px rgba(0,0,0,.55); }
   .btn:active:not(:disabled) { transform: translateY(1px) scale(.99); filter: brightness(.94); }
   .btn:disabled { opacity: .55; cursor: default; transform: none; }
   /* Busy sheen: a light band sweeps a disabled (= in-progress) button. The
@@ -486,9 +592,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   @keyframes sheen { to { transform: translateX(120%); } }
   /* Ghost buttons are bone, not brass — a plain bevelled key for secondary work. */
   .btn.ghost {
-    background: var(--panel); color: var(--text-dim); text-shadow: none;
-    border: 1px solid var(--panel-border); font-weight: 550;
-    box-shadow: inset 0 1px 0 rgba(255,240,215,.10), 0 1px 2px rgba(0,0,0,.28);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 55%),
+      var(--glass);
+    color: var(--text-dim); text-shadow: none;
+    border: 1px solid var(--glass-edge); font-weight: 550;
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft);
   }
   .btn.ghost:hover { color: var(--text); filter: none; border-color: var(--hover-border); }
   .btn.small { padding: 6px 13px; font-size: calc(.85rem * var(--ui)); }
@@ -527,23 +637,20 @@ if (new URLSearchParams(location.search).has("probe")) {
     position: relative; border: 0; background: none; padding: 20px 0 16px;
     display: flex; flex-direction: column; align-items: center;
     cursor: pointer; font: inherit; color: inherit;
-    /* The eye sits above the volume, because that is the only place a top
-       board is visible from. It used to sit at 86% — level with the plank —
-       which is below the book's top edge, so a correctly folded board is
-       hidden behind the cover and the volume quietly loses its third face.
-       (What was on screen instead was the board folded the wrong way, jutting
-       out of the front.)
-
-       Height, not a percentage: the visible thickness of the board depends on
-       how far the eye is above the *top edge*, and the volumes are all the
-       same depth but deliberately not the same height. A percentage would give
-       a taller book a thicker top board, which is backwards. -190px puts the
-       eye ~210px above the boards, and 210 x (1 - 760/786) is a shade under
-       7px of visible board on every volume on the wall. */
+    /* The eye sits level with the volume's base (see the note on .f-top). */
     perspective: 760px; perspective-origin: 50% 86%;
   }
   .unit:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -4px; border-radius: 10px; }
 
+  /* Lit and shaded states of the two inline colours, derived once so tooling
+     can be embossed (lit rim one side, shadow the other) without JS choosing
+     four colours. On .svol as well: the archive stamps the same furniture. */
+  .tome, .svol {
+    --foil-hi: color-mix(in srgb, var(--foil) 58%, #fff);
+    --foil-lo: color-mix(in srgb, var(--foil) 55%, #000);
+    --cloth-hi: color-mix(in srgb, var(--cloth) 72%, #fff);
+    --cloth-lo: color-mix(in srgb, var(--cloth) 58%, #000);
+  }
   .tome {
     position: relative; width: var(--vw); height: var(--vh);
     transform-style: preserve-3d;
@@ -555,40 +662,136 @@ if (new URLSearchParams(location.search).has("probe")) {
   .unit:hover .tome, .unit:focus-visible .tome, .unit.open .tome {
     transform: rotateY(4deg) translateZ(30px) translateY(-8px);
   }
-  .unit.open .tome::after { opacity: .9; transform: translateZ(-1px) scaleX(1.16); }
   .unit.open .ulabel { opacity: 1; transform: none; }
   .unit:active .tome { transform: rotateY(10deg) translateZ(16px) translateY(-3px); }
-  .tome .f { position: absolute; inset: 0; }
 
-  /* Only the cover is two-sided art. The spine and the board are flat tints
-     turned a quarter turn, which points their front normals away from the
-     viewer — with backface-visibility:hidden they would simply not draw. */
+  /* A face is a plane and an isolated group: everything blended inside it
+     composites against the face alone and never against the room. isolation
+     is a grouping property, which forces the face flat; it already was, and
+     the tome above it keeps preserve-3d. */
+  .tome .f { position: absolute; inset: 0; isolation: isolate; overflow: hidden; }
+  /* Every material layer is a full-bleed span inside its face, painted in
+     DOM order: base, texture, things pasted on, the lamp, the wear. */
+  .tome .l { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ----- the front board -----
+     A cloth (or hide) board with the poster pasted on as a printed plate
+     inside the turn-in, a gilt fillet tooled round it, the French groove at
+     the hinge, the page block along the fore-edge, and the lamp on all of it. */
   .f-cover {
-    background: var(--media-bg); overflow: hidden;
+    background: var(--cloth);
     backface-visibility: hidden;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .10);
+    /* The fore-edge corners take the slight round a binder's nippers leave. */
+    border-radius: 0 2px 2px 0;
+  }
+  .f-cover .l-mat {
+    background-image: var(--weave);
+    background-size: 6px 6px;
+    background-position: var(--gx, 0) 0;
+    mix-blend-mode: overlay; opacity: .55;
+  }
+  .tome.k-leather .f-cover .l-mat, .tome.k-leather .f-spine .l-mat {
+    background-image: var(--hide);
+    background-size: 96px 96px;
+    opacity: .62;
+  }
+  /* The plate: the poster is a printed sheet pasted onto the cloth, inside the
+     turn-in margin, clear of the groove on the left and the page block on the
+     right. A hairline where paper meets cloth, and the ghost of its thickness
+     on the side away from the lamp. */
+  .tome .f-cover .l-plate {
+    inset: 4px 10px 4px 9px;
+    background: var(--media-bg); overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.28), 1px 1px 1px rgba(0,0,0,.30);
   }
   .f-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .f-cover .ph {
     position: absolute; inset: 0; display: grid; place-items: center;
     color: var(--text-faint); font-size: 22px;
   }
-  /* The page block, seen along the fore-edge of the cover. */
-  .f-cover .foredge {
-    position: absolute; top: 2px; right: 0; bottom: 2px; width: 3px;
-    background: #efe6d2; opacity: .8; z-index: 1;
+  /* A gilt fillet tooled round the plate. Impressed, so the wall above and
+     to the left of the line is in shadow and the lip below it catches light. */
+  .tome .f-cover .l-fillet {
+    inset: 2px 8px 2px 7px;
+    border: 1px solid;
+    border-color: var(--foil-hi) var(--foil) var(--foil-lo) var(--foil-hi);
+    box-shadow: -1px -1px 0 rgba(0,0,0,.38), 1px 1px 0 rgba(255,255,255,.12);
+    opacity: .85;
   }
+  /* The French groove: the channel between spine and board. Its near wall is
+     in the spine's shadow; the board rises out of it into the light. */
+  .tome .f-cover .l-hinge {
+    right: auto; width: 6px;
+    background: linear-gradient(90deg,
+      rgba(0,0,0,.62) 0, rgba(0,0,0,.30) 2px, rgba(0,0,0,.06) 3.5px,
+      rgba(255,255,255,.22) 4.5px, rgba(255,255,255,.04) 5.5px, transparent 6px);
+  }
+  /* The page block along the fore-edge: leaves ruled at 2px, a second pitch
+     the first does not divide into, and the room's own grain over both so no
+     two leaves are the same cream, which is a deckle. Inset 2px head and
+     tail: the boards overhang the block, and those are the squares. The inset
+     shadows are the overhang falling on the leaves. */
+  .f-cover .foredge {
+    position: absolute; top: 2px; right: 0; bottom: 2px; width: 6px; z-index: 1;
+    background-image:
+      var(--grain),
+      repeating-linear-gradient(180deg, transparent 0 2.4px, rgba(0,0,0,.10) 2.4px 2.9px, transparent 2.9px 5.3px),
+      linear-gradient(90deg, rgba(0,0,0,.40), rgba(0,0,0,.12) 45%, transparent 100%),
+      repeating-linear-gradient(180deg, var(--vol-leaf) 0 1px, var(--vol-leaf-lo) 1px 1.6px, var(--vol-leaf) 1.6px 2px);
+    background-size: 140px 140px, auto, auto, auto;
+    background-position: 0 var(--gx, 0), 0 var(--gx, 0), 0 0, 0 0;
+    background-blend-mode: soft-light, multiply, multiply, normal;
+    box-shadow: inset 1px 0 0 rgba(0,0,0,.30), inset 0 1px 0 rgba(0,0,0,.40), inset 0 -1px 0 rgba(0,0,0,.32);
+  }
+  /* The lamp, part one: what it does not reach. Pure alpha in normal blend
+     (identical to multiply with black, and cheaper). Also carries the board's
+     own edge: the turned-in cloth lit along the head, the fore-edge and tail
+     in their own shadow. */
+  .tome .f-cover .l-light {
+    background:
+      linear-gradient(158deg, transparent 38%, var(--vol-shade) 100%),
+      linear-gradient(90deg, rgba(0,0,0,.18), transparent 12%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 1px 0 0 rgba(255,255,255,.05),
+                inset -1px 0 0 rgba(0,0,0,.40), inset 0 -1px 0 rgba(0,0,0,.35);
+  }
+  /* The lamp, part two: what it lights. Screen, so the key light warms the
+     plate without washing its blacks, and the varnish shows the lamp itself
+     as a soft ellipse in the upper-left corner. */
+  .tome .f-cover .l-spec {
+    mix-blend-mode: screen;
+    background:
+      radial-gradient(52% 34% at 16% 8%, var(--vol-spec), transparent 100%),
+      linear-gradient(158deg, var(--vol-key) 0%, transparent 46%),
+      linear-gradient(0deg, var(--vol-ambient), var(--vol-ambient));
+  }
+  /* Shelf-wear: rubbed tail corners, dust along the tail, a touch along the
+     head. Its strength is the volume's own --wear. */
+  .tome .f-cover .l-grime {
+    mix-blend-mode: multiply; opacity: var(--wear, .5);
+    background:
+      radial-gradient(40% 30% at 100% 100%, var(--vol-grime), transparent 100%),
+      radial-gradient(34% 22% at 4% 100%, var(--vol-grime), transparent 100%),
+      linear-gradient(0deg, var(--vol-grime), transparent 9%),
+      linear-gradient(180deg, rgba(0,0,0,.10), transparent 4%);
+  }
+  /* One specular band sweeps the cover per hover: the only motion. Above
+     every layer, so it crosses the tooling and the leaves as well. */
+  .f-cover::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+    background: linear-gradient(102deg, transparent 38%,
+                rgba(255, 255, 255, .22) 48%, transparent 58%);
+    transform: translateX(-130%);
+    transition: transform 0s;
+  }
+  .unit:hover .f-cover::after { transform: translateX(130%); transition: transform .62s ease-out; }
   /* Uncatalogued stock: mikan has no entry for this volume, so it stands on the
-     shelf unbound — the cover drained of its colour — with a slip of paper
+     shelf unbound (the cover drained of its colour) with a slip of paper
      tucked into the fore-edge. A sibling of the faces rather than a child of
      the cover, because the cover clips its own overflow and the slip has to
      stand proud of the book. Pushed 1px forward instead of given a z-index:
      inside preserve-3d the paint order is the geometry, not the stacking
      context. Colour returns on hover so the volume can still be identified
-     while you deal with it. */
-  /* Sits below the pip, not beside it: the pip is already pinned to the top
-     right corner, and a slip level with it read as one two-part badge rather
-     than as paper in a book. */
+     while you deal with it. Sits below the pip, not beside it. */
   .slip {
     position: absolute; top: 34%; right: -8px; width: 15px; height: 34%;
     background: linear-gradient(178deg, #fdf6e6, #efe1c4);
@@ -597,9 +800,6 @@ if (new URLSearchParams(location.search).has("probe")) {
     box-shadow: 1px 1px 3px rgba(0, 0, 0, .3);
     transform: translateZ(1px) rotate(-2deg);
   }
-  /* Two ruled lines, the second short — a note written on it, at the size where
-     handwriting is only ever texture. Same red as the accession ledger and the
-     timetable margin, so the mark reads as this desk's own stationery. */
   .slip-rule, .slip-rule::after {
     position: absolute; height: 1px; background: var(--accent-a); opacity: .75;
   }
@@ -609,85 +809,200 @@ if (new URLSearchParams(location.search).has("probe")) {
   .unit.nomikan:hover .f-cover img,
   .unit.nomikan:focus-visible .f-cover img,
   .unit.nomikan.open .f-cover img { filter: none; }
+
+  /* ----- the spine -----
+     A round back: across its width, the front joint's groove, a lit crown a
+     third of the way over, then the roll away into the back joint, which is
+     both farther from the lamp and farther from the eye. */
   .f-spine {
     left: 0; right: auto; width: var(--vd);
     transform-origin: left center; transform: rotateY(90deg);
     background: var(--cloth);
-    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .45);
-    overflow: hidden;
+    /* The far shoulders round in where the leather rolls over the caps. The
+       near corners stay square: they meet the board at the joint. */
+    border-radius: 0 5px 4px 0 / 0 8px 5px 0;
   }
-  /* rotateX(-90deg), not +90.
-
-     rotateX(theta) sends the local +y axis to (0, cos, sin), so a positive
-     quarter turn hinges the board about the top edge and swings it *toward*
-     the reader: a horizontal slab standing out of the front of the book, above
-     the cover, mirroring the spine beside it instead of matching it. It shipped
-     that way, and the reason it was not obvious is that it made the board
-     visible — which is the one thing that told you it was wrong, since from an
-     eye level with the base a top board cannot be seen at all.
-
-     So the correct board is a hidden one. It is kept rather than deleted: it
-     is the fourth wall of a box drawn with preserve-3d, and a box with a hole
-     in it is only correct until something moves the camera. */
+  .f-spine .l-mat {
+    background-image: var(--weave);
+    background-size: 6px 6px;
+    background-position: var(--gx, 0) 0;
+    mix-blend-mode: overlay; opacity: .5;
+  }
+  .f-spine .l-shade {
+    opacity: var(--vol-shade-a);
+    background: linear-gradient(90deg,
+      rgba(0,0,0,.55) 0, rgba(0,0,0,.22) 6%, transparent 22%,
+      transparent 44%, rgba(0,0,0,.14) 64%, rgba(0,0,0,.36) 84%, rgba(0,0,0,.66) 100%);
+  }
+  .f-spine .l-spec {
+    mix-blend-mode: screen;
+    background:
+      linear-gradient(90deg, transparent 12%, var(--vol-spec) 30%, transparent 50%),
+      linear-gradient(180deg, var(--vol-key), transparent 40%),
+      linear-gradient(0deg, var(--vol-ambient), var(--vol-ambient));
+  }
+  .f-spine .l-grime {
+    mix-blend-mode: multiply; opacity: var(--wear, .5);
+    background:
+      linear-gradient(0deg, var(--vol-grime), transparent 10%),
+      linear-gradient(180deg, rgba(0,0,0,.14), transparent 6%);
+  }
+  /* rotateX(-90deg), not +90. rotateX(theta) sends the local +y axis to
+     (0, cos, sin), so a positive quarter turn hinges the board about the top
+     edge and swings it toward the reader: a slab standing out of the front of
+     the book. From an eye level with the base a top board cannot be seen at
+     all, so the correct board is a hidden one. It is kept rather than
+     deleted: it is the fourth wall of a box drawn with preserve-3d, and a box
+     with a hole in it is only correct until something moves the camera. One
+     flat tint, no layers: nothing to pay for. */
   .f-top {
     top: 0; bottom: auto; height: var(--vd);
     transform-origin: top center; transform: rotateX(-90deg);
     background: color-mix(in srgb, var(--cloth) 74%, #000);
   }
-  /* Spine furniture: head cap, sewn bands, a stamped label panel with its
-     ruled lines, and on some volumes a blind-tooled medallion. Positioned in
-     percentages so one rule set serves every volume. */
-  .sp { position: absolute; left: 0; right: 0; }
-  .sp-cap  { top: 0; height: 4px; background: var(--foil); opacity: .5; }
-  .sp-band { height: 3px; background: var(--foil); opacity: .42; }
-  .sp-panel { left: 4px; right: 4px; border: 1px solid var(--foil); opacity: .55; }
-  .sp-rule { left: 7px; right: 7px; height: 2px; background: var(--foil); opacity: .72; }
+
+  /* ----- spine furniture (shared with the archive's .svol) -----
+     Positioned by spineFurniture() in percentages, so the one rule set serves
+     the wall (30px wide) and the archive (34-49px). */
+  .sp { position: absolute; left: 0; right: 0; pointer-events: none; }
+  /* Head and tail caps: the leather rolled over the bands. A ridge, lit on
+     its crown and shadowed underneath. */
+  .sp-cap, .sp-tail {
+    height: 6px;
+    background: linear-gradient(180deg, var(--cloth-hi) 0, var(--cloth) 45%, var(--cloth-lo) 100%);
+  }
+  .sp-cap  { top: 0; border-radius: 0 0 40% 40% / 0 0 100% 100%; box-shadow: 0 1px 1px rgba(0,0,0,.45); }
+  .sp-tail { bottom: 0; border-radius: 40% 40% 0 0 / 100% 100% 0 0; box-shadow: 0 -1px 1px rgba(0,0,0,.35); }
+  /* The silk headband, glimpsed under each cap. */
+  .sp-hb {
+    top: 6px; left: 3px; right: 3px; height: 2px;
+    background: repeating-linear-gradient(90deg, var(--hb, #b5362c) 0 2px, #f2e8d2 2px 4px);
+    box-shadow: 0 1px 0 rgba(0,0,0,.35);
+  }
+  .sp-hb-t { top: auto; bottom: 6px; box-shadow: 0 -1px 0 rgba(0,0,0,.35); }
+  /* Sewn bands: cords under the leather, so the cloth itself rises (lit
+     crown, shadow beneath) with a gilt hairline tooled either side. */
+  .sp-band {
+    height: 5px; margin-top: -2px;
+    background: linear-gradient(180deg, var(--cloth-hi) 0, var(--cloth) 40%, var(--cloth-lo) 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,.50), 0 -1px 0 rgba(255,255,255,.10);
+  }
+  .sp-band::before, .sp-band::after {
+    content: ""; position: absolute; left: 0; right: 0; height: 1px;
+    background: var(--foil); opacity: .55;
+  }
+  .sp-band::before { top: -3px; }
+  .sp-band::after  { bottom: -3px; }
+  /* The label: a leather onlay, raised, with its border tooled in. On the
+     archive spine --label is unset and the panel stays a border alone. */
+  .sp-panel {
+    left: 3px; right: 3px;
+    background: var(--label, transparent);
+    border: 1px solid;
+    border-color: var(--foil-hi) var(--foil) var(--foil-lo) var(--foil-hi);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.40),
+                0 1px 1px rgba(0,0,0,.35), 0 -1px 0 rgba(255,255,255,.06);
+    opacity: .96;
+  }
+  .sp-rule {
+    left: 6px; right: 6px; height: 2px;
+    background: linear-gradient(180deg, var(--foil-hi), var(--foil) 55%, var(--foil-lo));
+    box-shadow: 0 -1px 0 rgba(0,0,0,.35), 0 1px 0 rgba(255,255,255,.10);
+    opacity: .9;
+  }
+  /* The medallion: a gilt disc with a sunk, stamped centre. */
   .sp-medal {
-    left: 50%; width: 12px; height: 12px; margin-left: -6px;
-    border: 1.5px solid var(--foil); border-radius: 50%; opacity: .7;
+    left: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--foil-hi), var(--foil) 55%, var(--foil-lo) 100%);
+    box-shadow: 0 1px 1px rgba(0,0,0,.45), 0 -1px 0 rgba(255,255,255,.10);
+    opacity: .92;
   }
   .sp-medal::after {
-    content: ""; position: absolute; inset: 2.5px; border-radius: 50%;
-    background: var(--foil);
+    content: ""; position: absolute; inset: 3px; border-radius: 50%;
+    background: var(--cloth);
+    box-shadow: inset 1px 1px 1px rgba(0,0,0,.50), inset -1px -1px 0 rgba(255,255,255,.10);
   }
 
-  /* Contact shadow on the plank. Animating a pseudo-element's opacity keeps
-     the lift on the compositor; animating box-shadow would repaint. */
-  .tome::after {
-    content: ""; position: absolute; left: -16%; right: -16%;
-    bottom: -10px; height: 16px;
-    background: radial-gradient(ellipse at 50% 0%, rgba(0, 0, 0, .6), transparent 72%);
-    opacity: .6; transform: translateZ(-1px);
+  /* ----- the shadows on the plank -----
+     Two, on the tome's own pseudo-elements so a hover costs the compositor a
+     transform and an opacity and nothing repaints. Both are pushed a pixel or
+     two behind the volume so the box paints over them. */
+  .tome::before, .tome::after {
+    content: ""; position: absolute; pointer-events: none;
     transition: opacity .45s ease, transform .45s ease;
-    pointer-events: none;
   }
-  .unit:hover .tome::after { opacity: .9; transform: translateZ(-1px) scaleX(1.16); }
-  /* One specular band sweeps the cover per hover — the only shine. */
-  .f-cover::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-    background: linear-gradient(102deg, transparent 38%,
-                rgba(255, 255, 255, .22) 48%, transparent 58%);
-    transform: translateX(-130%);
-    transition: transform 0s;
+  /* The soft shadow the lamp throws: to the right and down, since the lamp
+     is above and to the left. */
+  .tome::before {
+    left: 4%; right: -34%; bottom: -16px; height: 22px;
+    background: radial-gradient(ellipse at 42% 0%, var(--vol-cast), transparent 70%);
+    opacity: .75; transform: translateZ(-2px);
   }
-  .unit:hover .f-cover::after { transform: translateX(130%); transition: transform .62s ease-out; }
+  /* The contact line: the last few pixels where the base meets the timber. */
+  .tome::after {
+    left: -4%; right: -4%; bottom: -5px; height: 7px;
+    background: radial-gradient(ellipse at 50% 0%, var(--vol-contact), transparent 68%);
+    opacity: .9; transform: translateZ(-1px);
+  }
+  /* A lifted volume leaves its shadows on the plank: they do not rise with
+     it. translateY(8px) undoes the pose's -8px so the shadow stays where the
+     shelf is; it spreads and lightens because light now gets under the book. */
+  .unit:hover .tome::before, .unit:focus-visible .tome::before, .unit.open .tome::before {
+    opacity: .55; transform: translateZ(-2px) translateY(8px) scale(1.18, 1.35);
+  }
+  .unit:hover .tome::after, .unit:focus-visible .tome::after, .unit.open .tome::after {
+    opacity: .35; transform: translateZ(-1px) translateY(8px) scaleX(1.10);
+  }
 
-  /* The shelf: a timber plank with a lit front lip, carried on two brass
-     brackets. The plank end grain shows at the lip; the brackets are cast
-     brass, so they take the same three-stop roll the buttons do. */
+  /* ----- the plank -----
+     Seen edge-on: the bullnose front of a timber shelf, lit along its arris,
+     rolling down into the underside. Opaque; the old plank was a tint over
+     the leather, which is why it read as green. Long grain runs the length as
+     two hairlines, phased per volume; the ends show the rings in section. */
   .plank {
-    position: relative; width: 136px; height: 7px; margin-top: 3px;
-    background: linear-gradient(180deg, var(--plank-face), rgba(0,0,0,.30));
-    border-top: 1px solid var(--plank-lip);
-    box-shadow: 0 1px 0 rgba(0,0,0,.45);
+    position: relative; width: 136px; height: 9px; margin-top: 3px;
+    border-radius: 2px 2px 4px 4px / 2px 2px 5px 5px;
+    background-image:
+      var(--grain),
+      repeating-linear-gradient(177deg, transparent 0 2px, rgba(0,0,0,.28) 2px 2.6px, transparent 2.6px 5px, rgba(255,220,160,.16) 5px 5.5px, transparent 5.5px 8px),
+      linear-gradient(180deg, var(--plank-a) 0, var(--plank-a) 18%, var(--plank-b) 46%, var(--plank-b) 70%, var(--plank-c) 100%);
+    background-size: 140px 140px, auto, auto;
+    background-position: var(--gx, 0) 0, var(--gx, 0) 0, 0 0;
+    background-blend-mode: var(--grain-blend), normal, normal;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.20),
+      inset 0 -1px 0 rgba(0,0,0,.45),
+      0 2px 3px var(--drop-soft), 0 5px 9px -3px var(--drop);
   }
   .plank::before, .plank::after {
-    content: ""; position: absolute; top: 7px; width: 5px; height: 11px;
-    background: linear-gradient(90deg, var(--brass-lo), var(--brass) 45%, var(--brass-hi) 60%, var(--brass-lo));
-    opacity: .62; border-radius: 0 0 2px 2px;
+    content: ""; position: absolute; top: 0; bottom: 0; width: 6px; opacity: .9;
+    background: repeating-radial-gradient(ellipse 140% 100% at 50% 130%, var(--plank-c) 0 .8px, var(--plank-b) .8px 2.4px);
   }
-  .plank::before { left: 15px; }
-  .plank::after { right: 15px; }
+  .plank::before { left: 0;  border-radius: 2px 0 0 4px / 2px 0 0 5px; box-shadow: 1px 0 0 rgba(0,0,0,.25); }
+  .plank::after  { right: 0; border-radius: 0 2px 4px 0 / 0 2px 5px 0; box-shadow: -1px 0 0 rgba(0,0,0,.25); }
+  /* Cast-brass brackets: a stem with the same lo-mid-hi-mid-lo roll the keys
+     take, a flange screwed to the underside, a turned foot, and the shadow
+     they throw on the wall to the right. */
+  .brkt {
+    position: absolute; top: 9px; width: 7px; height: 12px;
+    background: linear-gradient(90deg, var(--brass-lo) 0, var(--brass) 36%, var(--brass-hi) 54%, var(--brass) 72%, var(--brass-lo) 100%);
+    border-radius: 1px 1px 3px 3px;
+    box-shadow: 1px 2px 3px var(--drop), inset 0 -1px 0 rgba(0,0,0,.35);
+  }
+  .brkt:first-child { left: 14px; }
+  .brkt:last-child  { right: 14px; }
+  .brkt::before {
+    content: ""; position: absolute; top: 0; left: -2px; right: -2px; height: 3px;
+    background: linear-gradient(90deg, var(--brass-lo), var(--brass-hi) 50%, var(--brass-lo));
+    border-radius: 0 0 1px 1px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.40);
+  }
+  .brkt::after {
+    content: ""; position: absolute; bottom: -2px; left: 1px; width: 5px; height: 5px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--brass-hi), var(--brass) 48%, var(--brass-lo) 100%);
+    box-shadow: 1px 1px 2px var(--drop);
+  }
+  /* The archive rail's shelves and the boot shelf are drawn from these. */
   :root { --plank-face: rgba(214,168,96,.20); --plank-lip: rgba(240,208,140,.46); }
   html[data-theme="light"] { --plank-face: rgba(150,104,42,.26); --plank-lip: rgba(255,246,226,.75); }
 
@@ -711,8 +1026,8 @@ if (new URLSearchParams(location.search).has("probe")) {
     min-width: 22px; padding: 3px 6px;
     font-family: var(--mono); font-size: calc(.82rem * var(--ui)); line-height: 1.25;
     text-align: center; color: var(--btn-text);
-    background: var(--ok); border-radius: 2px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 1px 3px rgba(0,0,0,.5);
+    background: var(--ok); border-radius: var(--r-xs);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.25), 0 1px 3px rgba(0,0,0,.5);
   }
   .upip.wait { background: var(--warn); }
   .upip.none { background: var(--muted); }
@@ -760,15 +1075,33 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* ----- the card: an accession slip lifted off the desk -----
      Ivory laid stock with a gilt rule around it and a torn-off top edge, so
      the sheet reads as paper rather than as a modal. */
+  /* ----- glass -----
+     The panes. Everything that floats above the desk is a plate of smoked
+     glass with a polished edge: the room shows through it blurred, a lit rim
+     runs along the top where the lamp catches the bevel, the underside is
+     dark, and one specular band crosses the pane. The gilt rule the paper
+     used to carry is kept, set just inside the edge, so the plate still reads
+     as this desk's stationery under glass rather than as a phone's sheet. */
+  .card, .deskpanel, .premiere, .peek, .gpick-list, #toast, .stale, .sched-sheet,
+  .nomikan-box, .logs, aside.drawer, .sheet-head .drawer-close, .chip, .btn.ghost, .search {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  }
   .card {
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 40%),
+      linear-gradient(112deg, transparent 30%, var(--glass-sheen) 44%, transparent 58%),
       var(--grain),
-      linear-gradient(180deg, color-mix(in srgb, var(--paper) 100%, transparent), var(--panel));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    border: 1px solid var(--gilt); border-radius: 3px; overflow: hidden;
+      var(--glass-strong);
+    background-size: auto, auto, 140px 140px, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal;
+    border: 1px solid var(--glass-edge); border-radius: var(--r-xl); overflow: hidden;
     display: flex;
-    box-shadow: inset 0 0 0 3px transparent, inset 0 0 0 4px var(--gilt-soft);
+    box-shadow:
+      inset 0 1px 0 var(--glass-hi),
+      inset 0 0 0 1px rgba(255,255,255,.04),
+      inset 0 -1px 0 var(--glass-edge-lo),
+      inset 0 0 0 5px transparent, inset 0 0 0 6px var(--gilt-soft);
   }
   .card:active, .sched-item:active, .premiere:active { transform: scale(.99); }
   .t-watching { --card-glow: var(--ok); }
@@ -802,7 +1135,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .ext-link {
     display: inline-flex; align-items: center; gap: 5px;
     font-size: calc(.78rem * var(--ui)); line-height: 1.2; letter-spacing: .01em;
-    padding: 4px 8px; border-radius: 3px; text-decoration: none; white-space: nowrap;
+    padding: 4px 8px; border-radius: 7px; text-decoration: none; white-space: nowrap;
     border: 1px solid; transition: color .15s ease, border-color .15s ease, background .15s ease;
   }
   .ext-ico { width: 14px; height: 14px; border-radius: 2px; object-fit: contain; }
@@ -821,9 +1154,10 @@ if (new URLSearchParams(location.search).has("probe")) {
   .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .pill {
     font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
-    padding: 3px 10px; border-radius: 2px; display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: var(--r-xs); display: inline-flex; align-items: center; gap: 6px;
     background: color-mix(in srgb, currentColor 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent),
+                inset 0 1px 0 rgba(255,255,255,.08);
   }
   .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .pill.grace { color: var(--warn); }
@@ -837,17 +1171,19 @@ if (new URLSearchParams(location.search).has("probe")) {
      palette repeats every two years. */
   .season-tag {
     font-size: calc(.78rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
-    padding: 2px 9px; border-radius: 2px; color: var(--text-faint);
+    padding: 2px 9px; border-radius: var(--r-xs); color: var(--text-faint);
     background: color-mix(in srgb, currentColor 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent),
+                inset 0 1px 0 rgba(255,255,255,.08);
   }
   /* Cross-cour badge: a 半年番/年番 marker, same pill family as the season tag.
      Half-year is calm, year-long is warmer/stronger to read as "longer". */
   .cour-tag {
     font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
-    padding: 2px 9px; border-radius: 2px;
+    padding: 2px 9px; border-radius: var(--r-xs);
     background: color-mix(in srgb, currentColor 16%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent),
+                inset 0 1px 0 rgba(255,255,255,.08);
   }
   .cour-tag.half { color: #63bcae; }
   .cour-tag.year { color: #e0b34e; }
@@ -892,7 +1228,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .season-divider:first-child { margin-top: 4px; }
   /* The leather label itself, tinted by the cour palette. */
   .season-divider > .plate {
-    padding: 5px 14px; border-radius: 2px; flex: none;
+    padding: 5px 14px; border-radius: var(--r-s); flex: none;
     color: color-mix(in srgb, currentColor 84%, var(--text));
     background: color-mix(in srgb, currentColor 16%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 42%, transparent),
@@ -927,9 +1263,10 @@ if (new URLSearchParams(location.search).has("probe")) {
      and lightness stay the theme's job so both palettes keep contrast. */
   .score {
     font-size: calc(.78rem * var(--ui)); font-weight: 600; font-family: var(--mono);
-    padding: 2px 9px; border-radius: 2px; color: hsl(var(--sh, 45) 72% 62%);
+    padding: 2px 9px; border-radius: var(--r-xs); color: hsl(var(--sh, 45) 72% 62%);
     background: color-mix(in srgb, currentColor 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent),
+                inset 0 1px 0 rgba(255,255,255,.08);
   }
   html[data-theme="light"] .score { color: hsl(var(--sh, 45) 82% 30%); }
 
@@ -941,8 +1278,9 @@ if (new URLSearchParams(location.search).has("probe")) {
       url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%238b93a3" stroke-width="1.5" stroke-linecap="round"/></svg>')
       no-repeat right 10px center;
     color: var(--text); border: 1px solid var(--panel-border);
-    border-radius: 3px; padding: 5px 26px 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
+    border-radius: var(--r-s); padding: 5px 26px 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
     flex: 1; min-width: 0; max-width: 190px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
   }
   html[data-theme="light"] .grouprow select {
     background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%235d4a33" stroke-width="1.5" stroke-linecap="round"/></svg>');
@@ -952,9 +1290,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   .murl { margin-top: 7px; }
   .murl input {
     background: var(--input-bg); color: var(--text);
-    border: 1px solid var(--panel-border); border-radius: 3px;
+    border: 1px solid var(--panel-border); border-radius: var(--r-s);
     padding: 5px 10px; font: inherit; font-size: calc(.86rem * var(--ui));
     flex: 1; min-width: 0;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
+  }
+  html[data-theme="light"] .murl input, html[data-theme="light"] .grouprow select {
+    box-shadow: inset 0 2px 4px rgba(92,60,24,.14);
   }
   .murl input::placeholder { color: var(--text-faint); }
   /* The uncatalogued-stock docket on a show's card: a form to be worked, not a
@@ -963,9 +1305,18 @@ if (new URLSearchParams(location.search).has("probe")) {
      matter. Unlike the banner this cannot be dismissed — the show either has a
      feed or it does not. */
   .nomikan-box {
-    margin-top: 10px; padding: 9px 10px 8px;
-    border: 1px solid var(--panel-border); border-left: 3px solid var(--accent-a);
-    border-radius: 3px; background: var(--input-bg);
+    margin-top: 10px; padding: 9px 10px 8px 13px; position: relative;
+    border: 1px solid var(--glass-edge);
+    border-radius: var(--r-m);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 50%),
+      var(--glass);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo);
+  }
+  /* The red ruling down the docket's left, kept clear of the rounded corners. */
+  .nomikan-box::before {
+    content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px;
+    border-radius: 0 2px 2px 0; background: var(--accent-a);
   }
   .nmb-h {
     display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
@@ -1011,7 +1362,8 @@ if (new URLSearchParams(location.search).has("probe")) {
     background:
       repeating-linear-gradient(0deg, transparent 0 calc(1.6em - 1px), var(--paper-rule) calc(1.6em - 1px) 1.6em),
       var(--log-bg);
-    border: 1px solid var(--panel-border); border-radius: 3px;
+    border: 1px solid var(--glass-edge); border-radius: var(--r-m);
+    box-shadow: inset 0 1px 0 var(--glass-hi-soft), inset 0 2px 6px rgba(0,0,0,.25);
     font-family: var(--mono); font-size: calc(.85rem * var(--ui)); line-height: 1.6; color: var(--log-text);
     padding: 14px 16px; max-height: 340px; overflow-y: auto; white-space: pre-wrap;
     scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
@@ -1030,28 +1382,39 @@ if (new URLSearchParams(location.search).has("probe")) {
      stock, a coloured edge along its left showing which pigeonhole it came
      from, and a real shadow where it rests on the leather. */
   .premiere {
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; gap: 14px; position: relative;
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 45%),
+      linear-gradient(112deg, transparent 40%, var(--glass-sheen) 52%, transparent 64%),
       var(--grain),
       linear-gradient(135deg,
         color-mix(in srgb, var(--accent-a) 16%, transparent),
-        color-mix(in srgb, var(--accent-b) 10%, transparent));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    border: 1px solid color-mix(in srgb, var(--accent-a) 35%, transparent);
-    border-left: 5px solid var(--accent-a);
-    border-radius: 3px;
-    box-shadow: 2px 4px 10px -2px rgba(0,0,0,.5);
-    padding: 13px 17px; backdrop-filter: blur(8px);
+        color-mix(in srgb, var(--accent-b) 10%, transparent)),
+      var(--glass);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    border: 1px solid color-mix(in srgb, var(--accent-a) 35%, var(--glass-edge));
+    --edge: var(--accent-a);
+    border-radius: var(--r-l);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft), 3px 10px 24px -8px var(--drop);
+    padding: 13px 17px 13px 21px;
     /* Multiple banners cascade in; --i is stamped after each render. */
     animation: slidein .4s cubic-bezier(.22,1,.36,1) backwards;
     animation-delay: calc(var(--i, 0) * 90ms);
+  }
+  /* The pigeonhole colour: a bar set in from the rounded corners rather than
+     a border that would have to follow the curve. */
+  .premiere::before {
+    content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 5px;
+    border-radius: 0 3px 3px 0; background: var(--edge);
+    box-shadow: 1px 0 3px color-mix(in srgb, var(--edge) 50%, transparent);
   }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
   /* The banner's leading emoji waves twice on arrival, then rests. */
   .bemo { display: inline-block; animation: wave .8s ease .5s 2; }
   @keyframes wave { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
-  .premiere .pcover { width: 48px; min-width: 48px; height: 66px; border-radius: 2px; overflow: hidden; background: var(--media-bg); position: relative;
+  .premiere .pcover { width: 48px; min-width: 48px; height: 66px; border-radius: var(--r-xs); overflow: hidden; background: var(--media-bg); position: relative;
     box-shadow: 0 0 0 1px var(--gilt-soft), 1px 2px 5px rgba(0,0,0,.45); }
   .premiere .pcover .ph { font-size: 18px; }
   .premiere .pbody { flex: 1; min-width: 0; }
@@ -1061,7 +1424,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .premiere > .btn { flex-shrink: 0; margin-left: 4px; }
   .pbadge, .today-badge {
     font-size: calc(.82rem * var(--ui)); font-weight: 600; letter-spacing: .02em;
-    padding: 2px 9px; border-radius: 2px;
+    padding: 2px 9px; border-radius: var(--r-xs);
     background: color-mix(in srgb, currentColor 14%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
   }
@@ -1069,27 +1432,33 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* Unresolved (aired but no mikan match) — same banner component, warning skin. */
   .premiere.unresolved {
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 45%),
+      linear-gradient(112deg, transparent 40%, var(--glass-sheen) 52%, transparent 64%),
       var(--grain),
       linear-gradient(135deg,
         color-mix(in srgb, var(--warn) 18%, transparent),
-        color-mix(in srgb, var(--warn) 8%, transparent));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-    border-left-color: var(--warn);
+        color-mix(in srgb, var(--warn) 8%, transparent)),
+      var(--glass);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    border-color: color-mix(in srgb, var(--warn) 40%, var(--glass-edge));
+    --edge: var(--warn);
   }
   .premiere.unresolved .ptag { color: var(--warn); }
   /* Completed (本篇全看完 -> auto 看过) — same banner component, success skin. */
   .premiere.completed {
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 45%),
+      linear-gradient(112deg, transparent 40%, var(--glass-sheen) 52%, transparent 64%),
       var(--grain),
       linear-gradient(135deg,
         color-mix(in srgb, var(--ok) 18%, transparent),
-        color-mix(in srgb, var(--ok) 8%, transparent));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-    border-left-color: var(--ok);
+        color-mix(in srgb, var(--ok) 8%, transparent)),
+      var(--glass);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    border-color: color-mix(in srgb, var(--ok) 40%, var(--glass-edge));
+    --edge: var(--ok);
   }
   .premiere.completed .ptag { color: var(--ok); }
   /* Rate/review call-to-action — a real link styled as a filled key in green
@@ -1112,9 +1481,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   .filters { display: flex; gap: 9px; flex-wrap: wrap; }
   .fchip {
     appearance: none; cursor: pointer; font: inherit; font-size: calc(.9rem * var(--ui));
-    padding: 8px 16px; border-radius: 3px 3px 0 0;
+    padding: 8px 16px; border-radius: 10px 10px 4px 4px;
     position: relative; overflow: visible;
-    box-shadow: inset 0 1px 0 rgba(255,240,215,.09), 0 1px 2px rgba(0,0,0,.28);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo), 0 1px 2px var(--drop-soft);
     transition: color .15s ease, border-color .15s ease, background .15s ease, transform .15s ease;
   }
   .fchip::before {
@@ -1128,9 +1497,12 @@ if (new URLSearchParams(location.search).has("probe")) {
   .fchip b { color: var(--text); font-family: var(--mono); margin-left: 7px; font-weight: 600; }
   .fchip.active {
     color: var(--key-text); border-color: transparent; transform: translateY(-2px);
-    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 46%),
+      linear-gradient(180deg, var(--key-a), var(--key-b) 80%, color-mix(in srgb, var(--key-b) 78%, #000));
     text-shadow: 0 1px 0 rgba(255,246,214,.35);
-    box-shadow: inset 0 1px 0 rgba(255,248,220,.55), 0 3px 8px rgba(0,0,0,.45);
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.7), inset 0 0 0 1px rgba(255,236,190,.18),
+                0 1px 0 rgba(0,0,0,.35), 0 4px 10px -1px rgba(0,0,0,.5);
   }
   .fchip.active::before { opacity: 1; background: var(--brass-hi); }
   .fchip.active b { color: var(--key-text); }
@@ -1149,10 +1521,14 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .search {
     appearance: none; font: inherit; font-size: calc(.9rem * var(--ui)); color: var(--text);
-    background: var(--input-bg); border: 1px solid var(--panel-border);
-    border-radius: 3px; padding: 8px 14px; margin-left: auto; width: min(260px, 100%);
-    box-shadow: inset 0 2px 4px rgba(0,0,0,.35);
+    background: color-mix(in srgb, var(--input-bg) 70%, transparent);
+    border: 1px solid var(--glass-edge);
+    border-radius: 10px; padding: 8px 14px; margin-left: auto; width: min(260px, 100%);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.35), inset 0 -1px 0 var(--glass-hi-soft);
+    transition: border-color .15s ease, box-shadow .15s ease;
   }
+  .search:focus { border-color: var(--hover-border); outline: none;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.35), 0 0 0 3px color-mix(in srgb, var(--accent-b) 28%, transparent); }
   html[data-theme="light"] .search { box-shadow: inset 0 2px 4px rgba(92,60,24,.16); }
   .search::placeholder { color: var(--text-faint); }
   .airline { font-size: calc(.86rem * var(--ui)); color: var(--accent-b); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
@@ -1217,17 +1593,23 @@ if (new URLSearchParams(location.search).has("probe")) {
 
   /* The sheet itself. The printed double border is two inset rings rather than
      a border plus an outline, so it survives the sheet scrolling under it. */
+  /* The sheet lies under a plate of glass: the form stock is still there, the
+     printed double border still runs round it, and the pane over it takes the
+     lit rim and the sheen every other surface on the desk takes. */
   .sched-sheet {
-    position: relative; border-radius: 2px;
+    position: relative; border-radius: var(--r-l); overflow: hidden;
+    border: 1px solid var(--glass-edge);
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 120px),
+      linear-gradient(112deg, transparent 38%, var(--glass-sheen) 47%, transparent 56%),
       var(--grain),
       linear-gradient(180deg, rgba(255,246,225,.06), transparent 150px),
       var(--paper-form);
-    background-size: 140px 140px, auto, auto;
-    background-blend-mode: var(--grain-blend), normal, normal;
-    box-shadow: inset 0 0 0 1px var(--gilt), inset 0 0 0 4px transparent,
-                inset 0 0 0 5px var(--gilt-soft),
-                0 12px 26px -14px rgba(0,0,0,.75);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                inset 0 0 0 5px transparent, inset 0 0 0 6px var(--gilt-soft),
+                0 2px 4px -1px var(--drop-soft), 0 16px 34px -14px var(--drop);
   }
   .sched-masthead {
     display: flex; align-items: baseline; gap: 14px;
@@ -1325,7 +1707,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .sched-day .today-badge {
     background: transparent; box-shadow: none;
     color: var(--accent-a); border: 1.5px solid color-mix(in srgb, var(--accent-a) 58%, transparent);
-    border-radius: 2px; padding: 0 7px 1px; letter-spacing: .16em;
+    border-radius: 4px; padding: 0 7px 1px; letter-spacing: .16em;
     font-family: var(--font-display); font-weight: 700; text-transform: none;
     transform: rotate(-3.4deg); opacity: .94;
   }
@@ -1352,7 +1734,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .sched-item {
     display: grid; grid-template-columns: 46px 46px 1fr; gap: 0 11px;
     align-items: start; padding: 9px 2px 9px 0; position: relative;
-    cursor: grab; border-radius: 2px;
+    cursor: grab; border-radius: var(--r-s);
     transition: background .18s ease;
   }
   .sched-item + .sched-item { box-shadow: inset 0 1px 0 var(--paper-rule); }
@@ -1378,7 +1760,7 @@ if (new URLSearchParams(location.search).has("probe")) {
      squares it up, the way you would straighten one with a finger. */
   .scover {
     grid-column: 2; width: 44px; min-width: 44px; height: 60px; position: relative;
-    background: var(--media-bg); overflow: hidden;
+    background: var(--media-bg); overflow: hidden; border-radius: 3px;
     border: 2px solid rgba(255,250,238,.80);
     box-shadow: 1px 2px 5px rgba(0,0,0,.5);
     transform: rotate(var(--tilt, 0deg));
@@ -1402,15 +1784,20 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* ---------- toast: a slip pushed across the desk ---------- */
   #toast {
     position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
-    background: var(--toast-bg); border: 1px solid var(--gilt); color: var(--text);
-    padding: 12px 22px; border-radius: 3px; font-size: calc(.92rem * var(--ui)); opacity: 0;
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 55%),
+      color-mix(in srgb, var(--toast-bg) 72%, transparent);
+    border: 1px solid var(--glass-edge); color: var(--text);
+    padding: 12px 22px; border-radius: var(--r-m); font-size: calc(.92rem * var(--ui)); opacity: 0;
     /* Springy entrance (slight overshoot), plain fade on the way out. */
     transition: opacity .25s ease, transform .4s cubic-bezier(.34,1.56,.64,1);
     pointer-events: none; max-width: 80vw; z-index: 90;
-    box-shadow: 3px 8px 26px rgba(0,0,0,.6);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 2px 4px -1px rgba(0,0,0,.5), 3px 12px 30px -6px rgba(0,0,0,.6);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  html[data-theme="light"] #toast { box-shadow: 3px 8px 26px rgba(92,60,24,.28); }
+  html[data-theme="light"] #toast { box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+    0 2px 4px -1px rgba(92,60,24,.2), 3px 12px 30px -6px rgba(92,60,24,.3); }
 
   .spin { display: inline-block; animation: rot 1s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
@@ -1478,8 +1865,8 @@ if (new URLSearchParams(location.search).has("probe")) {
 
   .bv-face  { fill: var(--cloth); }
   .bv-top   { fill: var(--cloth); filter: brightness(1.35); }
-  .bv-fore  { fill: #efe6d2; opacity: .85; }   /* page block, seen edge-on */
-  .bv-band  { fill: var(--stamp); opacity: .5; }
+  .bv-fore  { opacity: .95; }                  /* page block: leaves, from the pattern */
+  .bv-band  { fill: var(--stamp); opacity: .55; }  /* the gilt fillets either side of a cord */
   .bv-label { fill: none; stroke: var(--stamp); stroke-width: 1; opacity: .65; }
   .bv-rule  { fill: var(--stamp); opacity: .78; }
   .bv-medal    { fill: none; stroke: var(--stamp); stroke-width: 1.2; opacity: .8; }
@@ -1488,7 +1875,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .bk { fill: var(--brass); opacity: .8; }
   .bp-lip  { fill: var(--plank-lip); }
   .bp-face { fill: var(--plank-face); }
-  .bp-leg  { fill: var(--brass); opacity: .6; }
+  .bp-leg  { opacity: .85; }
 
   .bv {
     transform-box: fill-box; transform-origin: 50% 100%;
@@ -1603,15 +1990,19 @@ if (new URLSearchParams(location.search).has("probe")) {
     position: fixed; z-index: 61; top: 0; right: 0; bottom: 0;
     width: min(460px, 94vw);
     display: flex; flex-direction: column;
+    /* The brass edge is painted as the first background layer rather than as
+       a border-image: a border-image ignores border-radius and would draw its
+       corners square over the rounded ones. Backgrounds clip to the radius. */
     background:
+      linear-gradient(90deg, var(--brass-lo) 0, var(--brass) 1px, var(--brass-hi) 2px, var(--brass) 3px, transparent 3px),
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 120px),
       var(--grain),
       linear-gradient(90deg, rgba(0,0,0,.32), transparent 90px),
-      var(--drawer-bg);
-    background-size: 140px 140px, auto, auto;
-    background-blend-mode: var(--grain-blend), normal, normal;
-    border-left: 3px solid transparent;
-    border-image: linear-gradient(to bottom, var(--brass-lo), var(--brass) 30%, var(--brass-hi) 50%, var(--brass) 70%, var(--brass-lo)) 1;
-    box-shadow: -24px 0 60px rgba(0, 0, 0, .55);
+      color-mix(in srgb, var(--drawer-bg) 88%, transparent);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    border-radius: var(--r-xl) 0 0 var(--r-xl);
+    box-shadow: inset 0 1px 0 var(--glass-hi), -24px 0 60px rgba(0, 0, 0, .55);
     transform: translateX(100%);
     /* The leading-edge vignette and the cast shadow are both lamplight values;
        in daylight they become brown so the drawer does not read as a black
@@ -1621,18 +2012,21 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   html[data-theme="light"] aside.drawer {
     background:
+      linear-gradient(90deg, var(--brass-lo) 0, var(--brass) 1px, var(--brass-hi) 2px, var(--brass) 3px, transparent 3px),
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 120px),
       var(--grain),
       linear-gradient(90deg, rgba(92,60,24,.16), transparent 90px),
-      var(--drawer-bg);
-    background-size: 140px 140px, auto, auto;
-    background-blend-mode: var(--grain-blend), normal, normal;
-    box-shadow: -14px 0 44px rgba(92,60,24,.26);
+      color-mix(in srgb, var(--drawer-bg) 88%, transparent);
+    background-size: auto, auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal, normal;
+    box-shadow: inset 0 1px 0 var(--glass-hi), -14px 0 44px rgba(92,60,24,.26);
   }
   aside.drawer[data-open="1"] { transform: none; }
   .drawer-head {
     position: sticky; top: 0; z-index: 2;
     display: flex; align-items: center; gap: 10px;
-    padding: 18px 18px 14px; background: var(--drawer-bg);
+    padding: 18px 18px 14px 21px; background: color-mix(in srgb, var(--drawer-bg) 92%, transparent);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--gilt-soft);
     box-shadow: 0 1px 0 rgba(0,0,0,.35);
   }
@@ -1643,7 +2037,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .drawer-close {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    font-size: calc(1.05rem * var(--ui)); line-height: 1; padding: 7px 9px; border-radius: 3px;
+    font-size: calc(1.05rem * var(--ui)); line-height: 1; padding: 7px 9px; border-radius: var(--r-s);
   }
   .drawer-close:hover { color: var(--text); background: var(--panel); }
   .drawer-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
@@ -1663,13 +2057,27 @@ if (new URLSearchParams(location.search).has("probe")) {
      floating above it. */
   .sheet-head { position: absolute; top: 8px; right: 8px; z-index: 2; }
   .sheet-head .drawer-close {
-    background: color-mix(in srgb, var(--bg) 74%, transparent);
-    backdrop-filter: blur(4px);
+    background: color-mix(in srgb, var(--bg) 60%, transparent);
+    border: 1px solid var(--glass-edge); border-radius: 50%;
+    width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+    box-shadow: inset 0 1px 0 var(--glass-hi-soft), 0 1px 3px var(--drop-soft);
   }
   /* Lifted clear of the leather: a hard directional shadow from the lamp, plus
      a gilt ring so the sheet reads as the same stock the cards are cut from. */
-  .sheet .card { box-shadow: 6px 18px 48px -6px rgba(0, 0, 0, .72), 0 0 0 1px var(--gilt-soft); }
-  html[data-theme="light"] .sheet .card { box-shadow: 4px 14px 36px -4px rgba(92,60,24,.34), 0 0 0 1px var(--gilt-soft); }
+  .sheet .card {
+    box-shadow:
+      inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px rgba(255,255,255,.04),
+      inset 0 -1px 0 var(--glass-edge-lo),
+      inset 0 0 0 5px transparent, inset 0 0 0 6px var(--gilt-soft),
+      0 2px 4px -1px rgba(0,0,0,.5), 8px 26px 60px -10px rgba(0, 0, 0, .78);
+  }
+  html[data-theme="light"] .sheet .card {
+    box-shadow:
+      inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px rgba(255,255,255,.3),
+      inset 0 -1px 0 var(--glass-edge-lo),
+      inset 0 0 0 5px transparent, inset 0 0 0 6px var(--gilt-soft),
+      0 2px 4px -1px rgba(92,60,24,.25), 6px 20px 48px -8px rgba(92,60,24,.40);
+  }
 
   /* Settings groups. */
   .set-group { display: flex; flex-direction: column; gap: 10px; }
@@ -1685,8 +2093,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   .set-row .lab { margin-right: auto; }
   /* A segmented control is a row of brass keys in one bezel. */
   .seg {
-    display: inline-flex; border: 1px solid var(--panel-border); border-radius: 3px; overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
+    display: inline-flex; border: 1px solid var(--glass-edge); border-radius: 10px; overflow: hidden;
+    background: color-mix(in srgb, var(--input-bg) 55%, transparent);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.35), inset 0 -1px 0 var(--glass-hi-soft);
   }
   .seg button {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
@@ -1694,8 +2103,11 @@ if (new URLSearchParams(location.search).has("probe")) {
     transition: background .15s ease, color .15s ease;
   }
   .seg button[aria-pressed="true"] {
-    background: linear-gradient(180deg, var(--key-a), var(--key-b));
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,0) 46%),
+      linear-gradient(180deg, var(--key-a), var(--key-b) 80%, color-mix(in srgb, var(--key-b) 78%, #000));
     color: var(--key-text); text-shadow: 0 1px 0 rgba(255,246,214,.3);
+    box-shadow: inset 0 1px 0 rgba(255,248,220,.6);
   }
   .seg button + button { border-left: 1px solid var(--panel-border); }
   #settings .logs { margin-top: 4px; max-height: 260px; }
@@ -1789,13 +2201,14 @@ if (new URLSearchParams(location.search).has("probe")) {
          something you notice on the second look, never the first. */
       background:
         var(--grain),
+        var(--figure),
         repeating-linear-gradient(90.4deg, transparent 0 11px, var(--wood-grain-hi) 11px 12px, transparent 12px 13px),
         repeating-linear-gradient(89.6deg, transparent 0 21px, var(--wood-grain-lo) 21px 23px),
         repeating-linear-gradient(90.8deg, transparent 0 34px, var(--wood-grain-hi) 34px 36px, transparent 36px 37px),
         repeating-linear-gradient(89.2deg, transparent 0 57px, var(--wood-grain-lo) 57px 61px),
         linear-gradient(180deg, var(--wood-a), var(--wood-b) 62%, var(--wood-b));
-      background-size: 140px 140px, auto, auto, auto, auto, auto;
-      background-blend-mode: var(--grain-blend), normal, normal, normal, normal, normal;
+      background-size: 140px 140px, 260px 260px, auto, auto, auto, auto, auto;
+      background-blend-mode: var(--grain-blend), var(--grain-blend), normal, normal, normal, normal, normal;
     }
     /* Parallax moves the furniture, not the room: the uprights and the lamp
        are mounted on the wall and must not drift, or the structure reads as
@@ -1863,31 +2276,46 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   /* The bounce: a tight hot spot on the timber right under the shade, and the
      wide warm pool it falls off into. */
+  /* The wall behind the fixture, painted BEFORE the fixture: the blaze on
+     the timber right behind the mouth, the warm wash spreading out from it,
+     and the shade's own shadow thrown up onto the wall above the fitter. */
   .lamp::after {
-    content: ""; position: absolute; inset: 0;
+    content: ""; position: absolute; inset: 0; z-index: 0;
     background:
-      radial-gradient(22% 16% at 50% 21%, rgba(255,232,168,.42), transparent 100%),
-      radial-gradient(62% 100% at 50% 4%, var(--lamp-glow), transparent 74%);
+      radial-gradient(16% 7% at 50% 37%, rgba(255,243,196,.62), transparent 100%),
+      radial-gradient(34% 20% at 50% 34%, rgba(255,222,150,.34), transparent 100%),
+      radial-gradient(70% 100% at 50% 10%, var(--lamp-glow), transparent 74%);
     mix-blend-mode: screen;
   }
-  html[data-theme="light"] .lamp::after { mix-blend-mode: normal; opacity: .5; }
+  html[data-theme="light"] .lamp::after { mix-blend-mode: normal; opacity: .35; }
   .lamp svg {
-    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 1;
     width: 132px; height: 300px; overflow: visible;
   }
-  .lamp .l-brass    { fill: var(--lamp-brass); }
-  .lamp .l-brass-hi { fill: var(--lamp-brass-hi); }
-  .lamp .l-brass-lo { fill: var(--lamp-brass-lo); }
-  .lamp .l-harp     { fill: none; stroke: var(--lamp-brass); stroke-width: 2; }
   .lamp .l-cord     { stroke: var(--lamp-brass); stroke-width: 1.1; }
   .lamp .l-shade    { fill: url(#lampShade); }
+  /* The light inside the glass and the bulb at its mouth are the parts that
+     say "lit"; both go out with the opal in daylight. */
+  .lamp .l-glow     { opacity: var(--lamp-opal-a); mix-blend-mode: screen; }
+  .lamp .l-bulb     { opacity: var(--lamp-opal-a); mix-blend-mode: screen; }
   .lamp .l-rim      { fill: none; stroke: var(--lamp-brass-hi); stroke-width: 1.6; opacity: .9; }
-  .lamp .l-spec     { stroke: rgba(255,255,255,.20); stroke-width: 1.4; }
+  .lamp .l-spec     { fill: none; stroke: rgba(255,255,255,.42); }
+  .lamp .l-spec2    { fill: none; stroke: rgba(255,255,255,.62); }
   .lamp .l-opal     { opacity: var(--lamp-opal-a); }
   .lamp .l-cone     { opacity: var(--lamp-cone-a); mix-blend-mode: screen; }
   .lamp .l-pool     { opacity: var(--lamp-pool-a); mix-blend-mode: screen; }
   html[data-theme="light"] .lamp .l-cone,
-  html[data-theme="light"] .lamp .l-pool { mix-blend-mode: normal; }
+  html[data-theme="light"] .lamp .l-pool,
+  html[data-theme="light"] .lamp .l-glow,
+  html[data-theme="light"] .lamp .l-bulb { mix-blend-mode: normal; }
+  /* A filament breathes: a few percent, slowly, never in step between the
+     two fixtures. Off under reduced motion with everything else. */
+  .lamp .l-light { animation: lampBreathe 6.4s ease-in-out infinite; }
+  .rail-r .lamp .l-light { animation-duration: 8.1s; animation-delay: -2.7s; }
+  @keyframes lampBreathe {
+    0%, 100% { opacity: 1; } 31% { opacity: .955; } 58% { opacity: .985; } 79% { opacity: .94; }
+  }
+  html[data-theme="light"] .lamp .l-light { animation: none; }
   /* The chain sways once when the pointer crosses the pedestal — the only
      thing in the room that moves on its own. */
   .lamp .l-chain { transform-origin: 80px 96px; }
@@ -1924,113 +2352,265 @@ if (new URLSearchParams(location.search).has("probe")) {
   .rail-head .seg button { padding: 6px 11px; font-size: calc(.84rem * var(--ui)); }
 
   /* ----- the archive: shelves of spines, read edge-on -----
-     Rows are a fixed height so one repeating gradient can paint a shelf under
-     every one of them, however the spines happen to wrap. The shelf is three
-     bands — a bright front lip, the board's dark face, and the shadow the
-     books above cast onto the next shelf down. */
+     Rows are a fixed height so one repeating profile can cut a plank under
+     every one of them, however the spines happen to wrap. The case is three
+     layers: the back panel (the wall's own background, carrying what each
+     shelf casts onto it), the boards (::before, opaque timber masked into
+     per-row planks), and the light (::after, the lamp's pool at the top and
+     the case going dark toward the floor). Both pseudo-elements sit at -1 in
+     the wall's own stacking context, so they are behind the books and in
+     front of the panel. */
   .spinewall {
-    /* The row has to grow with the type, because the spines it carries do. */
+    /* The row has to grow with the type, because the spines it carries do.
+       The board does not: timber is the same thickness at any type size. */
     --rowh: calc(244px * var(--ui));
+    --shelf: 18px;
+    position: relative; isolation: isolate;
     display: flex; flex-wrap: wrap; align-items: flex-end; align-content: flex-start;
     gap: 0 3px;
     background: repeating-linear-gradient(to bottom,
-      rgba(0,0,0,.22) 0 10px,
-      transparent 10px calc(var(--rowh) - 9px),
-      var(--plank-lip) calc(var(--rowh) - 9px) calc(var(--rowh) - 7px),
-      var(--plank-face) calc(var(--rowh) - 7px) calc(var(--rowh) - 2px),
-      rgba(0,0,0,.45) calc(var(--rowh) - 2px) var(--rowh));
+      var(--shelf-drop) 0, transparent 20px, transparent var(--rowh));
+  }
+  /* The boards. One opaque colour with end-grain figure at co-prime periods
+     (no two boards look alike) and a fine grain running their length, cut
+     into planks by the mask and profiled top to bottom by the first layer:
+     the sliver of top face the books stand on, the front corner catching the
+     lamp, the front face darkening toward the bottom, the underside in shadow. */
+  .spinewall::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      repeating-linear-gradient(to bottom,
+        transparent 0 calc(var(--rowh) - var(--shelf)),
+        var(--plank-top) calc(var(--rowh) - var(--shelf)) calc(var(--rowh) - 15px),
+        var(--plank-lip) calc(var(--rowh) - 15px) calc(var(--rowh) - 14px),
+        rgba(255,255,255,.06) calc(var(--rowh) - 14px) calc(var(--rowh) - 12px),
+        transparent calc(var(--rowh) - 12px) calc(var(--rowh) - 8px),
+        rgba(0,0,0,.20) calc(var(--rowh) - 8px) calc(var(--rowh) - 3px),
+        rgba(0,0,0,.58) calc(var(--rowh) - 3px) var(--rowh)),
+      repeating-linear-gradient(90.6deg, transparent 0 13px, var(--wood-grain-hi) 13px 14px, transparent 14px 16px),
+      repeating-linear-gradient(89.3deg, transparent 0 22px, var(--wood-grain-lo) 22px 24px),
+      repeating-linear-gradient(90.2deg, transparent 0 41px, var(--wood-grain-hi) 41px 43px, transparent 43px 45px),
+      repeating-linear-gradient(to bottom, rgba(0,0,0,.10) 0 1px, transparent 1px 3px),
+      var(--plank-edge);
+    -webkit-mask-image: repeating-linear-gradient(to bottom,
+      transparent 0 calc(var(--rowh) - var(--shelf)),
+      #000 calc(var(--rowh) - var(--shelf)) var(--rowh));
+    mask-image: repeating-linear-gradient(to bottom,
+      transparent 0 calc(var(--rowh) - var(--shelf)),
+      #000 calc(var(--rowh) - var(--shelf)) var(--rowh));
+  }
+  /* The light. The fixture hangs over the middle of the pedestal, above the
+     wall, so its pool enters from the top centre; below that the inside of a
+     case is darker the further from the lamp it gets. Fixed lengths, not
+     percentages: the falloff is a property of the room, not of how many
+     shelves this wall happens to have. */
+  .spinewall::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(70% 420px at 50% -60px, var(--lamp-glow), transparent 70%),
+      linear-gradient(to bottom, transparent 0, var(--case-depth) 1100px, var(--case-depth) 100%);
+  }
+  /* The lamp reaching the instruments on the other pedestal: a warm wash over
+     the top of the desk, gone in daylight. */
+  .desk::before {
+    content: ""; position: absolute; left: -26px; right: -26px; top: -60px; bottom: 0;
+    z-index: 2; pointer-events: none;
+    background:
+      radial-gradient(56% 300px at 50% -30px, rgba(255,222,150,.30), transparent 100%),
+      linear-gradient(180deg, rgba(255,214,140,.08), transparent 460px);
+    mix-blend-mode: screen; opacity: var(--lamp-cone-a);
   }
   .spine {
-    height: var(--rowh); padding: 0 0 9px; border: 0; background: none;
+    /* Where this volume stands in the lamp's light. --i is the shelf it
+       landed on (stamped after layout, top shelf = 0) and --lx its place
+       along that shelf (-1 far left, +1 far right, the lamp at 0). Both are
+       folded into one 0..1 figure that scales the spine's reflection and its
+       dimness, and the reflection itself slides to face the fixture. Any
+       volume that is hovered, opened or lit is brought into the light
+       regardless of where it stands. */
+    --lit: clamp(var(--lit-floor),
+      calc(1 - var(--i, 0) * var(--lit-k)
+             - max(var(--lx, 0), calc(-1 * var(--lx, 0))) * var(--lit-x)),
+      1);
+    --hl: calc(50% - var(--lx, 0) * 22%);
+    height: var(--rowh); padding: 0 0 var(--shelf); border: 0; background: none;
     display: flex; align-items: flex-end; cursor: pointer; font: inherit; color: inherit;
   }
   .spine:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
+  .spine:hover, .spine:focus-visible, .spine.open, .spine.lit, .spine.xhl {
+    --lit: 1;
+    /* A volume that leans on its neighbour is painted over by it; the one
+       under the pointer has to come to the front. */
+    position: relative; z-index: 3;
+  }
+  /* The spine itself: a cylinder of cloth. The round is drawn across it
+     (dark at both joints, a lift down the middle), the head is lit from
+     above and the foot sits in the shadow of the shelf above with the tail
+     turn-in at the very bottom; the buckram carries a 3px weave in both
+     directions and the page's own grain as its nap. The joints are the
+     inset hairlines; the cast shadow falls away from the lamp. */
   .svol {
     position: relative; width: var(--svw); height: var(--svh);
-    background: var(--cloth); overflow: hidden;
+    overflow: hidden; border-radius: 2px 2px 1px 1px;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: inset -1px 0 0 rgba(0,0,0,.45), inset 1px 0 0 rgba(255,255,255,.07);
-    transition: transform .3s cubic-bezier(.22,1,.36,1), filter .3s ease;
+    transform: rotate(var(--lean, 0deg)); transform-origin: 50% 100%;
+    background:
+      linear-gradient(90deg,
+        rgba(0,0,0,.55) 0, rgba(0,0,0,.24) 7%, rgba(0,0,0,.05) 24%,
+        rgba(255,255,255,.05) 46%, rgba(255,255,255,.02) 58%,
+        rgba(0,0,0,.06) 76%, rgba(0,0,0,.28) 93%, rgba(0,0,0,.60) 100%),
+      linear-gradient(180deg,
+        rgba(255,255,255,.10) 0, rgba(255,255,255,0) 26%,
+        rgba(0,0,0,0) 70%, rgba(0,0,0,.20) 96%, rgba(0,0,0,.40) 100%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.055) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.085) 0 1px, transparent 1px 3px),
+      var(--grain),
+      var(--cloth);
+    background-size: auto, auto, auto, auto, 140px 140px, auto;
+    background-position: 0 0, 0 0, var(--gx, 0) 0, 0 var(--gx, 0), var(--gx, 0) 0, 0 0;
+    background-blend-mode: normal, normal, normal, normal, var(--grain-blend), normal;
+    box-shadow:
+      inset 1px 0 0 rgba(255,255,255,.13),
+      inset -1px 0 0 rgba(0,0,0,.62),
+      calc(var(--lx, 0) * 4px) 5px 8px -3px var(--drop),
+      0 1px 1px rgba(0,0,0,.45);
+    transition: transform .3s cubic-bezier(.22,1,.36,1), filter .3s ease, box-shadow .3s ease;
   }
-  /* A spine is pulled up off the shelf, not tipped out — tipping needs the
-     other two faces, and the archive deliberately has none. */
-  .spine:hover .svol, .spine:focus-visible .svol, .spine.open .svol {
-    transform: translateY(-11px); filter: brightness(1.22);
+  /* The lamp's reflection: a soft streak that faces the fixture, and the
+     sheen on the head. Scaled by --lit, so the top shelf gleams and the
+     bottom one barely does. Above everything on the spine, text included:
+     the foil is on the same surface and takes the same light. */
+  .svol::before {
+    content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background:
+      linear-gradient(90deg,
+        transparent calc(var(--hl) - 26%), var(--spec) var(--hl), transparent calc(var(--hl) + 22%)),
+      linear-gradient(180deg, var(--spec-top) 0, transparent 34%);
+    opacity: var(--lit);
+    transition: opacity .3s ease;
   }
-  .spine.open .svol { box-shadow: inset 0 0 0 1px var(--foil), inset -1px 0 0 rgba(0,0,0,.45); }
-  /* Tail band, tinted by the show's own rating — the payoff for sorting the
-     wall by score, and the only reading a spine carries. */
+  /* The dimness a volume far from the lamp stands in. Its opacity is the
+     complement of --lit, so hovering a spine on the bottom shelf lifts it
+     into the light as it lifts it off the shelf. */
   .svol::after {
-    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
-    background: hsl(var(--hue, 0) 62% 46%); opacity: var(--hueop, 0);
+    content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    background: var(--veil);
+    opacity: calc((1 - var(--lit)) * .8);
+    transition: opacity .3s ease;
+  }
+  /* A spine is pulled up off the shelf, not tipped out; tipping needs the
+     other two faces, and the archive deliberately has none. Its shadow
+     lengthens as it rises. */
+  .spine:hover .svol, .spine:focus-visible .svol, .spine.open .svol, .spine.lit .svol {
+    transform: rotate(var(--lean, 0deg)) translateY(-11px);
+    filter: brightness(1.08);
+    box-shadow:
+      inset 1px 0 0 rgba(255,255,255,.16),
+      inset -1px 0 0 rgba(0,0,0,.62),
+      calc(var(--lx, 0) * 6px) 14px 14px -4px var(--drop),
+      0 2px 2px rgba(0,0,0,.35);
+  }
+  .spine.open .svol {
+    box-shadow:
+      0 0 0 1px var(--foil),
+      inset 1px 0 0 rgba(255,255,255,.16),
+      inset -1px 0 0 rgba(0,0,0,.62),
+      calc(var(--lx, 0) * 6px) 14px 14px -4px var(--drop);
+  }
+  /* Picking a year off the census lights that year's volumes for a moment,
+     so a figure in one rail can be found in the other. */
+  .spine.lit .svol {
+    filter: brightness(1.15);
+    box-shadow:
+      0 0 0 1px var(--foil),
+      0 0 16px 3px var(--lamp-glow),
+      inset 1px 0 0 rgba(255,255,255,.16),
+      inset -1px 0 0 rgba(0,0,0,.62),
+      calc(var(--lx, 0) * 6px) 14px 14px -4px var(--drop);
+  }
+  /* Tail band, tinted by the show's own rating: the payoff for sorting the
+     wall by score, and the only reading a spine carries. Silk, glossy on
+     its crown, laid over the tail cap. */
+  .svol .sp-hue {
+    bottom: 0; height: 4px; z-index: 1;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,.38), hsl(var(--hue, 0) 62% 48%) 45%, hsl(var(--hue, 0) 62% 28%));
+    opacity: var(--hueop, 0);
   }
   /* The title is stamped down the spine, which is the one place CJK has the
-     advantage: it sets vertically without rotating a glyph. This is the
-     smallest type in the room and the hardest to read — vertical, on cloth, in
-     foil — so it is set larger than anything else its size class, in the book
-     face, and the boards were widened again to carry it. */
+     advantage: it sets vertically without rotating a glyph. It sits in the
+     compartment the bands leave for it (spineFurniture lays the archive's
+     bands at head and tail for exactly this). Stamped, not printed: the
+     impression's upper wall is in the lamp's shadow, its lower wall catches
+     the light, and the foil blooms a little. */
   .stxt {
     position: relative; z-index: 1;
     writing-mode: vertical-rl; text-orientation: mixed;
-    font-family: var(--font-display); font-weight: 560;
+    font-family: var(--font-display); font-weight: 600;
     font-size: calc(.97rem * var(--ui)); line-height: 1.06; letter-spacing: .04em;
-    color: var(--foil); opacity: .96; max-height: 80%;
+    color: var(--foil); max-height: 62%;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    text-shadow: 0 1px 2px rgba(0,0,0,.65);
+    text-shadow:
+      0 -1px 0 rgba(0,0,0,.60),
+      0 1px 0 rgba(255,255,255,.16),
+      0 0 3px color-mix(in srgb, var(--foil) 45%, transparent);
+  }
+  html[data-theme="light"] .stxt {
+    text-shadow: 0 -1px 0 rgba(0,0,0,.42), 0 1px 0 rgba(255,255,255,.30);
   }
   /* The archive comes up shelf by shelf, not volume by volume.
      --i is the row a spine landed on, stamped after layout, so a whole shelf
-     rises as one. Dealing 141 spines out individually took the better part of a
-     second and read as loading rather than as an entrance — which is exactly
-     what it was mistaken for: a second wave arriving after the covers, when in
-     fact both had been standing there since before the curtain moved. Six rows
-     of stagger is the whole budget now. */
+     rises as one. Six rows of stagger is the whole budget. */
   @keyframes spineIn { from { opacity: 0; transform: translateY(20px); } }
   .spinewall.anim .spine { animation: spineIn .46s cubic-bezier(.22,1,.36,1) backwards;
     animation-delay: calc(var(--stagger-base, 0s) + min(var(--i, 0), 6) * 62ms); }
-  /* Picking a year off the census lights that year's volumes for a moment, so
-     a figure in one rail can be found in the other. */
-  .spine.lit .svol {
-    transform: translateY(-11px);
-    box-shadow: inset 0 0 0 1px var(--foil), 0 0 14px 2px var(--lamp-glow);
-    filter: brightness(1.3);
-  }
 
   /* ----- the duty desk -----
      Three instruments standing on the desk. Columns rather than a grid: the
      panels are wildly different heights, and grid would align them into rows
      and leave a hole beside the shortest. Columns let them flow and pack. */
-  .desk { columns: 330px; column-gap: 16px; margin-top: 26px; }
+  .desk { columns: 330px; column-gap: 16px; margin-top: 26px; position: relative; }
   /* Each panel is a drawer front: cockbead moulding around the edge, a lit top
      roll and a dark bottom one, and a shadow cast to the lower right by the
      lamp above and to the left. */
+  /* Each instrument stands in a glass-fronted case: the timber of the pedestal
+     shows through the pane blurred, the case has a lit top rim and a dark
+     foot, a specular crosses the glass, and it casts a real shadow down and
+     to the right of the lamp above it. */
   .deskpanel {
+    position: relative;
     background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 46%),
+      linear-gradient(112deg, transparent 36%, var(--glass-sheen) 47%, transparent 58%),
       var(--grain),
-      linear-gradient(180deg, rgba(255,246,225,.055), rgba(0,0,0,.10));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    border: 1px solid var(--gilt-soft);
-    border-radius: 3px; padding: 16px 18px 17px;
+      var(--glass);
+    background-size: auto, auto, 140px 140px, auto;
+    background-blend-mode: normal, normal, var(--grain-blend), normal;
+    border: 1px solid var(--glass-edge);
+    border-radius: var(--r-l); padding: 16px 18px 17px;
     break-inside: avoid; margin: 0 0 16px;
-    box-shadow: inset 0 1px 0 rgba(255,240,215,.14), inset 0 -2px 0 rgba(0,0,0,.42),
-                3px 6px 14px -4px rgba(0,0,0,.6);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px rgba(255,255,255,.035),
+                inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft), 4px 12px 28px -10px var(--drop);
   }
   html[data-theme="light"] .deskpanel {
-    background:
-      var(--grain),
-      linear-gradient(180deg, rgba(255,255,255,.72), rgba(92,60,24,.05));
-    background-size: 140px 140px, auto;
-    background-blend-mode: var(--grain-blend), normal;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 0 rgba(92,60,24,.16),
-                3px 6px 14px -4px rgba(92,60,24,.26);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px rgba(255,255,255,.35),
+                inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft), 4px 12px 28px -10px var(--drop);
+  }
+  /* The lamp's spill on the glass: a warm bloom across the top-left corner of
+     each case, strongest on the one nearest the fixture. Daylight puts it out. */
+  .deskpanel::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(120% 60% at 12% -10%, rgba(255,214,140,.14), transparent 60%);
+    opacity: var(--lamp-cone-a);
   }
   /* Four instruments, four different metals in their edging, so the desk is
      not one repeated widget. */
-  .deskpanel:nth-of-type(1) { border-color: var(--gilt); }
-  .deskpanel:nth-of-type(2) { border-color: color-mix(in srgb, var(--ledger-margin) 60%, transparent); }
-  .deskpanel:nth-of-type(3) { border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
-  .deskpanel:nth-of-type(4) { border-color: color-mix(in srgb, var(--accent-b) 38%, transparent); }
+  .deskpanel:nth-of-type(1) { border-color: color-mix(in srgb, var(--gilt) 70%, var(--glass-edge)); }
+  .deskpanel:nth-of-type(2) { border-color: color-mix(in srgb, var(--ledger-margin) 45%, var(--glass-edge)); }
+  .deskpanel:nth-of-type(3) { border-color: color-mix(in srgb, var(--ok) 30%, var(--glass-edge)); }
+  .deskpanel:nth-of-type(4) { border-color: color-mix(in srgb, var(--accent-b) 32%, var(--glass-edge)); }
   /* A brass drop pull, hung from the top edge of each drawer front. */
   .deskpanel > h3 {
     margin: 0 0 13px; position: relative; padding-left: 20px;
@@ -2053,9 +2633,17 @@ if (new URLSearchParams(location.search).has("probe")) {
   .clock { text-align: center; }
   .clock svg { width: 88px; height: 88px; display: block;
     filter: drop-shadow(2px 3px 4px rgba(0,0,0,.45)); }
-  .clock .bezel { fill: none; stroke: var(--brass); stroke-width: 3; }
+  /* The bezel is turned brass, so it takes the lamp's roll rather than one
+     flat stroke; the dial sits under a domed glass that catches the lamp in
+     two reflections, one long and soft, one short and sharp. */
+  .clock .bezel { fill: none; stroke: url(#lampStem); stroke-width: 3.2; }
   .clock .bezel-hi { fill: none; stroke: var(--brass-hi); stroke-width: 1; opacity: .8; }
+  .clock .bezel-in { fill: none; stroke: rgba(0,0,0,.35); stroke-width: 1; }
   .clock .face { fill: var(--paper-dial); stroke: none; }
+  .clock .dome { fill: rgba(255,255,255,.20); }
+  .clock .dome2 { fill: rgba(255,255,255,.34); }
+  .clock .dome-lo { fill: none; stroke: rgba(0,0,0,.22); stroke-width: 2; }
+  html[data-theme="light"] .clock .dome { fill: rgba(255,255,255,.34); }
   .clock .tick { stroke: var(--text-dim); stroke-width: 1.2; opacity: .7; }
   .clock .tick.h { stroke-width: 2.2; opacity: .9; }
   .clock .hh, .clock .mh { stroke: var(--dial-hand); stroke-linecap: round; }
@@ -2092,8 +2680,8 @@ if (new URLSearchParams(location.search).has("probe")) {
       var(--paper);
     background-size: 140px 140px, auto, auto;
     background-blend-mode: var(--grain-blend), normal, normal;
-    border-radius: 2px; padding: 2px 0; position: relative;
-    box-shadow: inset 0 0 0 1px var(--gilt-soft);
+    border-radius: var(--r-s); padding: 2px 0; position: relative;
+    box-shadow: inset 0 0 0 1px var(--gilt-soft), inset 0 1px 0 var(--glass-hi-soft);
   }
   .lrow {
     display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px;
@@ -2114,7 +2702,7 @@ if (new URLSearchParams(location.search).has("probe")) {
      stamp is pressed at its own angle — no two land square. */
   .lrow.today .le {
     color: var(--stamp-ink); border: 1px solid var(--stamp-ink);
-    border-radius: 2px; padding: 1px 4px; transform: rotate(var(--rot, -2deg));
+    border-radius: 4px; padding: 1px 4px; transform: rotate(var(--rot, -2deg));
     display: inline-block;
   }
 
@@ -2275,7 +2863,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     margin: 4px 0; padding: 7px 10px;
     border: 1px solid color-mix(in srgb, var(--accent-a) 55%, transparent);
     border-left: 3px solid var(--accent-a);
-    border-radius: 4px;
+    border-radius: var(--r-s);
     background: color-mix(in srgb, var(--accent-a) 9%, transparent);
     color: var(--text); font-size: calc(.82rem * var(--ui)); line-height: 1.45;
   }
@@ -2305,8 +2893,15 @@ if (new URLSearchParams(location.search).has("probe")) {
     transform: rotateY(13deg) translateZ(15px) translateY(-4px);
   }
   .unit.xhl .ulabel { opacity: 1; transform: none; }
-  .spine.xhl { filter: brightness(1.22); }
-  .spine.xhl .svol { box-shadow: 0 0 0 1px var(--gilt), 0 6px 16px var(--drop-soft); }
+  /* A cross-lit spine comes into the lamp (--lit: 1, above) rather than
+     being brightened. */
+  .spine.xhl .svol {
+    box-shadow:
+      0 0 0 1px var(--gilt),
+      inset 1px 0 0 rgba(255,255,255,.16),
+      inset -1px 0 0 rgba(0,0,0,.62),
+      calc(var(--lx, 0) * 6px) 12px 14px -4px var(--drop);
+  }
   .sched-item.xhl, .up.xhl, .premiere.xhl {
     outline: 1px solid var(--gilt);
     outline-offset: 2px;
@@ -2387,7 +2982,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   /* Shown only where something is genuinely on its way. A skeleton that is not
      waiting on anything is a lie about the state of the machine, so every one
      of these is put up by the code that started the request. */
-  .skel { border-radius: 3px; background: var(--panel); position: relative; overflow: hidden; }
+  .skel { border-radius: var(--r-s); background: var(--panel); position: relative; overflow: hidden; }
   .skel::after {
     content: ""; position: absolute; inset: 0;
     background: linear-gradient(100deg, transparent 24%,
@@ -2428,7 +3023,8 @@ if (new URLSearchParams(location.search).has("probe")) {
   .g-body {
     position: relative; margin-top: 5px;
     height: calc(58px * var(--ui));
-    border-radius: 3px;
+    border-radius: var(--r-s);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.35), inset 0 -1px 0 var(--glass-hi-soft);
     background:
       linear-gradient(var(--paper-form), var(--paper-form)) padding-box;
     border: 1px solid var(--panel-border);
@@ -2625,9 +3221,13 @@ if (new URLSearchParams(location.search).has("probe")) {
   .peek {
     position: fixed; z-index: 60; width: min(330px, 84vw);
     padding: 11px 13px 12px;
-    border: 1px solid var(--gilt-soft); border-radius: 5px;
-    background: var(--drawer-bg);
-    box-shadow: 0 18px 44px var(--drop), 0 0 0 1px var(--panel-border);
+    border: 1px solid var(--glass-edge); border-radius: var(--r-m);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 40%),
+      linear-gradient(112deg, transparent 34%, var(--glass-sheen) 46%, transparent 58%),
+      var(--glass-strong);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 2px 4px -1px var(--drop-soft), 0 18px 44px -6px var(--drop);
     color: var(--text);
     opacity: 0; transform: translateY(6px);
     transition: opacity .16s ease-out, transform .16s ease-out;
@@ -2666,9 +3266,10 @@ if (new URLSearchParams(location.search).has("probe")) {
   .gpick { position: relative; }
   .gpick-btn {
     display: inline-flex; align-items: center; gap: 7px;
-    padding: 3px 9px; border-radius: 3px; cursor: pointer;
-    border: 1px solid var(--panel-border); background: var(--input-bg);
+    padding: 3px 9px; border-radius: var(--r-s); cursor: pointer;
+    border: 1px solid var(--glass-edge); background: var(--input-bg);
     color: var(--text); font: inherit; font-size: calc(.84rem * var(--ui));
+    box-shadow: inset 0 1px 0 var(--glass-hi-soft), 0 1px 2px var(--drop-soft);
   }
   .gpick-btn:hover { border-color: var(--hover-border); }
   .gpick-btn .caret { color: var(--text-faint); font-size: .8em; }
@@ -2680,14 +3281,17 @@ if (new URLSearchParams(location.search).has("probe")) {
   .gpick-list {
     position: fixed; z-index: 62;
     min-width: 250px; max-height: 260px; overflow-y: auto;
-    padding: 4px; border: 1px solid var(--gilt-soft); border-radius: 4px;
-    background: var(--drawer-bg);
-    box-shadow: 0 14px 34px var(--drop);
+    padding: 5px; border: 1px solid var(--glass-edge); border-radius: var(--r-m);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 40%),
+      var(--glass-strong);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 2px 4px -1px var(--drop-soft), 0 14px 34px -4px var(--drop);
   }
   .gpick-list[hidden] { display: none; }
   .gopt {
     display: grid; grid-template-columns: 1fr auto; gap: 1px 8px;
-    width: 100%; padding: 6px 8px; border: 0; border-radius: 3px;
+    width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r-xs);
     background: none; color: var(--text); font: inherit; text-align: left;
     cursor: pointer; font-size: calc(.84rem * var(--ui));
   }
@@ -2714,7 +3318,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   .now-line::after {
     content: attr(data-read);
     position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-    padding: 0 4px; border-radius: 2px;
+    padding: 0 4px; border-radius: 4px;
     background: var(--paper-form);
     color: var(--accent-a); font-family: var(--mono);
     font-size: calc(.66rem * var(--ui)); white-space: nowrap;
@@ -2736,17 +3340,21 @@ if (new URLSearchParams(location.search).has("probe")) {
   .stale {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
     z-index: 90; display: flex; gap: 10px; align-items: center;
-    padding: 8px 12px; border-radius: 4px;
-    border: 1px solid var(--gilt); background: var(--toast-bg);
+    padding: 8px 12px; border-radius: var(--r-m);
+    border: 1px solid var(--glass-edge);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 55%),
+      color-mix(in srgb, var(--toast-bg) 72%, transparent);
     color: var(--text); font-size: calc(.85rem * var(--ui));
-    box-shadow: 0 12px 30px var(--drop);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 2px 4px -1px var(--drop-soft), 0 12px 30px -4px var(--drop);
   }
   .stale[hidden] { display: none; }
 
   /* ----- keyboard --------------------------------------------------------- */
   .keyhint {
     font-family: var(--mono); font-size: .82em; color: var(--text-faint);
-    border: 1px solid var(--panel-border); border-radius: 3px;
+    border: 1px solid var(--panel-border); border-radius: 4px;
     padding: 0 3px; margin-left: 6px;
   }
 
@@ -2760,7 +3368,8 @@ if (new URLSearchParams(location.search).has("probe")) {
     .now-line::before { animation: none !important; }
     .flipping,
     .g-needle, .g-needle::before, .g-needle::after,
-    .g-disc, .g-drift, .peek { transition: none !important; }
+    .g-disc, .g-drift, .peek,
+    .svol, .svol::before, .svol::after, .tome::before, .tome::after { transition: none !important; }
     .g-drift { opacity: .95; }
   }
 </style>
@@ -2780,96 +3389,149 @@ if (new URLSearchParams(location.search).has("probe")) {
          lines, brass bookend, plank with a lip and legs. --d is the
          centre-out stagger rank. -->
     <svg class="boot-shelf" viewBox="0 0 360 140" aria-hidden="true">
+      <defs>
+        <!-- The round of a spine: it turns away into the joints at both
+             edges and toward the lamp a little left of centre. -->
+        <linearGradient id="bootRound" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#000" stop-opacity=".55"/>
+          <stop offset=".08" stop-color="#000" stop-opacity=".22"/>
+          <stop offset=".30" stop-color="#fff" stop-opacity=".10"/>
+          <stop offset=".46" stop-color="#fff" stop-opacity=".04"/>
+          <stop offset=".80" stop-color="#000" stop-opacity=".18"/>
+          <stop offset="1" stop-color="#000" stop-opacity=".58"/>
+        </linearGradient>
+        <!-- A sewn band under the cloth: lit on its upper slope, dark below -->
+        <linearGradient id="bootRidge" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".34"/>
+          <stop offset=".45" stop-color="#fff" stop-opacity=".05"/>
+          <stop offset="1" stop-color="#000" stop-opacity=".45"/>
+        </linearGradient>
+        <!-- The head cap, rolled over the block -->
+        <linearGradient id="bootCap" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".38"/>
+          <stop offset=".5" stop-color="#fff" stop-opacity=".04"/>
+          <stop offset="1" stop-color="#000" stop-opacity=".34"/>
+        </linearGradient>
+        <!-- Leaves at the fore-edge -->
+        <pattern id="bootLeaves" width="1.4" height="2" patternUnits="userSpaceOnUse">
+          <rect width="1.4" height="2" fill="#efe4c8"/>
+          <rect width=".5" height="2" fill="#c4b48d"/>
+        </pattern>
+        <!-- The silk headband -->
+        <pattern id="bootBand" width="2.4" height="2" patternUnits="userSpaceOnUse">
+          <rect width="2.4" height="2" fill="#f2e8d2"/>
+          <rect width="1.2" height="2" fill="#b5362c"/>
+        </pattern>
+        <!-- The plank's bullnose, and the brass of its brackets -->
+        <linearGradient id="bootPlank" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
+          <stop offset=".35" stop-color="#000" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000" stop-opacity=".45"/>
+        </linearGradient>
+        <linearGradient id="bootBrass" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" style="stop-color:var(--brass-lo)"/>
+          <stop offset=".45" style="stop-color:var(--brass)"/>
+          <stop offset=".6" style="stop-color:var(--brass-hi)"/>
+          <stop offset="1" style="stop-color:var(--brass-lo)"/>
+        </linearGradient>
+      </defs>
       <path class="bk" d="M84 122 V58 h5 v64 h16 v5 H84 Z"/>
       <g class="bv c-mute" style="--d:3" transform="translate(0 0)">
       <rect class="bv-top" x="100" y="58.5" width="17" height="3.5"/>
       <rect class="bv-face" x="100" y="62" width="17" height="60"/>
-      <rect class="bv-fore" x="114.4" y="62" width="2.6" height="60"/>
-      <rect class="bv-band" x="100" y="73" width="17" height="1.8"/>
-      <rect class="bv-band" x="100" y="107" width="17" height="1.8"/>
+      <rect class="bv-fore" x="114.4" y="64.0" width="2.6" height="57.0" fill="url(#bootLeaves)"/><rect x="114.4" y="64.0" width="2.6" height="57.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="100.0" y="71.4" width="17.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="100.0" y="70.8" width="17.0" height=".7"/><rect class="bv-band" x="100.0" y="76.3" width="17.0" height=".7"/>
+      <rect x="100.0" y="105.4" width="17.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="100.0" y="104.8" width="17.0" height=".7"/><rect class="bv-band" x="100.0" y="110.3" width="17.0" height=".7"/>
       <rect class="bv-label" x="102.5" y="81" width="12" height="18"/>
       <rect class="bv-rule" x="104.5" y="86" width="8" height="1.3"/>
       <rect class="bv-rule" x="104.5" y="92" width="6.24" height="1.3"/>
-      <rect class="bv-band" x="100" y="115" width="17" height="1.8"/>
+      <rect x="100.0" y="113.4" width="17.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="100.0" y="112.8" width="17.0" height=".7"/><rect class="bv-band" x="100.0" y="118.3" width="17.0" height=".7"/>
+      <rect x="100.0" y="58.5" width="17.0" height="4.2" fill="url(#bootCap)"/><rect x="101.0" y="62.6" width="15.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="100.0" y="58.5" width="17.0" height="63.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-a" style="--d:2" transform="translate(0 0)">
       <rect class="bv-top" x="118" y="34.5" width="25" height="3.5"/>
       <rect class="bv-face" x="118" y="38" width="25" height="84"/>
-      <rect class="bv-fore" x="140.4" y="38" width="2.6" height="84"/>
-      <rect class="bv-band" x="118" y="49" width="25" height="1.8"/>
-      <rect class="bv-band" x="118" y="78" width="25" height="1.8"/>
-      <rect class="bv-band" x="118" y="107" width="25" height="1.8"/>
+      <rect class="bv-fore" x="140.4" y="40.0" width="2.6" height="81.0" fill="url(#bootLeaves)"/><rect x="140.4" y="40.0" width="2.6" height="81.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="118.0" y="47.4" width="25.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="118.0" y="46.8" width="25.0" height=".7"/><rect class="bv-band" x="118.0" y="52.3" width="25.0" height=".7"/>
+      <rect x="118.0" y="76.4" width="25.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="118.0" y="75.8" width="25.0" height=".7"/><rect class="bv-band" x="118.0" y="81.3" width="25.0" height=".7"/>
+      <rect x="118.0" y="105.4" width="25.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="118.0" y="104.8" width="25.0" height=".7"/><rect class="bv-band" x="118.0" y="110.3" width="25.0" height=".7"/>
       <rect class="bv-label" x="120.5" y="57" width="20" height="25.2"/>
       <rect class="bv-rule" x="122.5" y="62" width="16" height="1.3"/>
       <rect class="bv-rule" x="122.5" y="68" width="12.48" height="1.3"/>
-      <rect class="bv-band" x="118" y="115" width="25" height="1.8"/>
+      <rect x="118.0" y="113.4" width="25.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="118.0" y="112.8" width="25.0" height=".7"/><rect class="bv-band" x="118.0" y="118.3" width="25.0" height=".7"/>
+      <rect x="118.0" y="34.5" width="25.0" height="4.2" fill="url(#bootCap)"/><rect x="119.0" y="38.6" width="23.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="118.0" y="34.5" width="25.0" height="87.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-dim" style="--d:1" transform="translate(0 0)">
       <rect class="bv-top" x="144" y="52.5" width="13" height="3.5"/>
       <rect class="bv-face" x="144" y="56" width="13" height="66"/>
-      <rect class="bv-fore" x="154.4" y="56" width="2.6" height="66"/>
-      <rect class="bv-band" x="144" y="67" width="13" height="1.8"/>
-      <rect class="bv-band" x="144" y="107" width="13" height="1.8"/>
+      <rect class="bv-fore" x="154.4" y="58.0" width="2.6" height="63.0" fill="url(#bootLeaves)"/><rect x="154.4" y="58.0" width="2.6" height="63.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="144.0" y="65.4" width="13.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="144.0" y="64.8" width="13.0" height=".7"/><rect class="bv-band" x="144.0" y="70.3" width="13.0" height=".7"/>
+      <rect x="144.0" y="105.4" width="13.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="144.0" y="104.8" width="13.0" height=".7"/><rect class="bv-band" x="144.0" y="110.3" width="13.0" height=".7"/>
       <rect class="bv-rule" x="147" y="72" width="7" height="1.3"/>
       <rect class="bv-rule" x="147" y="81" width="7" height="1.3"/>
       <rect class="bv-rule" x="147" y="90" width="7" height="1.3"/>
       <rect class="bv-rule" x="147" y="99" width="7" height="1.3"/>
-      <rect class="bv-band" x="144" y="115" width="13" height="1.8"/>
+      <rect x="144.0" y="113.4" width="13.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="144.0" y="112.8" width="13.0" height=".7"/><rect class="bv-band" x="144.0" y="118.3" width="13.0" height=".7"/>
+      <rect x="144.0" y="52.5" width="13.0" height="4.2" fill="url(#bootCap)"/><rect x="145.0" y="56.6" width="11.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="144.0" y="52.5" width="13.0" height="69.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-b" style="--d:0" transform="translate(0 0)">
       <rect class="bv-top" x="158" y="24.5" width="29" height="3.5"/>
       <rect class="bv-face" x="158" y="28" width="29" height="94"/>
-      <rect class="bv-fore" x="184.4" y="28" width="2.6" height="94"/>
-      <rect class="bv-band" x="158" y="39" width="29" height="1.8"/>
-      <rect class="bv-band" x="158" y="73" width="29" height="1.8"/>
-      <rect class="bv-band" x="158" y="107" width="29" height="1.8"/>
+      <rect class="bv-fore" x="184.4" y="30.0" width="2.6" height="91.0" fill="url(#bootLeaves)"/><rect x="184.4" y="30.0" width="2.6" height="91.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="158.0" y="37.4" width="29.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="158.0" y="36.8" width="29.0" height=".7"/><rect class="bv-band" x="158.0" y="42.3" width="29.0" height=".7"/>
+      <rect x="158.0" y="71.4" width="29.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="158.0" y="70.8" width="29.0" height=".7"/><rect class="bv-band" x="158.0" y="76.3" width="29.0" height=".7"/>
+      <rect x="158.0" y="105.4" width="29.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="158.0" y="104.8" width="29.0" height=".7"/><rect class="bv-band" x="158.0" y="110.3" width="29.0" height=".7"/>
       <rect class="bv-label" x="160.5" y="47" width="24" height="28.2"/>
       <rect class="bv-rule" x="162.5" y="52" width="20" height="1.3"/>
       <rect class="bv-rule" x="162.5" y="58" width="15.6" height="1.3"/>
       <rect class="bv-rule" x="162.5" y="64" width="11.2" height="1.3"/>
       <circle class="bv-medal" cx="172.5" cy="100" r="6.2"/>
       <circle class="bv-medal-in" cx="172.5" cy="100" r="2.6"/>
-      <rect class="bv-band" x="158" y="115" width="29" height="1.8"/>
+      <rect x="158.0" y="113.4" width="29.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="158.0" y="112.8" width="29.0" height=".7"/><rect class="bv-band" x="158.0" y="118.3" width="29.0" height=".7"/>
+      <rect x="158.0" y="24.5" width="29.0" height="4.2" fill="url(#bootCap)"/><rect x="159.0" y="28.6" width="27.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="158.0" y="24.5" width="29.0" height="97.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-mute" style="--d:1" transform="translate(0 0)">
       <rect class="bv-top" x="188" y="46.5" width="18" height="3.5"/>
       <rect class="bv-face" x="188" y="50" width="18" height="72"/>
-      <rect class="bv-fore" x="203.4" y="50" width="2.6" height="72"/>
-      <rect class="bv-band" x="188" y="61" width="18" height="1.8"/>
-      <rect class="bv-band" x="188" y="107" width="18" height="1.8"/>
+      <rect class="bv-fore" x="203.4" y="52.0" width="2.6" height="69.0" fill="url(#bootLeaves)"/><rect x="203.4" y="52.0" width="2.6" height="69.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="188.0" y="59.4" width="18.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="188.0" y="58.8" width="18.0" height=".7"/><rect class="bv-band" x="188.0" y="64.3" width="18.0" height=".7"/>
+      <rect x="188.0" y="105.4" width="18.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="188.0" y="104.8" width="18.0" height=".7"/><rect class="bv-band" x="188.0" y="110.3" width="18.0" height=".7"/>
       <rect class="bv-label" x="190.5" y="69" width="13" height="21.6"/>
       <rect class="bv-rule" x="192.5" y="74" width="9" height="1.3"/>
       <rect class="bv-rule" x="192.5" y="80" width="7.02" height="1.3"/>
-      <rect class="bv-band" x="188" y="115" width="18" height="1.8"/>
+      <rect x="188.0" y="113.4" width="18.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="188.0" y="112.8" width="18.0" height=".7"/><rect class="bv-band" x="188.0" y="118.3" width="18.0" height=".7"/>
+      <rect x="188.0" y="46.5" width="18.0" height="4.2" fill="url(#bootCap)"/><rect x="189.0" y="50.6" width="16.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="188.0" y="46.5" width="18.0" height="75.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-a" style="--d:2" transform="translate(0 0)">
       <rect class="bv-top" x="207" y="38.5" width="22" height="3.5"/>
       <rect class="bv-face" x="207" y="42" width="22" height="80"/>
-      <rect class="bv-fore" x="226.4" y="42" width="2.6" height="80"/>
-      <rect class="bv-band" x="207" y="53" width="22" height="1.8"/>
-      <rect class="bv-band" x="207" y="80" width="22" height="1.8"/>
-      <rect class="bv-band" x="207" y="107" width="22" height="1.8"/>
+      <rect class="bv-fore" x="226.4" y="44.0" width="2.6" height="77.0" fill="url(#bootLeaves)"/><rect x="226.4" y="44.0" width="2.6" height="77.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="207.0" y="51.4" width="22.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="207.0" y="50.8" width="22.0" height=".7"/><rect class="bv-band" x="207.0" y="56.3" width="22.0" height=".7"/>
+      <rect x="207.0" y="78.4" width="22.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="207.0" y="77.8" width="22.0" height=".7"/><rect class="bv-band" x="207.0" y="83.3" width="22.0" height=".7"/>
+      <rect x="207.0" y="105.4" width="22.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="207.0" y="104.8" width="22.0" height=".7"/><rect class="bv-band" x="207.0" y="110.3" width="22.0" height=".7"/>
       <rect class="bv-label" x="209.5" y="61" width="17" height="24"/>
       <rect class="bv-rule" x="211.5" y="66" width="13" height="1.3"/>
       <rect class="bv-rule" x="211.5" y="72" width="10.14" height="1.3"/>
-      <rect class="bv-band" x="207" y="115" width="22" height="1.8"/>
+      <rect x="207.0" y="113.4" width="22.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="207.0" y="112.8" width="22.0" height=".7"/><rect class="bv-band" x="207.0" y="118.3" width="22.0" height=".7"/>
+      <rect x="207.0" y="38.5" width="22.0" height="4.2" fill="url(#bootCap)"/><rect x="208.0" y="42.6" width="20.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="207.0" y="38.5" width="22.0" height="83.5" fill="url(#bootRound)"/>
       </g>
       <g class="bv c-dim bv-lean" style="--d:3" transform="translate(0 0)">
       <rect class="bv-top" x="230" y="42.5" width="21" height="3.5"/>
       <rect class="bv-face" x="230" y="46" width="21" height="76"/>
-      <rect class="bv-fore" x="248.4" y="46" width="2.6" height="76"/>
-      <rect class="bv-band" x="230" y="57" width="21" height="1.8"/>
-      <rect class="bv-band" x="230" y="107" width="21" height="1.8"/>
+      <rect class="bv-fore" x="248.4" y="48.0" width="2.6" height="73.0" fill="url(#bootLeaves)"/><rect x="248.4" y="48.0" width="2.6" height="73.0" fill="url(#bootRound)" opacity=".5"/>
+      <rect x="230.0" y="55.4" width="21.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="230.0" y="54.8" width="21.0" height=".7"/><rect class="bv-band" x="230.0" y="60.3" width="21.0" height=".7"/>
+      <rect x="230.0" y="105.4" width="21.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="230.0" y="104.8" width="21.0" height=".7"/><rect class="bv-band" x="230.0" y="110.3" width="21.0" height=".7"/>
       <rect class="bv-label" x="232.5" y="65" width="16" height="22.8"/>
       <rect class="bv-rule" x="234.5" y="70" width="12" height="1.3"/>
       <rect class="bv-rule" x="234.5" y="76" width="9.36" height="1.3"/>
-      <rect class="bv-band" x="230" y="115" width="21" height="1.8"/>
+      <rect x="230.0" y="113.4" width="21.0" height="5.0" fill="url(#bootRidge)"/><rect class="bv-band" x="230.0" y="112.8" width="21.0" height=".7"/><rect class="bv-band" x="230.0" y="118.3" width="21.0" height=".7"/>
+      <rect x="230.0" y="42.5" width="21.0" height="4.2" fill="url(#bootCap)"/><rect x="231.0" y="46.6" width="19.0" height="1.6" fill="url(#bootBand)" opacity=".85"/><rect x="230.0" y="42.5" width="21.0" height="79.5" fill="url(#bootRound)"/>
       </g>
       <g class="bp">
         <rect class="bp-lip" x="60" y="120.5" width="248" height="2"/>
-        <rect class="bp-face" x="60" y="122.5" width="248" height="6.5"/>
-        <rect class="bp-leg" x="64" y="129" width="4" height="9"/>
-        <rect class="bp-leg" x="300" y="129" width="4" height="9"/>
+        <rect class="bp-face" x="60" y="122.5" width="248" height="6.5"/><rect x="60" y="120.5" width="248" height="8.5" fill="url(#bootPlank)" rx="1"/>
+        <rect class="bp-leg" x="64" y="129" width="4.5" height="9" rx="1" fill="url(#bootBrass)"/>
+        <rect class="bp-leg" x="300" y="129" width="4.5" height="9" rx="1" fill="url(#bootBrass)"/>
       </g>
     </svg>
     <div class="boot-name">
@@ -2895,42 +3557,98 @@ if (new URLSearchParams(location.search).has("probe")) {
          attribute: stop-color="var(…)" is not reliably resolved. -->
     <linearGradient id="lampStem" x1="0" x2="1" y1="0" y2="0">
       <stop offset="0%" style="stop-color:var(--lamp-brass-lo)"/>
-      <stop offset="34%" style="stop-color:var(--lamp-brass-hi)"/>
-      <stop offset="62%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="30%" style="stop-color:var(--lamp-brass-hi)"/>
+      <stop offset="48%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="72%" style="stop-color:var(--lamp-brass)"/>
       <stop offset="100%" style="stop-color:var(--lamp-brass-lo)"/>
     </linearGradient>
+    <linearGradient id="lampStemDark" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" style="stop-color:var(--lamp-brass-lo)"/>
+      <stop offset="40%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="100%" style="stop-color:var(--lamp-brass-lo)"/>
+    </linearGradient>
+    <!-- Spun brass: a dome lit from the upper left -->
+    <radialGradient id="lampDome" cx="40%" cy="20%" r="80%">
+      <stop offset="0%" style="stop-color:var(--lamp-brass-hi)"/>
+      <stop offset="55%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="100%" style="stop-color:var(--lamp-brass-lo)"/>
+    </radialGradient>
+    <!-- A ball of the chain, and the finial: one catchlight, one dark side -->
+    <radialGradient id="lampBall" cx="35%" cy="30%" r="72%">
+      <stop offset="0%" stop-color="#fff3cc"/>
+      <stop offset="22%" style="stop-color:var(--lamp-brass-hi)"/>
+      <stop offset="65%" style="stop-color:var(--lamp-brass)"/>
+      <stop offset="100%" style="stop-color:var(--lamp-brass-lo)"/>
+    </radialGradient>
+    <!-- Knurling on the collar: alternating cut and ridge, two units wide -->
+    <pattern id="lampKnurl" width="2" height="6" patternUnits="userSpaceOnUse">
+      <rect width="2" height="6" style="fill:var(--lamp-brass)"/>
+      <rect width=".9" height="6" fill="rgba(0,0,0,.42)"/>
+      <rect x="1.25" width=".5" height="6" fill="rgba(255,255,255,.38)"/>
+    </pattern>
     <!-- Cased glass: dark at the edges, where the eye looks through more of
          it, and lighter across the belly. -->
     <linearGradient id="lampShade" x1="0" x2="1" y1="0" y2="0">
       <stop offset="0%" style="stop-color:var(--lamp-shade-b)"/>
-      <stop offset="24%" style="stop-color:var(--lamp-shade-a)"/>
-      <stop offset="44%" style="stop-color:var(--lamp-shade-hi)"/>
-      <stop offset="66%" style="stop-color:var(--lamp-shade-a)"/>
+      <stop offset="22%" style="stop-color:var(--lamp-shade-a)"/>
+      <stop offset="42%" style="stop-color:var(--lamp-shade-hi)"/>
+      <stop offset="64%" style="stop-color:var(--lamp-shade-a)"/>
       <stop offset="100%" style="stop-color:var(--lamp-shade-b)"/>
     </linearGradient>
+    <!-- The same glass read top to bottom: thicker and darker at the fitter,
+         thinner and paler toward the mouth. -->
+    <linearGradient id="lampShadeV" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity=".30"/>
+      <stop offset="35%" stop-color="#000" stop-opacity=".04"/>
+      <stop offset="78%" stop-color="#fff" stop-opacity=".06"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity=".16"/>
+    </linearGradient>
+    <!-- The bulb seen through the glass: a warm bloom rising from the mouth -->
+    <radialGradient id="lampInner" cx="50%" cy="100%" r="62%">
+      <stop offset="0%" stop-color="#ffe9a8" stop-opacity=".62"/>
+      <stop offset="42%" stop-color="#d8f0a0" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#8fd48a" stop-opacity="0"/>
+    </radialGradient>
     <!-- The opal underside. This, not the shade, is what says "lit". -->
     <radialGradient id="lampOpal" cx="50%" cy="96%" r="76%">
-      <stop offset="0%" style="stop-color:var(--lamp-opal)" stop-opacity=".95"/>
-      <stop offset="38%" stop-color="#cdf0a8" stop-opacity=".48"/>
+      <stop offset="0%" style="stop-color:var(--lamp-opal)" stop-opacity=".97"/>
+      <stop offset="34%" stop-color="#e7f4b2" stop-opacity=".58"/>
       <stop offset="100%" stop-color="#4caf6e" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="lampCone" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0%" stop-color="#fff2ae" stop-opacity=".85"/>
-      <stop offset="55%" stop-color="#fff2ae" stop-opacity=".26"/>
-      <stop offset="100%" stop-color="#fff2ae" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#fff4b8" stop-opacity=".92"/>
+      <stop offset="40%" stop-color="#fff0a8" stop-opacity=".34"/>
+      <stop offset="100%" stop-color="#ffe98a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lampConeWide" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#ffe9a0" stop-opacity=".42"/>
+      <stop offset="55%" stop-color="#ffe9a0" stop-opacity=".12"/>
+      <stop offset="100%" stop-color="#ffe9a0" stop-opacity="0"/>
     </linearGradient>
     <radialGradient id="lampPool" cx="50%" cy="34%" r="68%">
-      <stop offset="0%" stop-color="#fff4d6" stop-opacity=".70"/>
-      <stop offset="46%" stop-color="#ffdf90" stop-opacity=".24"/>
+      <stop offset="0%" stop-color="#fff4d6" stop-opacity=".62"/>
+      <stop offset="46%" stop-color="#ffdf90" stop-opacity=".22"/>
       <stop offset="100%" stop-color="#ffcc44" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lampPoolCore" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#fffbe8" stop-opacity=".70"/>
+      <stop offset="60%" stop-color="#fff0b8" stop-opacity=".18"/>
+      <stop offset="100%" stop-color="#ffe08a" stop-opacity="0"/>
     </radialGradient>
     <!-- Soft laterally, crisp along its length: a shaded cone has a hard tip
          and blurred sides, which is the whole tell that it is light and not a
-         grey triangle. The filtered polygon is 128x210 — small enough that the
-         blur is a one-off cost, and it sits in .lamp, which the parallax
-         transform deliberately excludes, so it never re-rasterises on scroll. -->
+         grey triangle. The filtered group is small enough that the blur is a
+         one-off cost, and it sits in .lamp, which the parallax transform
+         deliberately excludes, so it never re-rasterises on scroll. -->
     <filter id="lampSoft" x="-25%" y="-6%" width="150%" height="112%">
-      <feGaussianBlur stdDeviation="6 1.4"/>
+      <feGaussianBlur stdDeviation="7 1.6"/>
+    </filter>
+    <filter id="lampSoftSpec" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.1"/>
+    </filter>
+    <!-- The bulb's bloom: the one place on the page allowed to overexpose -->
+    <filter id="lampBloom" x="-120%" y="-400%" width="340%" height="900%">
+      <feGaussianBlur stdDeviation="4.5"/>
     </filter>
   </defs>
 </svg>
@@ -2943,47 +3661,70 @@ if (new URLSearchParams(location.search).has("probe")) {
 <aside class="rail rail-l" id="rail-l" aria-labelledby="archive-h">
   <div class="lamp" aria-hidden="true">
     <svg viewBox="0 0 132 300">
-      <!-- Suspension rod up into the cornice, and its ceiling rose -->
-      <rect x="62" y="0" width="8" height="4" rx="1" class="l-brass"/>
-      <rect x="64.4" y="4" width="3.2" height="48" fill="url(#lampStem)"/>
-      <!-- Canopy and the knurled collar under it -->
-      <ellipse cx="66" cy="52" rx="9" ry="2.6" class="l-brass"/>
-      <rect x="60" y="52" width="12" height="4" rx="1.4" fill="url(#lampStem)"/>
-      <!-- Harp: the U that carries the shade, and its finial -->
-      <path d="M53 78 Q49 64 66 60 Q83 64 79 78" class="l-harp"/>
-      <circle cx="66" cy="58" r="2.6" class="l-brass-hi"/>
+      <!-- Ceiling rose and the suspension rod, with the highlight a turned
+           brass rod actually carries down one side -->
+      <ellipse cx="66" cy="3" rx="11" ry="3" fill="url(#lampStem)"/>
+      <rect x="64.2" y="3" width="3.6" height="49" fill="url(#lampStem)"/>
+      <rect x="65.3" y="3" width=".8" height="49" fill="rgba(255,255,255,.28)"/>
+      <!-- Canopy: a spun dome, then the knurled collar under it -->
+      <path d="M54 54 Q66 42 78 54 Z" fill="url(#lampDome)"/>
+      <ellipse cx="66" cy="54" rx="12" ry="2.8" fill="url(#lampStem)"/>
+      <rect x="59" y="55" width="14" height="5" rx="1.6" fill="url(#lampKnurl)"/>
+      <!-- Harp: the U that carries the shade, lit down its outer edge, and
+           its finial -->
+      <path d="M53 78 Q49 64 66 60 Q83 64 79 78" fill="none" stroke="url(#lampStem)" stroke-width="2.6"/>
+      <path d="M53 78 Q49 64 66 60 Q83 64 79 78" fill="none" stroke="rgba(255,255,255,.22)" stroke-width=".8"/>
+      <circle cx="66" cy="58" r="3" fill="url(#lampBall)"/>
       <!-- Socket and its collar -->
-      <rect x="59" y="60" width="14" height="9" rx="1.5" class="l-brass-lo"/>
-      <rect x="57.5" y="58" width="17" height="3.5" rx="1.4" class="l-brass"/>
-      <!-- Rolled brass fitter, then the cased green shade. The mouth is an
-           elliptical arc, not a straight line: the shade is a cone seen from
-           slightly above, so its opening reads as an ellipse. -->
-      <rect x="52" y="66" width="28" height="4" rx="1.4" class="l-brass"/>
-      <path class="l-shade" d="M52 70 L28 108 A38 7 0 0 0 104 108 L80 70 Z"/>
-      <!-- The opal mouth: this, not the shade colour, is what says "lit" -->
+      <rect x="59" y="61" width="14" height="9" rx="2" fill="url(#lampStemDark)"/>
+      <rect x="57" y="58.5" width="18" height="3.6" rx="1.6" fill="url(#lampStem)"/>
+      <!-- Rolled brass fitter -->
+      <rect x="51" y="66" width="30" height="4.6" rx="2.2" fill="url(#lampStem)"/>
+      <rect x="53" y="67" width="26" height="1" rx=".5" fill="rgba(255,255,255,.3)"/>
+      <!-- The cased green shade: a bell, not a trapezoid. Three paints on
+           one path: the glass itself, its vertical shading, and the warm
+           light coming through it toward the mouth. -->
+      <path class="l-shade" d="M52 70 C47 80 37 96 28 108 A38 7 0 0 0 104 108 C95 96 85 80 80 70 Z"/>
+      <path class="l-shade-v" d="M52 70 C47 80 37 96 28 108 A38 7 0 0 0 104 108 C95 96 85 80 80 70 Z" fill="url(#lampShadeV)"/>
+      <path class="l-glow" d="M52 70 C47 80 37 96 28 108 A38 7 0 0 0 104 108 C95 96 85 80 80 70 Z" fill="url(#lampInner)"/>
+      <!-- Two reflections in the glass: the long soft one from the room,
+           the short sharp one from the lamp's own light -->
+      <path class="l-spec" d="M43 100 C49 91 55 82 59 74" stroke-width="3.2" stroke-linecap="round" filter="url(#lampSoftSpec)"/>
+      <path class="l-spec2" d="M88 90 C90 94 93 100 95 105" stroke-width="1.4" stroke-linecap="round"/>
+      <!-- The opal mouth, and the bulb blazing inside it. This, not the
+           shade colour, is what says "lit". -->
       <ellipse class="l-opal" cx="66" cy="108" rx="36" ry="6.5" fill="url(#lampOpal)"/>
+      <g class="l-light">
+        <g class="l-bulb">
+          <ellipse cx="66" cy="107" rx="12" ry="3.6" fill="#fff6d2" filter="url(#lampBloom)"/>
+          <ellipse cx="66" cy="107" rx="5.5" ry="1.9" fill="#fffdf2"/>
+        </g>
+      </g>
       <!-- The rolled rim every real Emeralite has, catching its own light.
-           Only the front half is drawn — the back of the rim is behind glass. -->
+           Only the front half is drawn: the back of the rim is behind glass. -->
       <path class="l-rim" d="M28 108 A38 7 0 0 0 104 108"/>
-      <!-- One specular streak across the glass -->
-      <line class="l-spec" x1="40" y1="99" x2="92" y2="85"/>
-      <!-- Pull chain: five balls on this one, six on the other -->
-      <g class="l-chain">
-        <line x1="80" y1="96" x2="80" y2="126" class="l-cord"/>
-        <circle cx="80" cy="100" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="106" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="112" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="118" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="124" r="2.1" class="l-brass-hi"/>
-        <rect x="78.4" y="127" width="3.2" height="7" rx="1.2" class="l-brass"/>
-        <circle cx="80" cy="138" r="3.2" class="l-brass"/>
+      <!-- Pull chain: real ball chain, every ball with its own catchlight -->
+      <g class="l-chain" style="transform-origin:80px 96px">
+        <line x1="80" y1="96" x2="80" y2="127" class="l-cord"/>
+        <circle cx="80" cy="100" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="106" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="112" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="118" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="124" r="2.2" fill="url(#lampBall)"/>
+        <rect x="78.3" y="128" width="3.4" height="7" rx="1.3" fill="url(#lampStem)"/>
+        <circle cx="80" cy="138" r="3.3" fill="url(#lampBall)"/>
       </g>
-      <!-- The cone in the air, and the ellipse where it lands. The pool is an
-           ellipse because the timber is not perpendicular to the beam. -->
-      <g class="l-cone" filter="url(#lampSoft)">
-        <polygon points="66,112 2,300 130,300" fill="url(#lampCone)"/>
+      <!-- The light in the air and on the timber: a narrow bright cone inside
+           a wide dim one, both soft-edged, and the pool where they land, a
+           hot core inside a wide warm halo. -->
+      <g class="l-light">
+        <g class="l-cone" filter="url(#lampSoft)">
+          <polygon points="66,112 -10,300 142,300" fill="url(#lampConeWide)"/>
+          <polygon points="66,112 20,300 112,300" fill="url(#lampCone)"/>
+        </g>
+        <ellipse class="l-pool" cx="66" cy="292" rx="108" ry="21" fill="url(#lampPool)"/>
+        <ellipse class="l-pool" cx="66" cy="292" rx="54" ry="10" fill="url(#lampPoolCore)"/>
       </g>
-      <ellipse class="l-pool" cx="66" cy="292" rx="98" ry="18" fill="url(#lampPool)"/>
     </svg>
   </div>
   <div class="rail-head">
@@ -3054,34 +3795,71 @@ if (new URLSearchParams(location.search).has("probe")) {
        chain: two lamps off one bench are never quite identical. -->
   <div class="lamp" aria-hidden="true">
     <svg viewBox="0 0 132 300">
-      <rect x="62" y="0" width="8" height="4" rx="1" class="l-brass"/>
-      <rect x="64.4" y="4" width="3.2" height="54" fill="url(#lampStem)"/>
-      <ellipse cx="66" cy="58" rx="9" ry="2.6" class="l-brass"/>
-      <rect x="60" y="58" width="12" height="4" rx="1.4" fill="url(#lampStem)"/>
-      <path d="M53 84 Q49 70 66 66 Q83 70 79 84" class="l-harp"/>
-      <circle cx="66" cy="64" r="2.6" class="l-brass-hi"/>
-      <rect x="59" y="66" width="14" height="9" rx="1.5" class="l-brass-lo"/>
-      <rect x="57.5" y="64" width="17" height="3.5" rx="1.4" class="l-brass"/>
-      <rect x="52" y="72" width="28" height="4" rx="1.4" class="l-brass"/>
-      <path class="l-shade" d="M52 76 L28 114 A38 7 0 0 0 104 114 L80 76 Z"/>
+      <!-- Ceiling rose and the suspension rod, with the highlight a turned
+           brass rod actually carries down one side -->
+      <ellipse cx="66" cy="3" rx="11" ry="3" fill="url(#lampStem)"/>
+      <rect x="64.2" y="3" width="3.6" height="55" fill="url(#lampStem)"/>
+      <rect x="65.3" y="3" width=".8" height="55" fill="rgba(255,255,255,.28)"/>
+      <!-- Canopy: a spun dome, then the knurled collar under it -->
+      <path d="M54 60 Q66 48 78 60 Z" fill="url(#lampDome)"/>
+      <ellipse cx="66" cy="60" rx="12" ry="2.8" fill="url(#lampStem)"/>
+      <rect x="59" y="61" width="14" height="5" rx="1.6" fill="url(#lampKnurl)"/>
+      <!-- Harp: the U that carries the shade, lit down its outer edge, and
+           its finial -->
+      <path d="M53 84 Q49 70 66 66 Q83 70 79 84" fill="none" stroke="url(#lampStem)" stroke-width="2.6"/>
+      <path d="M53 84 Q49 70 66 66 Q83 70 79 84" fill="none" stroke="rgba(255,255,255,.22)" stroke-width=".8"/>
+      <circle cx="66" cy="64" r="3" fill="url(#lampBall)"/>
+      <!-- Socket and its collar -->
+      <rect x="59" y="67" width="14" height="9" rx="2" fill="url(#lampStemDark)"/>
+      <rect x="57" y="64.5" width="18" height="3.6" rx="1.6" fill="url(#lampStem)"/>
+      <!-- Rolled brass fitter -->
+      <rect x="51" y="72" width="30" height="4.6" rx="2.2" fill="url(#lampStem)"/>
+      <rect x="53" y="73" width="26" height="1" rx=".5" fill="rgba(255,255,255,.3)"/>
+      <!-- The cased green shade: a bell, not a trapezoid. Three paints on
+           one path: the glass itself, its vertical shading, and the warm
+           light coming through it toward the mouth. -->
+      <path class="l-shade" d="M52 76 C47 86 37 102 28 114 A38 7 0 0 0 104 114 C95 102 85 86 80 76 Z"/>
+      <path class="l-shade-v" d="M52 76 C47 86 37 102 28 114 A38 7 0 0 0 104 114 C95 102 85 86 80 76 Z" fill="url(#lampShadeV)"/>
+      <path class="l-glow" d="M52 76 C47 86 37 102 28 114 A38 7 0 0 0 104 114 C95 102 85 86 80 76 Z" fill="url(#lampInner)"/>
+      <!-- Two reflections in the glass: the long soft one from the room,
+           the short sharp one from the lamp's own light -->
+      <path class="l-spec" d="M43 106 C49 97 55 88 59 80" stroke-width="3.2" stroke-linecap="round" filter="url(#lampSoftSpec)"/>
+      <path class="l-spec2" d="M88 96 C90 100 93 106 95 111" stroke-width="1.4" stroke-linecap="round"/>
+      <!-- The opal mouth, and the bulb blazing inside it. This, not the
+           shade colour, is what says "lit". -->
       <ellipse class="l-opal" cx="66" cy="114" rx="36" ry="6.5" fill="url(#lampOpal)"/>
+      <g class="l-light">
+        <g class="l-bulb">
+          <ellipse cx="66" cy="113" rx="12" ry="3.6" fill="#fff6d2" filter="url(#lampBloom)"/>
+          <ellipse cx="66" cy="113" rx="5.5" ry="1.9" fill="#fffdf2"/>
+        </g>
+      </g>
+      <!-- The rolled rim every real Emeralite has, catching its own light.
+           Only the front half is drawn: the back of the rim is behind glass. -->
       <path class="l-rim" d="M28 114 A38 7 0 0 0 104 114"/>
-      <line class="l-spec" x1="41" y1="104" x2="93" y2="92"/>
+      <!-- Pull chain: real ball chain, every ball with its own catchlight -->
       <g class="l-chain" style="transform-origin:80px 102px">
-        <line x1="80" y1="102" x2="80" y2="138" class="l-cord"/>
-        <circle cx="80" cy="106" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="112" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="118" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="124" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="130" r="2.1" class="l-brass-hi"/>
-        <circle cx="80" cy="136" r="2.1" class="l-brass-hi"/>
-        <rect x="78.4" y="139" width="3.2" height="7" rx="1.2" class="l-brass"/>
-        <circle cx="80" cy="150" r="3.2" class="l-brass"/>
+        <line x1="80" y1="102" x2="80" y2="139" class="l-cord"/>
+        <circle cx="80" cy="106" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="112" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="118" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="124" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="130" r="2.2" fill="url(#lampBall)"/>
+        <circle cx="80" cy="136" r="2.2" fill="url(#lampBall)"/>
+        <rect x="78.3" y="140" width="3.4" height="7" rx="1.3" fill="url(#lampStem)"/>
+        <circle cx="80" cy="150" r="3.3" fill="url(#lampBall)"/>
       </g>
-      <g class="l-cone" filter="url(#lampSoft)">
-        <polygon points="66,118 2,300 130,300" fill="url(#lampCone)"/>
+      <!-- The light in the air and on the timber: a narrow bright cone inside
+           a wide dim one, both soft-edged, and the pool where they land, a
+           hot core inside a wide warm halo. -->
+      <g class="l-light">
+        <g class="l-cone" filter="url(#lampSoft)">
+          <polygon points="66,118 -10,300 142,300" fill="url(#lampConeWide)"/>
+          <polygon points="66,118 20,300 112,300" fill="url(#lampCone)"/>
+        </g>
+        <ellipse class="l-pool" cx="66" cy="292" rx="108" ry="21" fill="url(#lampPool)"/>
+        <ellipse class="l-pool" cx="66" cy="292" rx="54" ry="10" fill="url(#lampPoolCore)"/>
       </g>
-      <ellipse class="l-pool" cx="66" cy="292" rx="98" ry="18" fill="url(#lampPool)"/>
     </svg>
   </div>
   <div class="rail-head">
@@ -3927,10 +4705,28 @@ function applyStagger() {
 // each of 141 volumes invalidate style and force the next rect back through
 // layout — the classic thrash, and this runs on every archive render.
 function stampShelves(els) {
-  const lines = [...els].map(el => Math.round(el.getBoundingClientRect().bottom / 4));
+  const rects = [...els].map(el => el.getBoundingClientRect());
+  const lines = rects.map(r => Math.round(r.bottom / 4));
   const shelves = new Map();
   for (const line of lines) if (!shelves.has(line)) shelves.set(line, shelves.size);
   [...els].forEach((el, i) => el.style.setProperty("--i", shelves.get(lines[i])));
+  return rects;
+}
+
+// The lamp hangs over the middle of the pedestal. Each volume on the archive
+// wall is told where it stands along its shelf relative to that (-1 at the
+// far left, +1 at the far right) so its reflection can face the fixture and
+// its shadow fall away from it. Reuses the rects the shelf pass measured; the
+// one read here (the wall's own box) happens before any write, so this adds
+// no layout of its own.
+function stampLamp(wall, rects) {
+  const r = wall.getBoundingClientRect();
+  const w = r.width || 1;
+  [...wall.children].forEach((el, i) => {
+    if (!rects[i]) return;
+    const x = ((rects[i].left + rects[i].width / 2 - r.left) / w) * 2 - 1;
+    el.style.setProperty("--lx", Math.max(-1, Math.min(1, x)).toFixed(2));
+  });
 }
 
 const bgmLink = (id, text) => `<a href="https://bgm.tv/subject/${id}" target="_blank" rel="noopener">${text}</a>`;
@@ -4207,19 +5003,22 @@ const scoreTag = s =>
 // Book cloths, in the colours real binderies actually used. The foil is what
 // the spine furniture is stamped in.
 const CLOTHS = [
-  { cloth: "#6b2b2b", foil: "#e8c98a" },   // oxblood / gold
-  { cloth: "#1f4a63", foil: "#cfe4f0" },   // navy / silver
-  { cloth: "#1f5a44", foil: "#e3d8a8" },   // forest / gold
-  { cloth: "#7a4a1c", foil: "#f0dcae" },   // tan calf / gold
-  { cloth: "#4a2b56", foil: "#e6d3ef" },   // aubergine / silver
-  { cloth: "#8a5a1f", foil: "#2a1a06" },   // ochre / blind
-  { cloth: "#2f3b4a", foil: "#c6d2e0" },   // slate / silver
-  { cloth: "#6e2f4a", foil: "#f0cfdd" },   // plum / silver
-  { cloth: "#3d5a2a", foil: "#e0e8c8" },   // olive / gold
-  { cloth: "#5a2018", foil: "#e8b98a" },   // rust / copper
-  { cloth: "#26424a", foil: "#cfe8e4" },   // teal / silver
-  { cloth: "#4a4238", foil: "#ded2bc" },   // stone / blind
+  { cloth: "#6b2b2b", foil: "#e8c98a", kind: "leather" },   // oxblood morocco / gold
+  { cloth: "#1f4a63", foil: "#cfe4f0", kind: "cloth"   },   // navy buckram / silver
+  { cloth: "#1f5a44", foil: "#e3d8a8", kind: "cloth"   },   // forest cloth / gold
+  { cloth: "#7a4a1c", foil: "#f0dcae", kind: "leather" },   // tan calf / gold
+  { cloth: "#4a2b56", foil: "#e6d3ef", kind: "cloth"   },   // aubergine / silver
+  { cloth: "#8a5a1f", foil: "#2a1a06", kind: "leather" },   // ochre calf / blind
+  { cloth: "#2f3b4a", foil: "#c6d2e0", kind: "cloth"   },   // slate / silver
+  { cloth: "#6e2f4a", foil: "#f0cfdd", kind: "cloth"   },   // plum / silver
+  { cloth: "#3d5a2a", foil: "#e0e8c8", kind: "cloth"   },   // olive / gold
+  { cloth: "#5a2018", foil: "#e8b98a", kind: "leather" },   // rust morocco / copper
+  { cloth: "#26424a", foil: "#cfe8e4", kind: "cloth"   },   // teal / silver
+  { cloth: "#4a4238", foil: "#ded2bc", kind: "cloth"   },   // stone / blind
 ];
+// Label leathers (the onlay the title panel is cut from) and headband silks.
+const LABELS    = ["#191210", "#571b17", "#123325", "#14273b"];   // black, red, green, blue
+const HEADBANDS = ["#b5362c", "#2f5190", "#3a7a4b", "#8e6c1c"];
 
 // A stable per-show hash: the same show is always bound the same way, and the
 // wall reshuffles only when the shelf itself changes.
@@ -4240,31 +5039,61 @@ function bookStyle(id) {
   return {
     cloth: c.cloth,
     foil: c.foil,
+    kind: c.kind,                        // "cloth" | "leather": which texture tile lies over the colour
     bands: 2 + ((h >>> 4) % 3),          // 2..4 sewn bands
     panel: ((h >>> 8) % 4) !== 0,        // three volumes in four carry a label
     medal: ((h >>> 11) % 3) === 0,       // one in three is tooled with a medallion
     rules: 1 + ((h >>> 14) % 3),         // 1..3 ruled lines inside the panel
     tall: 0.9 + ((h >>> 17) % 13) / 100, // 0.90..1.02 of the nominal height
+    // A label the same hue as its cloth would vanish into it, so the leather
+    // is picked off the cloth index as well as the hash.
+    label: LABELS[((h >>> 20) + (h % CLOTHS.length)) % LABELS.length],
+    hb: HEADBANDS[(h >>> 22) % HEADBANDS.length],    // headband silk
+    wear: (0.25 + ((h >>> 24) % 7) / 14).toFixed(2), // .25..0.68: how hard a life the volume has had
+    gx: ((h >>> 27) % 32) * 5,           // px phase of the texture tiles: no two boards share a weave
   };
 }
 
 // The spine furniture, laid out down the spine in percentages.
-function spineFurniture(b) {
-  let out = '<span class="sp sp-cap"></span>';
-  // Bands sit evenly between the head cap and the tail, with a wider gap left
-  // for the label panel between the first and second.
-  const top = 13, bottom = 93;
-  for (let i = 0; i < b.bands; i++) {
-    const y = top + (bottom - top) * (i / (b.bands - 1 || 1));
-    out += `<span class="sp sp-band" style="top:${y.toFixed(1)}%"></span>`;
+// The head cap and its headband first, the tail and its band last; the label
+// fills the first compartment (between the first two bands) rather than a
+// fixed 24%, where a four-band volume used to run a cord straight through it;
+// the rules are fitted to the panel's height; the medallion is centred in the
+// last compartment. The archive's spineHtml() calls this unchanged and gets
+// the same furniture.
+function spineFurniture(b, archive) {
+  let out = '<span class="sp sp-cap"></span><span class="sp sp-hb"></span>';
+  if (archive) {
+    // A spine that carries a title carries it in one tooled compartment
+    // down the middle, with the bands kept to the head and the tail: stamped
+    // foil never crosses a raised cord on a real binding. Fuller bindings
+    // double the bands at either end.
+    const ys = b.bands >= 3 ? [7.5, 12.5, 87.5, 92.5] : [7.5, 92.5];
+    ys.forEach(y => { out += `<span class="sp sp-band" style="top:${y.toFixed(1)}%"></span>`; });
+    if (b.panel) out += '<span class="sp sp-panel" style="top:17%;height:66%"></span>';
+    out += '<span class="sp sp-tail"></span><span class="sp sp-hb sp-hb-t"></span>';
+    return out;
   }
+  // Bands sit evenly between the head cap and the tail.
+  const top = 15, bottom = 90;
+  const ys = [];
+  for (let i = 0; i < b.bands; i++) ys.push(top + (bottom - top) * (i / (b.bands - 1 || 1)));
+  ys.forEach(y => { out += `<span class="sp sp-band" style="top:${y.toFixed(1)}%"></span>`; });
   if (b.panel) {
-    out += '<span class="sp sp-panel" style="top:24%;height:26%"></span>';
-    for (let i = 0; i < b.rules; i++) {
-      out += `<span class="sp sp-rule" style="top:${(29 + i * 6).toFixed(0)}%"></span>`;
+    const pTop = ys[0] + 4.5;
+    const pH = Math.min(26, ys[1] - ys[0] - 9);
+    out += `<span class="sp sp-panel" style="top:${pTop.toFixed(1)}%;height:${pH.toFixed(1)}%"></span>`;
+    const n = Math.min(b.rules, Math.max(1, Math.floor((pH - 6) / 5)));
+    const step = (pH - 6) / (n + 1);
+    for (let i = 0; i < n; i++) {
+      out += `<span class="sp sp-rule" style="top:${(pTop + 3 + step * (i + 1)).toFixed(1)}%"></span>`;
     }
   }
-  if (b.medal) out += '<span class="sp sp-medal" style="top:62%"></span>';
+  if (b.medal) {
+    const y = (ys[ys.length - 2] + ys[ys.length - 1]) / 2;
+    out += `<span class="sp sp-medal" style="top:${y.toFixed(1)}%"></span>`;
+  }
+  out += '<span class="sp sp-tail"></span><span class="sp sp-hb sp-hb-t"></span>';
   return out;
 }
 
@@ -4298,18 +5127,22 @@ function bookUnit(s, type) {
   const slip = nomk
     ? `<span class="slip" aria-hidden="true"><span class="slip-rule"></span></span>` : "";
   const title = displayTitle(s);
+  // Every face is a stack of material layers painted in DOM order (see the
+  // .l rules): the cloth, its texture, what is pasted on it, the lamp, the
+  // wear. The class names the harness asserts on (.unit .tome .f-cover
+  // .f-spine .f-top .plank .slip .upip .ulabel) only gain children.
   return `<button class="unit t-${type}${nomk ? " nomikan" : ""}" data-bgm="${s.bgm_id}"
-      style="--cloth:${b.cloth};--foil:${b.foil};--vh:${Math.round(144 * b.tall)}px"
+      style="--cloth:${b.cloth};--foil:${b.foil};--label:${b.label};--hb:${b.hb};--wear:${b.wear};--gx:${b.gx}px;--vh:${Math.round(144 * b.tall)}px"
       onclick="openCard(${s.bgm_id})"
       aria-label="${esc(nomk ? title + " — " + t("t_no_mikan") : title)}">
     ${pip}
-    <span class="tome">
+    <span class="tome k-${b.kind}">
       <span class="f f-top"></span>
-      <span class="f f-spine">${spineFurniture(b)}</span>
-      <span class="f f-cover">${coverHtml(s.image)}<span class="foredge"></span></span>
+      <span class="f f-spine"><span class="l l-mat"></span><span class="l l-shade"></span>${spineFurniture(b)}<span class="l l-spec"></span><span class="l l-grime"></span></span>
+      <span class="f f-cover"><span class="l l-mat"></span><span class="l l-plate">${coverHtml(s.image)}</span><span class="l l-fillet"></span><span class="l l-hinge"></span><span class="foredge"></span><span class="l l-light"></span><span class="l l-spec"></span><span class="l l-grime"></span></span>
       ${slip}
     </span>
-    <span class="plank"></span>
+    <span class="plank"><span class="brkt"></span><span class="brkt"></span></span>
     <span class="ulabel">${esc(title)}</span>
   </button>`;
 }
@@ -6320,11 +7153,18 @@ function spineHtml(s) {
   const ht = Math.round((142 + ((h >>> 26) % 66)) * b.tall * ui);
   const title = displayTitle(s);
   const hue = s.score ? `--hue:${scoreHue(+s.score)};--hueop:.9;` : "";
+  // One volume in four was put back carelessly and leans on the one before
+  // it. Left only: a later sibling paints over an earlier one, so a spine
+  // tipped left lands on its neighbour's edge instead of disappearing under
+  // it. Bits 20-22 decide, 29-31 pick the angle; none of the bits
+  // bookStyle() or the width/height already spend.
+  const lean = ((h >>> 20) & 7) < 2
+    ? `--lean:-${(0.8 + (h >>> 29) * 0.22).toFixed(2)}deg;` : "";
   const tip = s.season ? `${title} · ${s.season}` : title;
   return `<button class="spine" data-bgm="${s.bgm_id}" onclick="openCard(${s.bgm_id})"
-      style="--cloth:${b.cloth};--foil:${b.foil};--svw:${w}px;--svh:${ht}px;${hue}"
+      style="--cloth:${b.cloth};--foil:${b.foil};--label:${b.label};--hb:${b.hb};--gx:${b.gx}px;--svw:${w}px;--svh:${ht}px;${hue}${lean}"
       title="${esc(tip)}" aria-label="${esc(title)}">
-    <span class="svol">${spineFurniture(b)}<span class="stxt">${esc(title)}</span></span>
+    <span class="svol">${spineFurniture(b, true)}<span class="stxt">${esc(title)}</span><span class="sp sp-hue"></span></span>
   </button>`;
 }
 
@@ -6343,7 +7183,7 @@ function renderSpineWall(animate) {
   setHTML(wall, shows.map(spineHtml).join(""));
   // Stagger rank is the shelf a volume ended up on, not its position in the
   // run. Volumes on one shelf all carry the same rank and rise together.
-  stampShelves(wall.children);
+  stampLamp(wall, stampShelves(wall.children));
   $("archive-n").textContent = t("volumes", shows.length);
   $("spinesort").querySelectorAll("button").forEach(el => {
     const on = el.dataset.v === spineSort;
@@ -6387,11 +7227,17 @@ const clockFace = (id, zoneKey) => {
     <svg viewBox="0 0 100 100" aria-hidden="true">
       <circle class="face" cx="50" cy="50" r="47"/>
       <circle class="bezel" cx="50" cy="50" r="46.5"/>
-      <circle class="bezel-hi" cx="50" cy="50" r="43.5"/>${ticks}
+      <circle class="bezel-hi" cx="50" cy="50" r="43.5"/>
+      <circle class="bezel-in" cx="50" cy="50" r="44.6"/>${ticks}
       <line class="hh" id="${id}-h" x1="50" y1="53" x2="50" y2="28"/>
       <line class="mh" id="${id}-m" x1="50" y1="55" x2="50" y2="17"/>
       <line class="sh" id="${id}-s" x1="50" y1="59" x2="50" y2="14"/>
       <circle class="pin" cx="50" cy="50" r="2.6"/>
+      <!-- The glass: a domed crystal over the dial. The long reflection runs
+           down the upper-left of the dome; the sharp one is the lamp itself. -->
+      <path class="dome" d="M12 44 A40 40 0 0 1 44 12 A34 34 0 0 0 20 40 Z"/>
+      <ellipse class="dome2" cx="31" cy="28" rx="6" ry="3.4" transform="rotate(-45 31 28)"/>
+      <path class="dome-lo" d="M76 72 A40 40 0 0 1 60 84"/>
     </svg>
     <div class="cl" id="${id}-t">—</div>
     <div class="cz">${esc(t(zoneKey))}</div>
