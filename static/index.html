@@ -1983,6 +1983,11 @@ if (new URLSearchParams(location.search).has("probe")) {
      the body itself, translate the whole page by the panel width and make
      body a containing block for its own fixed children. */
   body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
+  /* The desk holds still under a dialog: nothing scrolls behind the frosted
+     scrim, and closing cannot scroll back to a book that never moved. The
+     scrollbar's width is put back as padding by showPanel() so the room grid
+     does not shift when it goes. */
+  body.drawer-open { overflow: hidden; }
   /* The settings drawer really is a drawer now: it slides out of the right
      pedestal, its front face carries a brass pull and cockbead moulding, and
      its inside is bare timber. */
@@ -2046,6 +2051,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   .sheet {
     position: fixed; z-index: 61; top: 50%; left: 50%;
     width: min(520px, 92vw); max-height: 86vh; overflow-y: auto;
+    /* Like the drawer: a wheel past the card's end must not carry on into the
+       desk behind it. */
+    overscroll-behavior: contain;
     transform: translate(-50%, -46%) scale(.96);
     opacity: 0; pointer-events: none;
     transition: transform .3s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
@@ -3281,6 +3289,10 @@ if (new URLSearchParams(location.search).has("probe")) {
   .gpick-list {
     position: fixed; z-index: 62;
     min-width: 250px; max-height: 260px; overflow-y: auto;
+    /* Real shows list 6–15 groups and ~5 fit: a wheel that reached the end of
+       the list used to chain to the page, and the page scrolling is what
+       closes the list — it vanished mid-read. */
+    overscroll-behavior: contain;
     padding: 5px; border: 1px solid var(--glass-edge); border-radius: var(--r-m);
     background:
       linear-gradient(180deg, var(--glass-hi-soft), transparent 40%),
@@ -3902,7 +3914,8 @@ if (new URLSearchParams(location.search).has("probe")) {
 <div class="sheet" id="cardsheet" data-open="0" role="dialog" aria-modal="true"
      aria-labelledby="cardsheet-h" hidden inert>
   <div class="sheet-head">
-    <h2 id="cardsheet-h" class="sr-only" data-i18n="showsHeading">Shows</h2>
+    <!-- Named by openCard(): the dialog is announced as the volume it holds. -->
+    <h2 id="cardsheet-h" class="sr-only"></h2>
     <button class="drawer-close" onclick="closeDrawers()" aria-label="close">✕</button>
   </div>
   <div id="cardsheet-body"></div>
@@ -4034,7 +4047,7 @@ const I18N = {
     setrule_failed: "qBittorrent rule update failed",
     premiered: "PREMIERED",
     completed: "SEASON DONE",
-    completedSub: n => `All ${n} episodes watched · auto-marked 看过`,
+    completedSub: n => `All ${n} episodes watched · auto-marked Completed`,
     rateOnBgm: "★ Rate & review on bgm",
     nowWatching: "Marked as watching",
     gotIt: "Got it",
@@ -4136,6 +4149,8 @@ const I18N = {
     gpickUnknown: "unnamed group",
     gpickWarn: "switching deletes this show's files and re-downloads the season",
     gpickLoading: "reading the mikan page…",
+    close: "Close",
+    logManualSync: ok => `--- last manual sync (${ok ? "ok" : "FAILED"}) ---`,
     // --- timetable ---
     bandHead: "Time of day",
     band_all: "Any time", band_late: "Late night", band_morning: "Morning",
@@ -4288,6 +4303,8 @@ const I18N = {
     gpickUnknown: "未命名字幕组",
     gpickWarn: "切换会删除本番已下载的文件并重下整季",
     gpickLoading: "正在读取 mikan 页面…",
+    close: "关闭",
+    logManualSync: ok => `--- 上次手动同步（${ok ? "成功" : "失败"}）---`,
     // --- 时刻表 ---
     bandHead: "时段",
     band_all: "全时段", band_late: "深夜", band_morning: "上午",
@@ -4511,7 +4528,7 @@ let logsOpen = false;
 let logsTimer = null;
 let offline = false;
 let syncPoll = null;
-let seqO = 0, seqC = 0, seqN = 0, seqU = 0, seqP = 0;   // out-of-order response guards per endpoint
+let seqO = 0, seqC = 0, seqN = 0, seqU = 0, seqP = 0, seqG = 0;   // out-of-order response guards per endpoint (seqG: /api/subgroups)
 
 const $ = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -4875,6 +4892,9 @@ function applyStatic() {
   document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
   $("gearbtn").title = t("settings");
   $("gearbtn").setAttribute("aria-label", t("settings"));
+  // Both dialogs' close buttons are a bare glyph; the label is all a reader
+  // gets, and it must not stay English under 中文.
+  document.querySelectorAll(".drawer-close").forEach(b => b.setAttribute("aria-label", t("close")));
   $("search").placeholder = t("searchPh");
   $("search").title = t("kbdHint");
   $("logbtn").textContent = logsOpen ? t("hide") : t("show");
@@ -5203,7 +5223,7 @@ function card(show) {
       <div class="grouprow gpick" data-gpick="${show.bgm_id}">
         <span>${t("via")}</span>
         <button class="gpick-btn" type="button" id="gp-${show.bgm_id}"
-                aria-haspopup="listbox" aria-expanded="false"
+                aria-haspopup="listbox" aria-expanded="false" aria-controls="gpicker"
                 aria-label="${esc(t("via") + " — " + displayTitle(show))}"
                 onclick="toggleGroupPicker(${show.bgm_id}, ${show.rule.mikan_id}, ${show.rule.subgroup})">
           ${esc(groupLabel(show.rule))}<span class="caret">▾</span>
@@ -5293,12 +5313,25 @@ function basicCard(s) {
    Escape, click-outside, focus return.
 --------------------------------------------------------------------------- */
 let drawerReturn = null;
+// The opener can be rebuilt by a poll before the panel closes (the upcoming
+// rows change every minute), the same way markOpenUnit() below re-marks the
+// rebuilt copy of the open volume. Keep enough to find the replacement in
+// the same place — not a copy of the show elsewhere on the desk.
+let drawerReturnSel = null;
 let openBgm = null;
 
 // Slide one panel away without touching the shared open-card bookkeeping.
 // showPanel() uses it to retire the other panel — clearing openBgm there would
 // wipe the state the incoming panel has only just set.
 function hidePanel(id) {
+  // The daemon-log poll only makes sense while the settings drawer is on
+  // screen: pause it here (both exits — closeDrawers and a card retiring the
+  // drawer — pass through this function). logsOpen is kept so the log
+  // section is still open, and polling, when the drawer comes back.
+  if (id === "settings" && logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+  // The list is placed against a button inside the card; a card on its way
+  // out has nothing for it to point at.
+  if (id === "cardsheet") closeGroupPickers();
   const d = $(id);
   if (d.dataset.open !== "1") return;
   d.dataset.open = "0";
@@ -5312,7 +5345,19 @@ function hidePanel(id) {
 function showPanel(id) {
   for (const other of ["cardsheet", "settings"]) if (other !== id) hidePanel(other);
   drawerReturn = document.activeElement;
+  const host = drawerReturn && drawerReturn.closest
+    ? drawerReturn.closest("#cards, #spinewall, #upcoming, #soundings") : null;
+  drawerReturnSel = host && drawerReturn.dataset.bgm
+    ? `#${host.id} .${drawerReturn.classList[0]}[data-bgm="${drawerReturn.dataset.bgm}"]`
+    : null;
   const d = $(id);
+  // The desk is locked while a panel is up (body.drawer-open): the room must
+  // not scroll under the scrim, and a close must not scroll back to the book.
+  // The scrollbar it loses is replaced by padding of exactly its width so the
+  // room grid does not shift — measured only on the first panel, since a
+  // second one opening over the first would measure a scrollbar already gone.
+  if (!document.body.classList.contains("drawer-open"))
+    document.body.style.paddingRight = `${window.innerWidth - document.documentElement.clientWidth}px`;
   // `display: flex` on a panel beats [hidden]'s display:none, so `inert` is
   // what actually keeps a closed panel out of the tab order.
   d.hidden = false;
@@ -5338,12 +5383,18 @@ function closeDrawers(silent) {
   hidePanel("settings");
   document.querySelectorAll("main.wrap, .rail").forEach(el => el.inert = false);
   document.body.classList.remove("drawer-open");
+  document.body.style.paddingRight = "";
   document.querySelectorAll(".unit.open, .spine.open").forEach(u => u.classList.remove("open"));
   $("gearbtn").setAttribute("aria-expanded", "false");
   setCoverGhost(null);
   openBgm = null;
-  if (!silent && drawerReturn && drawerReturn.isConnected) drawerReturn.focus();
+  // The opener may have been rebuilt by a poll while the panel was up; its
+  // replacement stands in the same place and gets the focus instead.
+  let back = drawerReturn;
+  if (back && !back.isConnected && drawerReturnSel) back = document.querySelector(drawerReturnSel);
+  if (!silent && back && back.isConnected) back.focus();
   drawerReturn = null;
+  drawerReturnSel = null;
 }
 
 function findShow(bgmId) {
@@ -5388,7 +5439,13 @@ function openCard(bgmId) {
   const found = findShow(bgmId);
   if (!found) return;
   openBgm = bgmId;
+  // The body is about to be rebuilt: an open list would point at nothing
+  // (same rule as the scroll and resize closers).
+  closeGroupPickers();
   hidePeek();
+  // The dialog is named after the volume, not the shelf: a reader landing on
+  // the close button hears which show opened, not "Shows".
+  $("cardsheet-h").textContent = displayTitle(found.show);
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
   setCoverGhost(found.show.image);
   markOpenUnit();
@@ -5409,8 +5466,15 @@ function refreshCard() {
   if (groupPickerOpen()) return;
   const found = findShow(openBgm);
   if (!found) { closeDrawers(); return; }
+  $("cardsheet-h").textContent = displayTitle(found.show);
+  // A rebuild drops whatever inside the body held focus (the group button,
+  // after a switch reports back and the card is redrawn). Same snapshot as
+  // the docket inputs take: by id, restored on the new copy.
+  const ae = document.activeElement;
+  const keepId = ae && $("cardsheet-body").contains(ae) ? ae.id : "";
   setHTML($("cardsheet-body"), found.watching ? card(found.show) : basicCard(found.show));
   tuneGauges($("cardsheet-body"));
+  if (keepId && $(keepId)) $(keepId).focus({ preventScroll: true });
   setCoverGhost(found.show.image);
 }
 
@@ -5418,6 +5482,9 @@ function openSettings() {
   syncSegs();
   $("gearbtn").setAttribute("aria-expanded", "true");
   showPanel("settings");
+  // Resume a paused log poll (Show was pressed earlier, or a failed sync
+  // pre-opened the log while the drawer was closed).
+  if (logsOpen && !logsTimer) { pullLogs(); logsTimer = setInterval(pullLogs, 5000); }
 }
 
 function syncSegs() {
@@ -5439,7 +5506,12 @@ function syncSegs() {
 
    Every shortcut is suppressed while a text field has focus (typing "3" in the
    search box must type a 3) and while a modifier is held (Ctrl+F belongs to
-   the browser, and taking it would be worse than not having a shortcut).
+   the browser, and taking it would be worse than not having a shortcut) — and
+   ←/→ also while focus is inside the timetable board, whose arrows scroll it.
+
+   The subgroup picker is a listbox, and a listbox promises ↑/↓/Home/End
+   between its options and Tab out of it; those are handled here too, ahead of
+   the open-card bail that silences everything else under a dialog.
 --------------------------------------------------------------------------- */
 const typingInField = el =>
   !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -5473,10 +5545,45 @@ document.addEventListener("keydown", e => {
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (typingInField(document.activeElement)) return;
+  const gl = groupPickerOpen();
+  if (gl) {
+    // Tab leaves the list: closing it hands focus back to its button, and the
+    // default Tab then moves on from there instead of walking the rest of the
+    // card first. Enter and Space are not handled — the options are native
+    // buttons and already activate; a synthetic click would fire switchGroup,
+    // and its confirm, twice.
+    if (e.key === "Tab") { closeGroupPickers(); return; }
+    const opts = [...gl.querySelectorAll(".gopt")];
+    if (!opts.length) return;
+    const i = opts.indexOf(document.activeElement);
+    let n = null;
+    if (e.key === "ArrowDown") n = i < 0 ? 0 : Math.min(i + 1, opts.length - 1);
+    else if (e.key === "ArrowUp") n = i < 0 ? opts.length - 1 : Math.max(i - 1, 0);
+    else if (e.key === "Home") n = 0;
+    else if (e.key === "End") n = opts.length - 1;
+    // preventDefault, or the list (overflow-y: auto) scrolls under the arrow
+    // on top of the focus moving.
+    if (n !== null) { e.preventDefault(); opts[n].focus(); }
+    return;
+  }
+  // ↓ on the closed button opens the list, the way a native select does; the
+  // click path sees a :focus-visible button and walks into the options.
+  const a = document.activeElement;
+  if (e.key === "ArrowDown" && a && a.classList && a.classList.contains("gpick-btn")) {
+    e.preventDefault(); a.click(); return;
+  }
   if (document.body.classList.contains("drawer-open")) return;
   if (e.key === "/") { e.preventDefault(); const s = $("search"); if (!s.hidden) s.focus(); return; }
-  if (e.key === "ArrowRight") { e.preventDefault(); stepTab(1); return; }
-  if (e.key === "ArrowLeft") { e.preventDefault(); stepTab(-1); return; }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    // The timetable is a focusable scroll region (tabindex=0) so that ←/→ can
+    // pan the week from the keyboard; walking the tab strip from inside it
+    // would tear the board down under the user. Anywhere else the arrows
+    // still belong to the tab strip.
+    if (a && a.closest && a.closest(".sched-board")) return;
+    e.preventDefault();
+    stepTab(e.key === "ArrowRight" ? 1 : -1);
+    return;
+  }
   if (/^[1-9]$/.test(e.key)) {
     const order = tabOrder();
     const pickTab = order[+e.key - 1];
@@ -6972,49 +7079,97 @@ function groupPickerOpen() {
 
 function closeGroupPickers() {
   const l = $("gpicker");
+  const btn = document.querySelector(".gpick-btn[aria-expanded='true']");
+  // Read before hiding: Firefox blurs a hidden element on the spot, and a
+  // check made afterwards would never see the focus it is about to lose.
+  const hadFocus = !!l && !l.hidden && l.contains(document.activeElement);
   if (l) { l.hidden = true; l.dataset.bgm = ""; }
   document.querySelectorAll(".gpick-btn[aria-expanded='true']")
     .forEach(b => b.setAttribute("aria-expanded", "false"));
+  // Focus goes back to the button it came from — but only when it was in the
+  // list. The resize, scroll and click-away callers all end up here too, and
+  // a mouse user who never entered the list must not have their focus moved.
+  // preventScroll: the card body must not jump to show a button it already
+  // shows.
+  if (hadFocus && btn && btn.isConnected) btn.focus({ preventScroll: true });
+}
+
+// mikanId -> Promise<[{id, name}]>. Only the data is kept, and the promise
+// rather than the array so a reopen while the page is still being read joins
+// the read in flight instead of starting another. The options are rendered
+// on every open from the show's current rule, the priority list and the UI
+// language, so a switch, a language change or a priority edit can never leave
+// a stale "in use" on the one control that deletes files. Keyed on the mikan
+// page because that is the only thing the list depends on.
+const gpickCache = new Map();
+function subgroupsFor(mikanId) {
+  if (!gpickCache.has(mikanId)) {
+    const p = fetch("/api/subgroups/" + mikanId).then(r => r.json()).then(d => d.subgroups);
+    p.catch(() => gpickCache.delete(mikanId));   // let the next open try the fetch again
+    gpickCache.set(mikanId, p);
+  }
+  return gpickCache.get(mikanId);
 }
 
 async function toggleGroupPicker(bgmId, mikanId, currentGid) {
   const list = $("gpicker"), btn = $("gp-" + bgmId);
   if (!list || !btn) return;
+  // Decided before closeGroupPickers() can move focus about: true after
+  // Tab+Enter/Space on the button, false after a pointer click (and for a
+  // scripted .click() on an unfocused button). A keyboard user is walked into
+  // the list; a mouse user keeps the pointer flow they started.
+  const byKeyboard = btn.matches(":focus-visible");
   const wasMine = !list.hidden && list.dataset.bgm === String(bgmId);
   closeGroupPickers();
   if (wasMine) return;
+  // Every open is a new request on the shared list, whether or not a fetch
+  // is started: a mikan read that is still out for another show (or an
+  // earlier open of this one) must not paint over this one when it lands.
+  // Its options would carry the wrong show's id in their switchGroup
+  // handlers, and the user would delete show A's files under show B's card.
+  const q = ++seqG;
   list.dataset.bgm = String(bgmId);
   list.setAttribute("aria-label", t("gpickHead"));
   list.hidden = false;
   btn.setAttribute("aria-expanded", "true");
+  if (!gpickCache.has(mikanId)) list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
   placeGroupList(btn, list);
-  // Keyed on the show, not the mikan page: the rendered options carry the
-  // show's id in their handlers, so a cache hit has to mean "these options
-  // belong to this show" and nothing looser.
-  if (list.dataset.forbgm !== String(bgmId)) {
-    list.dataset.forbgm = String(bgmId);
-    list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
-    try {
-      const d = await (await fetch("/api/subgroups/" + mikanId)).json();
-      list.innerHTML = d.subgroups.map(g => {
-        const rank = groupPriorityRank(g.id);
-        const tags = [
-          g.id === currentGid ? `<b>${esc(t("gpickCurrent"))}</b>` : "",
-          rank ? esc(t("gpickPriority", rank)) : "",
-        ].filter(Boolean).join(" · ");
-        return `<button class="gopt" role="option" type="button"
-            aria-current="${g.id === currentGid}"
-            onclick="switchGroup(${bgmId}, ${g.id})">
-          <span class="gn">${g.name ? esc(g.name) : esc(t("gpickUnknown"))}</span>
-          <span class="gid">#${g.id}</span>
-          <span class="gtag">${tags}</span>
-        </button>`;
-      }).join("") + `<div class="empty warn">${esc(t("gpickWarn"))}</div>`;
-    } catch (e) {
-      list.dataset.forbgm = "";    // let the next open try the fetch again
-      list.innerHTML = `<div class="empty warn">${esc(t("loadGroupsFail", e.message))}</div>`;
-    }
-    placeGroupList(btn, list);   // it is a different height now
+  try {
+    const groups = await subgroupsFor(mikanId);
+    // A newer open owns the list now, or the list was closed while the page
+    // was being read: it is no longer ours to paint. Nothing is lost — the
+    // data stays cached and the next open renders from it.
+    if (q !== seqG || list.hidden) return;
+    list.innerHTML = groups.map(g => {
+      const rank = groupPriorityRank(g.id);
+      const tags = [
+        g.id === currentGid ? `<b>${esc(t("gpickCurrent"))}</b>` : "",
+        rank ? esc(t("gpickPriority", rank)) : "",
+      ].filter(Boolean).join(" · ");
+      return `<button class="gopt" role="option" type="button" data-gid="${g.id}"
+          aria-current="${g.id === currentGid}" aria-selected="${g.id === currentGid}"
+          onclick="switchGroup(${bgmId}, ${g.id})">
+        <span class="gn">${g.name ? esc(g.name) : esc(t("gpickUnknown"))}</span>
+        <span class="gid">#${g.id}</span>
+        <span class="gtag">${tags}</span>
+      </button>`;
+    }).join("") + `<div class="empty warn">${esc(t("gpickWarn"))}</div>`;
+  } catch (e) {
+    if (q !== seqG || list.hidden) return;
+    list.innerHTML = `<div class="empty warn">${esc(t("loadGroupsFail", e.message))}</div>`;
+  }
+  // The button captured before the await may be gone by now (the card is
+  // rebuilt by openCard/refreshCard while the page is read): re-resolve it,
+  // or the list would be placed against a detached button's all-zero rect and
+  // land in the viewport corner.
+  const live = $("gp-" + bgmId);
+  if (live) placeGroupList(live, list);   // it is a different height now
+  // A listbox promises a keyboard path: the option in use, or the first one,
+  // takes focus so ↑/↓ work at once. focus() scrolls only the list's own box,
+  // which never reaches the scroll closer below.
+  if (byKeyboard) {
+    const o = list.querySelector('.gopt[aria-current="true"]') || list.querySelector(".gopt");
+    if (o) o.focus();
   }
 }
 
@@ -7025,8 +7180,20 @@ document.addEventListener("click", e => {
   if (!inside) closeGroupPickers();
 });
 // It is placed against the button's position on screen, so anything that moves
-// the button puts it away rather than leaving it pointing at nothing.
-window.addEventListener("scroll", () => closeGroupPickers(), { passive: true });
+// the button puts it away rather than leaving it pointing at nothing. Element
+// scroll events do not bubble, so a card taller than 86vh scrolling under the
+// list never reached a window listener; capture sees every scroller. Only a
+// scroller the button is actually inside can move the button — the timetable
+// restoring its own scrollLeft on a poll must not take the list away
+// mid-choice (see refreshCard). For a viewport scroll e.target is the
+// document, which contains the button, so that path is unchanged.
+document.addEventListener("scroll", e => {
+  const list = groupPickerOpen();
+  if (!list || e.target === list) return;          // the list's own scrolling
+  const btn = $("gp-" + list.dataset.bgm);
+  if (btn && e.target.contains && !e.target.contains(btn)) return;
+  closeGroupPickers();
+}, { capture: true, passive: true });
 
 // The rule name is looked up from state by bgm_id instead of being inlined
 // into onclick — titles can contain quotes/backslashes that break the handler.
@@ -7038,8 +7205,13 @@ async function switchGroup(bgmId, gid) {
   // Same group already active — nothing to replace, skip the scary confirm.
   if (gid === show.rule.subgroup) { toast(t("switched", groupLabel(show.rule))); return; }
   // Switching now DELETES the old group's files (irreversible) — confirm once.
-  const gname = $("gpicker").querySelector(`.gopt[onclick*="${gid})"] .gn`);
-  if (!confirm(t("switchConfirm", (gname && gname.textContent.trim()) || String(gid)))) return;
+  // The name comes from the cached data the option was rendered from — the
+  // read is already settled, since an option had to be painted to be clicked
+  // — never from scraping the list, which a substring match on onclick could
+  // resolve to another group whose id ends the same way.
+  const groups = await (gpickCache.get(show.rule.mikan_id) || Promise.resolve([])).catch(() => []);
+  const g = groups.find(x => x.id === gid);
+  if (!confirm(t("switchConfirm", (g && g.name) || t("gpickUnknown")))) return;
   try {
     const r = await fetch("/api/rule/switch", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -7068,8 +7240,10 @@ function toggleLogs() {
   if (logsOpen) {
     if (!el.textContent.trim()) el.textContent = "…";
     pullLogs();
-    logsTimer = setInterval(pullLogs, 5000);
-  } else clearInterval(logsTimer);
+    // watchSync() opens the log on a failed sync with the drawer closed —
+    // openSettings() starts the poll when the drawer is actually shown.
+    if ($("settings").dataset.open === "1" && !logsTimer) logsTimer = setInterval(pullLogs, 5000);
+  } else { clearInterval(logsTimer); logsTimer = null; }
 }
 
 async function pullLogs() {
@@ -7087,7 +7261,7 @@ async function pullLogs() {
       lines = (await (await fetch("/api/logs?lines=200")).json()).lines;
       if (s.output) {
         lines = lines.concat(
-          ["", `--- last manual sync (${s.ok === false ? "FAILED" : "ok"}) ---`],
+          ["", t("logManualSync", s.ok !== false)],
           s.output.split(/\r?\n/));
       }
     }
