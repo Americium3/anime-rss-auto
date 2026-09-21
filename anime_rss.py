@@ -1765,7 +1765,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
         magnet = info["magnet"]
         mikan_id = info["mikan_id"]
         if mikan_id is None:
-            notes.append("episode page has no bangumi backlink — one-shot import only")
+            notes.append("episode page has no bangumi backlink, one-shot import only")
     else:
         magnet = val
         ep_hash = _MAGNET_RE.match(val).group(1)
@@ -1787,7 +1787,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
         linked = info["bgm_id"]
         if linked and linked != bgm_id:
             # Same posture as the override tier in resolve_show: warn, obey.
-            notes.append(f"mikan page links bgm {linked}, not {bgm_id} — proceeding as told")
+            notes.append(f"mikan page links bgm {linked}, not {bgm_id}; proceeding as told")
         save_mikan_override(bgm_id, mikan_id)
         bound = True
         subgroup = pick_subgroup(info["subgroups"])
@@ -1801,9 +1801,9 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
         if mikan_id in ruled_feeds or name.strip().lower() in {
             rn.strip().lower() for rn in rules
         }:
-            notes.append("rule already exists — override saved, nothing to subscribe")
+            notes.append("rule already exists; override saved, nothing to subscribe")
         elif subgroup is None:
-            notes.append("mikan page lists no subgroups — override saved, next sync retries")
+            notes.append("mikan page lists no subgroups; override saved, next sync retries")
         else:
             entry = {
                 "name": name,
@@ -1823,7 +1823,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 subscribed = True
                 group_name = entry["subgroup_name"]
             else:
-                notes.append("rule did not land (qB feed trouble?) — next sync retries")
+                notes.append("rule did not land (qB feed trouble?), next sync retries")
 
     imported = False
     if magnet:
@@ -1842,7 +1842,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 pass
             if not already:
                 raise
-            notes.append(f"torrent already in qB — claimed it for this show ({ex})")
+            notes.append(f"torrent already in qB, claimed it for this show ({ex})")
         imports = load_manual_imports()
         imports[(ep_hash or "").lower()] = {
             "bgm_id": bgm_id,
