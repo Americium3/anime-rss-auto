@@ -2530,6 +2530,14 @@ if (new URLSearchParams(location.search).has("probe")) {
     --hl: calc(50% - var(--lx, 0) * 22%);
     height: var(--rowh); padding: 0 0 var(--shelf); border: 0; background: none;
     display: flex; align-items: flex-end; cursor: pointer; font: inherit; color: inherit;
+    /* Each spine is its own small compositor layer. The archive is some
+       29,000 draw calls deep, and without this any change to one spine that
+       touched stacking or started an animation (coming to the front, the lift,
+       the fade into the light) made the browser re-raster every visible shelf,
+       about 100ms per volume the pointer crossed. The bus lights a spine here
+       for every volume crossed on the main shelf as well. As layers, the
+       stacking change is a reorder and the rest repaints one spine. */
+    will-change: transform;
   }
   .spine:focus-visible { outline: 2px solid var(--accent-b); outline-offset: -2px; }
   .spine:hover, .spine:focus-visible, .spine.open, .spine.lit, .spine.xhl {
