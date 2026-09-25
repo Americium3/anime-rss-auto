@@ -2000,6 +2000,28 @@ if (new URLSearchParams(location.search).has("probe")) {
      Escape, by the scrim, or by the close button, with focus returned to
      whatever opened it. Sliding is a transform so neither costs a layout.
      ========================================================================== */
+  /* The scroll guard: a clear pane over the page that takes the pointer only
+     while the page scrolls. Scrolling slides the wall under a pointer that
+     has not moved, and every volume it crossed would lift, light its copies
+     on the cross-highlight bus and settle again. Each of those sends the
+     browser back over every 3D layer on the wall (eight to a volume, over a
+     thousand on the finished shelf), and that is what made scrolling judder.
+     With the pane up the pointer is over nothing, so nothing lifts; the scroll
+     listener takes it down once the page has been still for 150ms, and the
+     volume under the pointer lifts then, once. It is one element, so putting
+     it up costs one element's restyle; switching pointer-events on the
+     volumes themselves restyled every node on the wall and cost more than
+     the lifts it saved. It comes and goes with display rather than
+     pointer-events because taking it away has to be a layout change under
+     the pointer: that is what makes the browser look again at what the
+     pointer is over. With pointer-events the volume under a still pointer
+     stayed down until the pointer moved. Below the scrim, so a sheet or
+     drawer is never covered, and on pointer devices only: a touch screen has
+     no hover to protect, and a tap just after a flick must land. */
+  .scroll-guard { display: none; position: fixed; inset: 0; z-index: 50; }
+  @media (hover: hover) {
+    html.scrolling .scroll-guard { display: block; }
+  }
   .scrim {
     position: fixed; inset: 0; z-index: 60;
     background: color-mix(in srgb, var(--bg) 72%, transparent);
@@ -2247,9 +2269,27 @@ if (new URLSearchParams(location.search).has("probe")) {
     }
     /* Parallax moves the furniture, not the room: the uprights and the lamp
        are mounted on the wall and must not drift, or the structure reads as
-       loose. It rides one custom property, so the scroll handler writes a
-       single value and the transforms stay on the compositor. */
-    .rail > :not(.lamp) { transform: translate3d(0, var(--par, 0px), 0); }
+       loose. The drift is a scroll-driven animation, so the compositor reads
+       the scroll offset and moves the furniture itself, and the page is never
+       restyled for it. It used to ride a custom property the scroll handler
+       wrote on the root every frame; a custom property inherits, so every
+       frame restyled all of the page's elements (7,000 on the finished shelf)
+       and scrolling stalled. The range keeps the handler's figures: 0.08px of
+       drift per pixel scrolled, stopping at 220px, which it reaches at 2750px.
+       Without scroll timelines the handler still runs, writing the transform
+       on these three blocks alone. Reduced motion stops the animation along
+       with every other (see its block under "small screens / touch"). */
+    @supports (animation-timeline: scroll()) {
+      .rail > :not(.lamp) {
+        animation: rail-drift linear both;
+        animation-timeline: scroll(root block);
+        animation-range: 0px 2750px;
+      }
+      @keyframes rail-drift {
+        from { transform: none; }
+        to   { transform: translate3d(0, 220px, 0); }
+      }
+    }
     /* The uprights: a polished brass gallery-rail edge on each pedestal, three
        stops so the moulding catches the light down its middle. Both are drawn
        from the same declaration and both now run the full height of the room. */
@@ -4083,6 +4123,7 @@ if (new URLSearchParams(location.search).has("probe")) {
 
 </div>
 
+<div class="scroll-guard" aria-hidden="true"></div>
 <div class="scrim" id="scrim" onclick="closeDrawers()"></div>
 
 <!-- The card, opened in the middle of the screen. Body is built by openCard();
@@ -8788,25 +8829,43 @@ function renderRoom() {
 roomMedia.addEventListener("change", () => {
   if ($("desk").dataset.open === "1") closeDrawers(true);
   placeDesk();
-  if (!roomOn()) { document.documentElement.style.removeProperty("--par"); return; }
+  if (!roomOn()) { driftBlocks().forEach(el => el.style.removeProperty("transform")); return; }
   renderRoom();
   refreshLedger();
 });
 
 // Depth: the rails drift down at a fraction of the page's scroll, so the room
-// keeps a back wall instead of sliding away as one sheet. One rAF-coalesced
-// write of a custom property — the transform itself never leaves the
-// compositor. Reduced motion opts out entirely; unanchored drift is exactly
-// what it asks to be spared.
+// keeps a back wall instead of sliding away as one sheet. Where the browser
+// has scroll timelines the stylesheet does this on the compositor (see
+// rail-drift) and this handler never writes. Elsewhere it sets the transform
+// on the three drifting blocks directly, once per frame: a transform does not
+// inherit, so only those three are restyled. Reduced motion opts out
+// entirely; unanchored drift is exactly what it asks to be spared.
+const scrollTimelines = window.CSS && CSS.supports("animation-timeline: scroll()");
+const driftBlocks = () => document.querySelectorAll(".rail > :not(.lamp)");
 let parQueued = false;
 window.addEventListener("scroll", () => {
-  if (parQueued || !roomOn() || reduceMotion.matches) return;
+  if (scrollTimelines || parQueued || !roomOn() || reduceMotion.matches) return;
   parQueued = true;
   requestAnimationFrame(() => {
     parQueued = false;
-    const y = Math.min(window.scrollY * 0.08, 220);
-    document.documentElement.style.setProperty("--par", `${y.toFixed(1)}px`);
+    const y = Math.min(window.scrollY * 0.08, 220).toFixed(1);
+    driftBlocks().forEach(el => { el.style.transform = `translate3d(0, ${y}px, 0)`; });
   });
+}, { passive: true });
+
+// The guard takes the pointer while the page scrolls, so the wall sliding
+// under it lifts nothing (see .scroll-guard in the stylesheet). The class goes
+// on with the first scroll event and comes off once 150ms pass without
+// another.
+let scrollQuiet = 0;
+window.addEventListener("scroll", () => {
+  if (!scrollQuiet) document.documentElement.classList.add("scrolling");
+  clearTimeout(scrollQuiet);
+  scrollQuiet = setTimeout(() => {
+    scrollQuiet = 0;
+    document.documentElement.classList.remove("scrolling");
+  }, 150);
 }, { passive: true });
 
 setInterval(tickClocks, 1000);
