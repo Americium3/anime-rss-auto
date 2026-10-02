@@ -579,6 +579,27 @@ def qb_get_json(path: str):
     return json.loads(http_get(f"{QB}{path}").decode("utf-8", "replace"))
 
 
+# qB keeps at most this many articles per feed and silently drops anything that
+# would sort past the limit. Its default is 50, and a feed of one long show
+# (52 weekly episodes) hits it exactly: episodes 51 and 52 aired but the rule
+# never saw them, and the log only said "0 new articles" every five minutes.
+RSS_MIN_ARTICLES_PER_FEED = 500
+
+
+def qb_ensure_rss_capacity() -> None:
+    """Raise qB's per-feed article limit when it is below RSS_MIN_ARTICLES_PER_FEED.
+
+    Only ever raises it: a larger value the user set by hand is left alone.
+    """
+    cur = qb_get_json("/api/v2/app/preferences").get("rss_max_articles_per_feed")
+    if isinstance(cur, int) and cur >= RSS_MIN_ARTICLES_PER_FEED:
+        return
+    qb_post("/api/v2/app/setPreferences",
+            {"json": json.dumps({"rss_max_articles_per_feed": RSS_MIN_ARTICLES_PER_FEED})})
+    print(f"# qB RSS article limit {cur} -> {RSS_MIN_ARTICLES_PER_FEED}"
+          " (a feed past the limit drops its newest episodes)")
+
+
 def mikan_cookie(args) -> str | None:
     return getattr(args, "mikan_cookie", None) or CONFIG.get("mikan_cookie")
 
@@ -4911,6 +4932,11 @@ def run_sync_once(user, cookie, season, purge, token=None):
     global _PASS_COUNT
     _PASS_COUNT += 1
     print(f"=== sync @ {datetime.datetime.now():%Y-%m-%d %H:%M:%S} (user {user}) ===")
+    try:
+        qb_ensure_rss_capacity()
+    except Exception:  # noqa: BLE001
+        print("!!! qB RSS 上限检查出错（不影响本轮 sync）：")
+        traceback.print_exc()
     ctx = SyncContext(user, token)
     ctx.warm_from_rules()   # cold-start: seed bgm_id<->mikan_id from live rules once
     if CONFIG.get("premiere_watch_enabled", True):
