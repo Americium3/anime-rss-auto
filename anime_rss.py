@@ -4225,6 +4225,25 @@ def _has_known_variant_tag(name: str) -> bool:
     return any(d(name) is not None for d in _VARIANT_DIMS)
 
 
+# 整季/合集包（如 LoliHouse 完结后补发的 `[01-12]`）：RSS 规则是逐条匹配，一个
+# 已追完的番的 feed 里冒出合集包也会被抓下，白占几 GB 且与已有单集完全重复。
+# 非正则规则表达不了集数区间，所以只能下载后删。
+_BATCH_RANGE_RE = re.compile(
+    r"[\[(（【]\s*(?:第\s*)?(\d{1,3})\s*[-~～]\s*(\d{1,3})\s*(?:话|話|集|END|Fin)?"
+    r"\s*(?:\+\s*[A-Za-z0-9]+\s*)?[\])）】]", re.I)
+_BATCH_WORDS = ("合集", "全集", "batch", "整季", "complete series", "bdbox", "bd-box")
+
+
+def _is_batch_pack(name: str) -> bool:
+    """种子名是否是整季/合集包（集数区间 `[01-12]` 或 合集/Batch 等字样）。"""
+    if not CONFIG.get("reject_batch_packs", True):
+        return False
+    low = name.lower()
+    if any(w in low for w in _BATCH_WORDS):
+        return True
+    return any(int(a) < int(b) for a, b in _BATCH_RANGE_RE.findall(name))
+
+
 def _hard_reject(name: str) -> bool:
     """种子名是否命中生肉硬拒绝标记（Netflix/Amazon/… 无中文字幕的双语生肉）。
 
@@ -4453,14 +4472,16 @@ def reconcile_rule_cjk_whitelist(*, ctx: "SyncContext | None" = None, dry_run: b
 def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
     """删掉命中生肉硬拒绝标记的种子（含文件），无条件、不参与版本排序。
 
-    针对 mikan 交叉发布进来的无中文字幕生肉（Netflix/Amazon/… 双语版）。只动
+    针对 mikan 交叉发布进来的无中文字幕生肉（Netflix/Amazon/… 双语版），以及
+    漏进规则 feed 的整季/合集包（见 _is_batch_pack；手动导入的除外）。只动
     SKIP_BEFORE_SEASON 之后的番；无法判定季度的一律不碰（守旧番红线）；订了生肉桶
     的番整番不碰（见 RAW_SUBGROUP_IDS——那是点名要的，不是漏进来的）。与
     prefer_variant_dedup 互补：那个按优先级留一版删其余，这个是「见到就删」。
     """
     _HARD_REJECTED_NAMES.clear()
-    if not HARD_REJECT_TAGS:
+    if not HARD_REJECT_TAGS and not CONFIG.get("reject_batch_packs", True):
         return 0
+    manual_hashes = set(load_manual_imports())  # 主人亲手粘的包，不删
     torrents = qb_get_json("/api/v2/torrents/info")
     rule_by_path = rules_by_savepath(ctx.rules() if ctx else existing_rules())
     mikan_cache = ctx.rule_bgmid if ctx else {}
@@ -4476,7 +4497,8 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
         if rule_wants_raw(rule_by_path.get(sp)):
             continue  # 这番订的就是生肉桶 -> 删的正是点名要的东西
-        if _hard_reject(t["name"]):
+        if _hard_reject(t["name"]) or (
+                _is_batch_pack(t["name"]) and t["hash"].lower() not in manual_hashes):
             victims.append(t)
     for t in victims:
         print(f"  hard-reject: 删生肉 {t['name']}")
