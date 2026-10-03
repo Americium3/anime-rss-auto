@@ -31,7 +31,7 @@ Jellyfin 建库、看过状态回写——全部自动完成。或者只标成**
 | 模块 | 作用 | 开关 |
 |---|---|---|
 | **sync / watch** | bgm 在看列表 → mikan feed + qB 规则（保存路径 `<库>\<YYYY.MM>\<番名>`、季度标签） | 核心 |
-| **开播自动追（premiere watch）** | 想看列表里的番在开播当天自动提升为在看（以 bgm 第一集放送日为门槛；可用 `premiere_times.json` 覆盖），并在面板弹开播横幅。先行版按名字（先行/予告）、大小（> 2 GB）、开播前发布日期三重剔除 | `premiere_watch_enabled` |
+| **开播自动追（premiere watch）** | 想看列表里的番在开播当天自动提升为在看（以 bgm 第一集放送日和 AniList 放送日中较早的一个为门槛，因为 bgm 有时记的是电视台日期，比网络同步晚几天；可用 `premiere_times.json` 覆盖），并在面板弹开播横幅。先行版按名字（先行/予告）、大小（> 2 GB）、开播前发布日期三重剔除 | `premiere_watch_enabled` |
 | **字幕组优先级** | 按你排好的优先级为每部番选一个字幕组；绝不重复下多个组 | `group_priority` |
 | **番剧解析（show resolution）** | 用番的 `name_cn` / `name` 在 mikan 站内搜索定位其 feed，搜不到时再用 bgm 别名（别名 / 罗马字）：mikan 索引的是发布名/原名，所以显示中文名与之不同的番（如 `正后方的神威` vs. mikan 的 `从后面来的神威先生`）也能靠罗马字别名解析到。每个搜索词在原串搜不到时会自动去掉波浪号（～）重试：mikan 站内搜索对含 ～ 的查询一律返回空，否则「主标题 ～副标题～」式的番名会全军覆没。每个候选都以 mikan 页面的 bgm id 校验，名字再松也不会张冠李戴。连别名都对不上的顽固番可在 `mikan_overrides.json`（`bgm_id` → mikan `bangumiId`）里手动钉死，它被最优先查。**已开播**却仍解析不到的番会在面板弹出警告横幅：这是持续状态而非一次性事件，番一旦解析成功横幅自动消失，不再静默失败 | `unresolved_scan_enabled` / `mikan_overrides.json` |
 | **手动解析（manual resolve）** | 「未匹配 mikan」横幅自带一个粘贴框：把 mikan 链接丢进去就能手动钉死这部番，不用再编辑 `mikan_overrides.json`。贴**番组页**链接——或页面上带番组反查的**剧集页**链接——会写入 override 并走正常订阅管线（feed + 规则 + mikan 订阅，文件夹惯例完全一致）；剧集页链接还会**立即下载你贴的那个资源本体**（你挑的就是它，即使规则的组过滤词永远不会匹配到它）。**没有**番组反查的剧集页（一次性资源：冷番补完式的剧场版/特别篇，在 mikan 上不属于任何番组、RSS 永远匹配不到）或裸磁力链则作为一次性导入：磁力直接交给 qB、落进该番的库文件夹，同时在 `manual_imports.json` 记下 `infohash → bgm subject`，让 mark-watched / jfhook / autocomplete 把这个无规则的种子当成规则下载的一样认领（单本篇集的番不需要文件名里有集数，剧场版规格）。成功后想看自动升在看、横幅立即消失。也可脚本化：`python anime_rss.py resolve --bgm-id N --url <链接>` | 常开 |
