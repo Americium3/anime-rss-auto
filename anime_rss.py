@@ -813,6 +813,9 @@ _SPAN_NO_ANSWER = "_noanswer"
 _SPAN_FAULT_TTL = 300
 
 
+_FULL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
+
+
 def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
     """{'first','last','count'} of a subject's main-episode (type=0) airdates —
     the authoritative broadcast schedule. bgm publishes future episode airdates up
@@ -840,6 +843,9 @@ def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
             # for the same subject. It never reaches disk; see save_span_cache.
             if time.time() - hit.get("_ts", 0) < _SPAN_FAULT_TTL:
                 return hit
+        elif not all(_FULL_DATE.match(hit[k]) for k in ("first", "last") if hit.get(k)):
+            pass  # written while bgm held a year-only airdate: "2026" < any 2026 date
+            # reads as finished-forever, so refetch instead of trusting it
         else:
             finished = hit.get("last") and hit["last"] < today
             if finished or time.time() - hit.get("_ts", 0) < 86400:
@@ -850,7 +856,8 @@ def bgm_episode_span(subject_id: int, cache: dict[int, dict]) -> dict:
         d = json.loads(http_get(
             f"{BGM_API}/v0/episodes?subject_id={subject_id}&type=0&limit=100", retries=2
         ).decode("utf-8", "replace"))
-        airs = sorted(e["airdate"] for e in d.get("data", []) if e.get("airdate"))
+        airs = sorted(e["airdate"] for e in d.get("data", [])
+                      if _FULL_DATE.match(e.get("airdate") or ""))
     except Exception as ex:  # noqa: BLE001
         # 404 = no such subject = it genuinely has no episodes, a cacheable fact. An
         # outage is not: an empty span is indistinguishable from "this show has no
@@ -3888,10 +3895,32 @@ def show_premiere_date(bgm_id: int, subject_date: str, cache: dict[int, str | No
     if ov:
         return str(ov)[:10]
     ad = bgm_first_airdate(bgm_id, cache)
-    if ad:
-        return ad
     sd = (subject_date or "").strip()
-    return sd[:10] if re.match(r"\d{4}-\d{2}-\d{2}", sd) else None
+    bgm_date = ad or (sd[:10] if re.match(r"\d{4}-\d{2}-\d{2}", sd) else None)
+    # bgm often files the TV-station date, a few days after the web simulcast has
+    # already aired (Romelia Senki: bgm 10-05, AniList + the mikan CR rip 10-03).
+    # Whichever source says the show aired first wins; the 先行 name/size/pubDate
+    # filters still guard against pre-air releases.
+    al = _anilist_airdate(bgm_id)
+    if al and (not bgm_date or al < bgm_date):
+        return al
+    return bgm_date
+
+
+def _anilist_airdate(bgm_id: int) -> str | None:
+    """JST calendar date of the show's first broadcast per AniList, read from the
+    airing_cache.json the panel fills (webui.show_air_info). None when unknown."""
+    path = Path(__file__).with_name("airing_cache.json")
+    try:
+        ent = json.loads(path.read_text(encoding="utf-8")).get(str(bgm_id)) or {}
+    except Exception:  # noqa: BLE001
+        return None
+    at = ent.get("at")
+    if isinstance(at, (int, float)) and at > 0:
+        jst = datetime.timezone(datetime.timedelta(hours=9))
+        return datetime.datetime.fromtimestamp(at, jst).date().isoformat()
+    d = ent.get("date")
+    return d if isinstance(d, str) and re.match(r"\d{4}-\d{2}-\d{2}$", d) else None
 
 
 def mikan_feed_real_episodes(mikan_id: int, subgroup: int, premiere_date: str | None) -> bool:
