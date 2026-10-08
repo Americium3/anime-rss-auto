@@ -4321,6 +4321,12 @@ const I18N = {
     nmbMagnetPh: "magnet:?xt=urn:btih:…",
     nmbMagnetHint: "Takes this one release into the library, for the movies and specials mikan has no feed for",
     nmbGoMagnet: "Import",
+    replHead: "Bound by hand. Swap the source",
+    replMikanHint: "Subscribes the season, then deletes the hand-imported release above",
+    replMagnetHint: "Fetches this release, then deletes the one above, files included",
+    replGoMikan: "Subscribe and swap",
+    replGoMagnet: "Swap",
+    replConfirm: "Delete the current release and its files, and take the new source instead?",
     t_watching: "Watching", t_want: "Plan to watch",
     t_done: "Completed", t_onhold: "On hold", t_dropped: "Dropped",
     t_no_mikan: "Awaiting mikan",
@@ -4504,6 +4510,12 @@ const I18N = {
     nmbMagnetPh: "magnet:?xt=urn:btih:…",
     nmbMagnetHint: "只把这一个资源收进库，mikan 没有 feed 的剧场版 / 特别篇走这条",
     nmbGoMagnet: "导入",
+    replHead: "已手动接入，可换源",
+    replMikanHint: "订阅整季，然后删掉上面手动导入的那一版",
+    replMagnetHint: "下载这个资源，再把上面那一版连文件一起删掉",
+    replGoMikan: "订阅并换源",
+    replGoMagnet: "换源",
+    replConfirm: "要删除当前这一版和它的文件，改用新的来源吗？",
     t_watching: "在看", t_want: "想看",
     t_done: "看过", t_onhold: "搁置", t_dropped: "抛弃",
     t_no_mikan: "待接入",
@@ -5573,30 +5585,50 @@ const coverHtml = url => url
 // magnet are different decisions (subscribe the whole season vs. take this one
 // release and nothing else), and a movie is almost always the second, which is
 // precisely what mikan carries worst.
-function noMikanBox(bgmId) {
+function noMikanBox(bgmId, opts) {
+  opts = opts || {};
+  const swap = !!opts.replace;
   // The two buttons are labelled for what they each do, not both "Resolve":
   // one takes on a season, the other takes a single file, and a shared verb
   // would undo the separation the two boxes exist to make.
   const row = (key, pre, ph, hint, go) => {
-    const which = pre === "cmag" ? "magnet" : "mikan";
+    const which = pre.endsWith("mag") ? "magnet" : "mikan";
     return `
     <div class="nmb-row">
       <div class="nmb-lab">${t(key)}</div>
       <div class="grouprow murl">
         <input id="${pre}-${bgmId}" type="text" placeholder="${esc(t(ph))}" spellcheck="false"
                aria-label="${esc(t(key))}"
-               onkeydown="if(event.key==='Enter')resolveFromCard(${bgmId},'${which}')">
+               onkeydown="if(event.key==='Enter')resolveFromCard(${bgmId},'${which}',${swap})">
         <button class="btn small" id="${pre}go-${bgmId}"
-                onclick="resolveFromCard(${bgmId},'${which}')">${t(go)}</button>
+                onclick="resolveFromCard(${bgmId},'${which}',${swap})">${t(go)}</button>
       </div>
       <div class="nmb-hint">${t(hint)}</div>
     </div>`;
   };
+  if (swap) {
+    const have = (opts.sources || []).map(x => {
+      const gb = x.size ? ` · ${(x.size / 2 ** 30).toFixed(2)} GiB` : "";
+      const pct = x.progress == null ? "" : ` · ${Math.round(x.progress * 100)}%`;
+      return `<div class="nmb-hint">▸ ${esc(x.name)}${gb}${pct}</div>`;
+    }).join("");
+    return `<div class="nomikan-box">
+    <div class="nmb-h"><span class="nmb-flag">⚑</span>${t("replHead")}</div>
+    ${have}
+    ${row("nmbMikan", "rmurl", "nmbMikanPh", "replMikanHint", "replGoMikan")}
+    ${row("nmbMagnet", "rmag", "nmbMagnetPh", "replMagnetHint", "replGoMagnet")}
+  </div>`;
+  }
   return `<div class="nomikan-box">
     <div class="nmb-h"><span class="nmb-flag">⚑</span>${t("nmbHead")}</div>
     ${row("nmbMikan", "cmurl", "nmbMikanPh", "nmbMikanHint", "nmbGoMikan")}
     ${row("nmbMagnet", "cmag", "nmbMagnetPh", "nmbMagnetHint", "nmbGoMagnet")}
   </div>`;
+}
+
+function boundBox(show) {
+  const src = show.manual_sources || [];
+  return src.length ? noMikanBox(show.bgm_id, { replace: true, sources: src }) : "";
 }
 
 function card(show) {
@@ -5684,7 +5716,7 @@ function card(show) {
       <h3>${bgmLink(show.bgm_id, esc(displayTitle(show)))}${showLinks(show)}</h3>
       ${jpLine(show)}
       ${airRow}${gaugeHtml(show)}${groupRow}${graceRow}${torrents}
-      ${show.no_mikan ? noMikanBox(show.bgm_id) : ""}
+      ${show.no_mikan ? noMikanBox(show.bgm_id) : boundBox(show)}
     </div>
   </div>`;
 }
@@ -5708,7 +5740,7 @@ function basicCard(s) {
       <h3>${bgmLink(s.bgm_id, esc(displayTitle(s)))}${showLinks(s)}</h3>
       ${jpLine(s)}
       ${airRow}
-      ${s.no_mikan ? noMikanBox(s.bgm_id) : ""}
+      ${s.no_mikan ? noMikanBox(s.bgm_id) : boundBox(s)}
     </div>
   </div>`;
 }
@@ -5913,7 +5945,7 @@ function refreshCard() {
   // Unfocused boxes with text survive the swap the way the banner's do
   // (refreshUnresolved): value only. Focus is put back on whichever control
   // had it, so a rebuild under a keyboard user does not drop them to <body>.
-  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"]')]
+  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"], input[id^="rmurl-"], input[id^="rmag-"]')]
     .filter(i => i.value).map(i => [i.id, i.value]);
   const fid = body.contains(a) && a.id ? a.id : "";
   setHTML(body, found.watching ? card(found.show) : basicCard(found.show));
@@ -7963,10 +7995,11 @@ async function dismissAllUnresolved() {
 // Parameterised by element id because the same call now has three front ends:
 // the banner (which is dismissible) and the two boxes on the card (which are
 // not — that is the point of them).
-async function resolveWith(bgmId, inputId, btnId) {
+async function resolveWith(bgmId, inputId, btnId, replace) {
   const inp = $(inputId);
   const url = inp ? inp.value.trim() : "";
   if (!url) { toast(t("resolvePh")); return; }
+  if (replace && !confirm(t("replConfirm"))) return;
   const btn = $(btnId);
   if (btn && btn.disabled) return; // double-click / Enter+click guard
   const label = btn ? btn.textContent : "";
@@ -7974,7 +8007,7 @@ async function resolveWith(bgmId, inputId, btnId) {
   try {
     const r = await fetch("/api/unresolved/resolve", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bgm_id: bgmId, url }),
+      body: JSON.stringify({ bgm_id: bgmId, url, replace: !!replace }),
     });
     const d = await r.json();
     if (r.ok && d.ok) {
@@ -8004,9 +8037,9 @@ async function resolveByUrl(bgmId) {
 // Both card boxes reach the same endpoint — the backend classifies what was
 // pasted, so neither box can be "wrong" — but they stay separate controls
 // because they are separate intentions, and saying so is the whole point.
-async function resolveFromCard(bgmId, which) {
-  const pre = which === "magnet" ? "cmag" : "cmurl";
-  return resolveWith(bgmId, `${pre}-${bgmId}`, `${pre}go-${bgmId}`);
+async function resolveFromCard(bgmId, which, replace) {
+  const pre = (replace ? "r" : "c") + (which === "magnet" ? "mag" : "murl");
+  return resolveWith(bgmId, `${pre}-${bgmId}`, `${pre}go-${bgmId}`, replace);
 }
 
 // One shared fast poll drives the sync button lifecycle — used both by the

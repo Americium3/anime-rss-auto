@@ -1746,8 +1746,38 @@ def parse_manual_url(url: str) -> tuple[str, str]:
     raise ValueError("not a mikan Episode/Bangumi link or magnet URI")
 
 
+def drop_manual_imports(bgm_id: int, keep: str | None, notes: list[str]) -> int:
+    """Delete this show's earlier one-shot imports (torrent, files, mirror links and
+    ledger entry) except `keep`. Backs the panel's "replace source" box: the old
+    release is thrown out only after the new one was accepted, so a bad paste can
+    never leave the show with nothing. A qB failure keeps that ledger entry."""
+    imports = load_manual_imports()
+    old = [h for h, v in imports.items()
+           if v.get("bgm_id") == bgm_id and h.lower() != (keep or "").lower()]
+    dropped = 0
+    for h in old:
+        try:
+            infos = qb_get_json(f"/api/v2/torrents/info?hashes={h}")
+            if infos:
+                t = infos[0]
+                qb_post("/api/v2/torrents/delete", {"hashes": t["hash"], "deleteFiles": "true"})
+                names = {t["name"], Path(t.get("content_path") or "").name} - {""}
+                mirror_unlink(t.get("save_path") or "", names)
+                notes.append(f"removed old source: {t['name']}")
+        except Exception as ex:  # noqa: BLE001
+            notes.append(f"could not remove old source {h[:8]}: {ex}")
+            continue
+        imports.pop(h, None)
+        dropped += 1
+    if dropped:
+        save_manual_imports(imports)
+        add_event("show.import_replaced", {"bgm_id": bgm_id, "dropped": dropped})
+    return dropped
+
+
 def manual_resolve(user: str, bgm_id: int, url: str, *,
-                   token: str | None = None, cookie: str | None = None) -> dict:
+                   token: str | None = None, cookie: str | None = None,
+                   replace: bool = False) -> dict:
     """Resolve one unmatched show from a pasted link — the banner's escape hatch.
 
     Two legs, both ending in the SAME downstream treatment a normal new-season
@@ -1765,6 +1795,9 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
     A pasted Episode link always adds its own magnet even when a subscription is
     also created: the user picked that exact release, and the rule's group
     filter may never match it.
+
+    With replace=True the show's earlier one-shot imports are deleted once the new
+    source is in (see drop_manual_imports).
     """
     kind, val = parse_manual_url(url)
     d = json.loads(
@@ -1886,6 +1919,8 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
     # An override on file IS a resolution even when there was nothing left to
     # subscribe (rule already there) — the banner's whole question is answered.
     resolved = subscribed or imported or bound
+    if resolved and replace:
+        drop_manual_imports(bgm_id, ep_hash if imported else None, notes)
 
     # 想看 -> 在看, same promotion premiere-watch does: the show is under
     # management now, so the watching pipeline (and autocomplete) owns it.

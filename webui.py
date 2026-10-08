@@ -558,6 +558,7 @@ def api_overview():
     rules = core.existing_rules()
     grace = core.load_grace()
     no_mikan = _no_mikan_ids()
+    manual_sources = _manual_sources()
 
     qb_ok = True
     try:
@@ -601,6 +602,7 @@ def api_overview():
             # minutes ago is that too), this says mikan itself has nothing to
             # subscribe to, which is the case only a human can settle.
             "no_mikan": s["bgm_id"] in no_mikan,
+            "manual_sources": manual_sources.get(s["bgm_id"], []),
             "rule": None,
             "grace": None,
             "torrents": [],
@@ -676,6 +678,29 @@ def _no_mikan_ids() -> set[int]:
         return set()
 
 
+def _manual_sources() -> dict[int, list[dict]]:
+    """bgm id -> the releases bound to that show by hand (manual_imports.json),
+    with qB's live name and progress, for the card's replace-source box."""
+    imports = core.load_manual_imports()
+    if not imports:
+        return {}
+    try:
+        live = {t["hash"].lower(): t for t in core.qb_get_json("/api/v2/torrents/info")}
+    except Exception:  # noqa: BLE001
+        live = {}
+    out: dict[int, list[dict]] = {}
+    for h, v in imports.items():
+        if not v.get("bgm_id"):
+            continue
+        t = live.get(h.lower())
+        out.setdefault(int(v["bgm_id"]), []).append({
+            "name": (t or {}).get("name") or v.get("name") or h[:8],
+            "size": (t or {}).get("size"),
+            "progress": round(float((t or {}).get("progress", 0)), 4) if t else None,
+        })
+    return out
+
+
 def _mark_no_mikan(out: dict) -> dict:
     """Stamp the live no-mikan set onto a collections payload.
 
@@ -684,10 +709,12 @@ def _mark_no_mikan(out: dict) -> dict:
     unaffected by that (same shows, same order) — only this flag moves.
     """
     ids = _no_mikan_ids()
+    sources = _manual_sources()
     n = 0
     for lst in out.get("groups", {}).values():
         for e in lst:
             e["no_mikan"] = e["bgm_id"] in ids
+            e["manual_sources"] = sources.get(e["bgm_id"], [])
             n += bool(e["no_mikan"])
     out.setdefault("counts", {})["no_mikan"] = n
     return out
@@ -1077,6 +1104,7 @@ def api_unresolved_dismiss(body: UnresolvedDismiss):
 class UnresolvedResolve(BaseModel):
     bgm_id: int
     url: str
+    replace: bool = False   # swap out the show's earlier hand-imported release
 
 
 @app.post("/api/unresolved/resolve")
@@ -1092,6 +1120,7 @@ def api_unresolved_resolve(body: UnresolvedResolve):
         r = core.manual_resolve(
             str(core.CONFIG.get("bgm_user")), body.bgm_id, url,
             token=core.bgm_token(None), cookie=core.CONFIG.get("mikan_cookie"),
+            replace=body.replace,
         )
     except ValueError:
         raise HTTPException(400, {"code": "bad_link"})
