@@ -8211,7 +8211,7 @@ async function toggleGroupPicker(bgmId, mikanId, currentGid) {
     // data stays cached and the next open renders from it.
     if (q !== seqG || list.hidden) return;
     list.innerHTML = groups.map(g => {
-      const rank = groupPriorityRank(g.id);
+      const rank = g.conflict ? 0 : groupPriorityRank(g.id);   // conflict: that id is another group in the priority list
       const tags = [
         g.id === currentGid ? `<b>${esc(t("gpickCurrent"))}</b>` : "",
         rank ? esc(t("gpickPriority", rank)) : "",

@@ -1397,6 +1397,47 @@ def feed_url(mikan_id: int, subgroup: int) -> str:
     return f"{MIKAN}/RSS/Bangumi?bangumiId={mikan_id}&subgroupid={subgroup}"
 
 
+def pick_one_per_episode_tag(titles: list[str]) -> str | None:
+    """The one bracketed tag that carries Simplified Chinese and appears exactly once
+    for (nearly) every episode in a group's feed, soft-subbed 内封 over hard-subbed
+    内嵌. A group that posts 简繁内封 / 繁体内嵌 / 简体内嵌 per episode would otherwise
+    hand qB three files each; filtering on this tag leaves one. None when no tag
+    qualifies (the caller keeps the generic Chinese-subtitle whitelist)."""
+    tag_eps: dict[str, list[str]] = {}
+    all_eps: set[str] = set()
+    for t in titles:
+        ep = _episode_key(t)
+        if ep is None:
+            continue
+        all_eps.add(ep)
+        for tag in re.findall(r"[\[【]([^\]】]+)[\]】]", t):
+            if re.search(r"简|CHS|SC|GB", tag):
+                tag_eps.setdefault(tag, []).append(ep)
+    best: tuple[int, int, str] | None = None
+    for tag, eps in tag_eps.items():
+        if len(eps) != len(set(eps)) or len(set(eps)) < 0.8 * len(all_eps):
+            continue   # posted twice for an episode, or misses too many of them
+        key = (len(set(eps)), 1 if "内封" in tag else 0, tag)
+        if best is None or key[:2] > best[:2]:
+            best = key
+    return best[2] if best else None
+
+
+def switch_must_contain(mikan_id: int, subgroup: int) -> str:
+    """mustContain for a rule being pointed at `subgroup`: the group's configured
+    filter if it has one, else the single per-episode Simplified-Chinese tag read off
+    its live feed, else the generic Chinese-subtitle whitelist."""
+    base = GROUP_FILTER.get(subgroup, "")
+    if base:
+        return base
+    try:
+        xml = http_get(feed_url(mikan_id, subgroup), retries=1).decode("utf-8", "replace")
+        titles = [html.unescape(m) for m in re.findall(r"<item>.*?<title>(.*?)</title>", xml, re.S)]
+    except Exception:  # noqa: BLE001
+        return CJK_SUB_REQUIRED
+    return pick_one_per_episode_tag(titles) or CJK_SUB_REQUIRED
+
+
 def existing_rules() -> dict:
     return qb_get_json("/api/v2/rss/rules")
 
