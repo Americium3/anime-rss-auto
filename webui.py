@@ -48,6 +48,41 @@ app = FastAPI(title="anime-rss-auto control panel", docs_url=None, redoc_url=Non
 _mikan_bgm: dict[int, int | None] = {}          # mikan_id -> bgm_id
 _group_names: dict[int, str] = dict(core.GROUP_NAME)  # subgroup id -> display name
 _scanned_mids: set[int] = set()                 # mikan ids whose page we already parsed for group names
+# A subgroup id is not one group everywhere: mikan 3887 lists #203 as 桜都字幕组 while
+# GROUP_NAME (seeded from the config's priority list) calls #203 Skymoon. The page being
+# asked about is the authority for its own ids, so its names are kept per (mikan id,
+# subgroup id) and win over the static map. Persisted so a restart does not refetch
+# every page just to learn names it already learned.
+GROUP_NAMES_PATH = ROOT / "group_names_cache.json"
+_page_names: dict[tuple[int, int], str] = {}
+
+
+def _load_page_names() -> None:
+    try:
+        for k, v in json.loads(GROUP_NAMES_PATH.read_text(encoding="utf-8")).items():
+            mid, gid = k.split(":")
+            _page_names[(int(mid), int(gid))] = v
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _save_page_names() -> None:
+    try:
+        tmp = GROUP_NAMES_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({f"{m}:{g}": n for (m, g), n in _page_names.items()},
+                                  ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, GROUP_NAMES_PATH)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _same_group(page_name: str, static_name: str) -> bool:
+    """Whether the static map's label for an id agrees with the page's own name."""
+    low = page_name.lower()
+    return any(tok.strip().lower() in low for tok in static_name.split("/") if tok.strip())
+
+
+_load_page_names()
 
 
 def _seed_mikan_bgm() -> None:
@@ -523,10 +558,18 @@ def mikan_subgroups_named(mikan_id: int) -> list[dict]:
     ):
         name = html.unescape(re.sub(r"<[^>]+>", "", inner)).strip()
         if name:
+            _page_names[(mikan_id, int(gid))] = name
             _group_names.setdefault(int(gid), name)
+    _save_page_names()
     ids = sorted({int(x) for x in re.findall(r"subgroupid=(\d+)", html_txt)})
     # name=None for unknown groups: the label language is the frontend's call.
-    return [{"id": i, "name": _group_names.get(i)} for i in ids]
+    out = []
+    for i in ids:
+        page, static = _page_names.get((mikan_id, i)), core.GROUP_NAME.get(i)
+        out.append({"id": i, "name": page or _group_names.get(i),
+                    # the configured priority list means a different group by this id
+                    "conflict": bool(page and static and not _same_group(page, static))})
+    return out
 
 
 def ensure_group_name(mikan_id: int | None, gid: int | None) -> str | None:
@@ -535,7 +578,9 @@ def ensure_group_name(mikan_id: int | None, gid: int | None) -> str | None:
     overview would otherwise show a bare id until the user opens the dropdown."""
     if not gid:
         return None
-    if gid not in _group_names and mikan_id and mikan_id not in _scanned_mids:
+    if mikan_id and (mikan_id, gid) in _page_names:
+        return _page_names[(mikan_id, gid)]
+    if mikan_id and mikan_id not in _scanned_mids:
         try:
             mikan_subgroups_named(mikan_id)  # fills _group_names as a side effect
         except Exception:  # noqa: BLE001 — network/parse failure degrades to "#id"
@@ -544,7 +589,7 @@ def ensure_group_name(mikan_id: int | None, gid: int | None) -> str | None:
             # Mark scanned regardless so a permanently-nameless group isn't
             # re-fetched on every single poll.
             _scanned_mids.add(mikan_id)
-    return _group_names.get(gid)
+    return _page_names.get((mikan_id, gid)) or _group_names.get(gid)
 
 
 # --------------------------------------------------------------------------- #
@@ -1207,7 +1252,8 @@ def api_rule_switch(body: RuleSwitch):
         raise HTTPException(400, {"code": "no_mikan_feed"})
     if old_gid == body.subgroup:
         return {"ok": True, "code": "switched",
-                "group": _group_names.get(body.subgroup, str(body.subgroup)),
+                "group": _page_names.get((mid, body.subgroup))
+                         or _group_names.get(body.subgroup, str(body.subgroup)),
                 "note": "already on that subgroup"}
 
     notes = []
@@ -1240,6 +1286,12 @@ def api_rule_switch(body: RuleSwitch):
                      "deleteFiles": "true"},
                 )
                 deleted = len(victims)
+                # Hand-imported releases that just went with the folder: drop their
+                # ledger rows so the card does not keep listing ghosts.
+                gone = {t["hash"].lower() for t in victims}
+                ledger = core.load_manual_imports()
+                if gone & set(ledger):
+                    core.save_manual_imports({h: v for h, v in ledger.items() if h not in gone})
         except Exception as ex:  # noqa: BLE001
             notes.append(f"delete old files: {ex}")
     elif save_path:
@@ -1265,7 +1317,7 @@ def api_rule_switch(body: RuleSwitch):
 
     # 2) rewrite the rule
     rdef["affectedFeeds"] = [new_feed]
-    rdef["mustContain"] = core.GROUP_FILTER.get(body.subgroup, "")
+    rdef["mustContain"] = core.switch_must_contain(mid, body.subgroup)
     # We just deleted the whole folder, so let qB re-match every episode of the
     # new feed instead of skipping ones it "already grabbed" under the old group.
     rdef["previouslyMatchedEpisodes"] = []
@@ -1291,7 +1343,7 @@ def api_rule_switch(body: RuleSwitch):
     except Exception as ex:  # noqa: BLE001
         notes.append(f"mirror-prune: {ex}")
 
-    grp = _group_names.get(body.subgroup, str(body.subgroup))
+    grp = _page_names.get((mid, body.subgroup)) or _group_names.get(body.subgroup, str(body.subgroup))
     return {"ok": True, "code": "switched", "group": grp, "notes": notes,
             "deleted": deleted, "note": f"rule now follows {grp}"}
 
