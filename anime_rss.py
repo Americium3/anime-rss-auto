@@ -185,6 +185,11 @@ RAW_SUBGROUP_IDS = {int(g) for g in CONFIG.get("raw_subgroup_ids", [202])}
 # zero-padded, so "2026.01" < "2026.04" < "2026.10" and "2025.10" < "2026.01").
 SKIP_BEFORE_SEASON = str(CONFIG.get("skip_before_season", "2026.04"))
 
+# 抛弃 (bgm type 5) tears the show off the disk too: torrents, files and mirror
+# links go with the rule; the mikan subscription stays. 看过 still keeps files.
+# Old cours stay hands-off either way (the season gate in reconcile_removed).
+DROP_DELETES_FILES = bool(CONFIG.get("drop_deletes_files", True))
+
 # Per-show override to the cutoff above: bgm_ids listed here are pinned as
 # "current" no matter how old their air date is. A long-running show from an old
 # cour (e.g. a weekly short that keeps airing) is then auto-managed exactly like
@@ -2387,6 +2392,11 @@ def remove_subscription(
     if delete_files:
         save_path = rdef.get("savePath", "")
         torrents = qb_torrents_under(save_path) if save_path else []
+        # The mirror holds hardlinks, so a deleted file whose link survives keeps its
+        # data on disk and its episode in Jellyfin. mirror_prune_orphan_files cannot
+        # catch it: it skips a show with no source videos left, which is exactly
+        # what a teardown leaves. Name every file now, unlink them after.
+        names = {f for _r, _d, fs in os.walk(save_path) for f in fs} if save_path else set()
         if torrents:
             hashes = "|".join(t["hash"] for t in torrents)
             try:
@@ -2398,6 +2408,20 @@ def remove_subscription(
             except Exception as ex:  # noqa: BLE001
                 print(f"     ! torrent delete failed: {ex}")
         remove_empty_dir(save_path)
+        if names and mirror_unlink(save_path, names):
+            try:
+                twin = Path(JELLYFIN_MIRROR) / Path(save_path).relative_to(BANGUMI_LIBRARY)
+                for d in sorted((p for p in twin.rglob("*") if p.is_dir()), key=lambda p: -len(p.parts)):
+                    if not any(d.iterdir()):
+                        d.rmdir()
+                if twin.is_dir() and not any(twin.iterdir()):
+                    twin.rmdir()
+            except (OSError, ValueError):
+                pass
+            try:
+                _jellyfin_refresh()
+            except Exception:  # noqa: BLE001
+                pass
     try:
         qb_post("/api/v2/rss/removeRule", {"ruleName": rname})
     except Exception as ex:  # noqa: BLE001
@@ -2426,7 +2450,9 @@ def reconcile_removed(
     """Tear down rules whose show left 在看.
 
     - 看过 (type 2): remove qB rule+feed only. KEEP mikan sub + local files.
-    - 抛弃 (type 5): remove qB rule+feed only. KEEP mikan sub + local files.
+    - 抛弃 (type 5): remove qB rule+feed + DELETE torrents, files and mirror links;
+      KEEP the mikan sub (2026-10-11: a dropped show is not to be kept on disk;
+      config drop_deletes_files=false restores the old keep-everything behaviour).
     - 未收藏 / 取消收藏 (type none): unsubscribe mikan + DELETE files (if purge_dropped).
     - 想看 / 搁置 (type 1 / 4): conservatively KEEP everything (might resume).
     """
@@ -2435,7 +2461,7 @@ def reconcile_removed(
     feed_paths = ctx.feed_paths()
     print(f"# checking {len(rules)} rules against bgm status (user {user})")
 
-    rule_only, purge = [], []
+    rule_only, dropped, purge = [], [], []
     season_cache = ctx.season
     span_cache = ctx.span
     for rname, rdef in rules.items():
@@ -2481,6 +2507,9 @@ def reconcile_removed(
             sib = ctx.watching_sibling_of(rdef, bgm_id)
             if sib is not None:
                 print(f"     {rname}: 分割季同源条目 bgm={sib} 在看 -> keep")
+            elif ctype == 5 and DROP_DELETES_FILES:
+                dropped.append((rname, rdef))
+                print(f"  X  {rname}: 抛弃 -> 删 qB 规则 + 种子 + 本地文件 + 镜像，保留 mikan 订阅")
             elif ctype in (2, 5):
                 label = "看过" if ctype == 2 else "抛弃"
                 rule_only.append((rname, rdef))
@@ -2493,18 +2522,23 @@ def reconcile_removed(
             label = {1: "想看", 4: "搁置"}.get(ctype, str(ctype))
             print(f"     {rname}: {label} -> keep (may resume)")
 
-    if not rule_only and not purge:
+    if not rule_only and not dropped and not purge:
         print("\n# nothing to reconcile")
         return
     if dry_run:
         print(
             f"\n# [dry-run] rule_only(keep mikan+files)={len(rule_only)} "
+            f"dropped(抛弃, delete files)={len(dropped)} "
             f"purge(未收藏)={len(purge)} (delete files={purge_dropped})"
         )
         return
     for rname, rdef in rule_only:
         remove_subscription(
             rname, rdef, feed_paths, cookie, delete_files=False, unsubscribe_mikan=False
+        )
+    for rname, rdef in dropped:
+        remove_subscription(
+            rname, rdef, feed_paths, cookie, delete_files=True, unsubscribe_mikan=False
         )
     for rname, rdef in purge:
         remove_subscription(rname, rdef, feed_paths, cookie, delete_files=purge_dropped)
