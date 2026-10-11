@@ -24,3 +24,4 @@ scripts/shots/
 .claude/
 __pycache__/
 group_names_cache.json
+custom_keywords.json
