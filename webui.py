@@ -294,6 +294,8 @@ def _air_needs_lookup(ent: dict | None) -> bool:
         return True
     if ent.get("at") is not None:
         return False
+    if ent.get("en") is None and ent.get("q", 1) < _AIR_QUERY_REV:
+        return True   # missed before the short-title fallback existed: ask again now
     # A date-only show whose start date is months past is finished: AniList is
     # not going to schedule it now, and re-asking for dozens of them every TTL
     # would spend the pacer on shows that can never gain a slot. An upcoming one
@@ -304,6 +306,28 @@ def _air_needs_lookup(ent: dict | None) -> bool:
             if (datetime.date.today() - datetime.date.fromisoformat(d)).days > 90:
                 return False
     return int(time.time()) - ent.get("t", 0) >= _AIR_MISS_TTL
+
+
+# Bumped when the search terms change, so a miss the old terms produced is
+# retried at once instead of waiting out _AIR_MISS_TTL.
+_AIR_QUERY_REV = 2
+# A light-novel title on bgm carries its whole subtitle, and AniList's search
+# will not find 「凶乱令嬢ニア・リストン 病弱令嬢に転生した神殺しの武人の華麗なる無双録」
+# while it finds 「凶乱令嬢ニア・リストン」 at once. The head before the first
+# space, 〜 or full-width colon is tried when the full titles found nothing.
+_TITLE_HEAD_SPLIT = re.compile(r"[\s　〜～~：]")
+# A head cut off a sequel's title names the first season, which AniList will
+# happily return with a broadcast time years old.
+_SEQUEL_MARK = re.compile(
+    r"第\s*[0-9０-９一二三四五六七八九十]+\s*[期季部章]|season|\d+(?:st|nd|rd|th)|続|[ⅡⅢⅣ]|II+|[2-9２-９]期",
+    re.I)
+
+
+def _title_head(title: str) -> str | None:
+    if not title or _SEQUEL_MARK.search(title):
+        return None
+    head = _TITLE_HEAD_SPLIT.split(title.strip(), 1)[0].strip()
+    return head if len(head) >= 4 and head != title.strip() else None
 
 
 def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True) -> dict:
@@ -328,14 +352,19 @@ def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True
         return ent
     at = en = date = None
     found = unanswered = False
-    for term in (jp, cn):
-        if not term:
+    heads = [h for h in (_title_head(jp), _title_head(cn)) if h]
+    for term, is_head in [(jp, False), (cn, False)] + [(h, True) for h in heads]:
+        if not term or (is_head and found):
             continue
         m = _anilist_media(term, block)
         if m is _NO_ANSWER:
             unanswered = True
             continue
         if not m:
+            continue
+        # A shortened title can land on an older show of the same name; only a
+        # show still to air or airing now is taken from one.
+        if is_head and m.get("status") not in ("RELEASING", "NOT_YET_RELEASED"):
             continue
         found = True
         title = m.get("title") or {}
@@ -356,7 +385,7 @@ def show_air_info(bgm_id: int, jp: str, cn: str, cache: dict, block: bool = True
         # one term did resolve, the answer stands even though the other was throttled:
         # AniList has the show and simply hasn't scheduled it (and we keep its title).
         return ent or {"at": None, "en": None, "date": None, "t": 0}
-    ent = {"at": at, "en": en, "date": date, "t": now}
+    ent = {"at": at, "en": en, "date": date, "t": now, "q": _AIR_QUERY_REV}
     cache[key] = ent
     return ent
 

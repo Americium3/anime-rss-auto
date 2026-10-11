@@ -8620,20 +8620,37 @@ function projectSlot(s) {
 const TOKYO_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo",
   year: "numeric", month: "2-digit", day: "2-digit" });      // YYYY-MM-DD
 const tokyoDay = ms => TOKYO_DAY.format(new Date(ms));
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ymdMs = ymd => Date.parse(ymd + "T00:00:00Z");
+// bgm and AniList can date one run from two different broadcasts: 罗梅莉亚战记
+// is a Monday on bgm and a Saturday 21:00 on AniList, every week. That is a
+// standing offset, not a dark week, and read as one it pushed every walked
+// slot a week out, into Later, with a date nine days after it had aired.
+// Episode 1 on both sides measures the offset; the ledger is moved onto
+// AniList's weekday by it before any gap is read. Beyond three days the two
+// are not disagreeing about the weekday any more, so nothing is shifted.
+function ledgerOffsetMs(s, p) {
+  const e1 = p.episodes.find(e => e.ep === 1 && YMD_RE.test(e.airdate || ""));
+  if (!e1 || !s.airing_at) return 0;
+  const d = Math.round((ymdMs(e1.airdate) - ymdMs(tokyoDay(s.airing_at * 1000))) / 86400e3);
+  return Number.isFinite(d) && Math.abs(d) <= 3 ? d * 86400e3 : 0;
+}
 function ledgerSlot(s, ms) {
   const p = showProgress(s.bgm_id);
   if (!p || p.cold || !p.episodes || !p.episodes.length) return ms;   // cold: trust the arithmetic
   const day = tokyoDay(ms);
   const floor = tokyoDay(ms - 86400e3);
+  const off = ledgerOffsetMs(s, p);
+  const onSlot = e => new Date(ymdMs(e.airdate) - off).toISOString().slice(0, 10);
   // By date, not by state: an episode that leaked early reads "downloaded",
   // not "unaired", and would be skipped.
   // Shape-checked, not merely truthy: bgm hands airdates through unnormalised
   // (webui.py passes `ep.get("airdate") or None` straight out), and one
   // "2026" or "2026-13-40" would sort into the run by string comparison, parse
   // to NaN, and push every later episode of that show off the sheet for good.
-  const nx = p.episodes.find(e => /^\d{4}-\d{2}-\d{2}$/.test(e.airdate || "") && e.airdate >= floor);
+  const nx = p.episodes.find(e => YMD_RE.test(e.airdate || "") && onSlot(e) >= floor);
   if (!nx) return ms;                                                  // ledger exhausted: trust the slot
-  const gap = Math.round((Date.parse(nx.airdate + "T00:00:00Z") - Date.parse(day + "T00:00:00Z")) / 86400e3);
+  const gap = Math.round((ymdMs(onSlot(nx)) - ymdMs(day)) / 86400e3);
   if (!Number.isFinite(gap) || gap <= 1) return ms;                    // same broadcast, give or take the date line
   return ms + Math.ceil((gap - 1) / 7) * WEEK_MS;                      // bgm dates the next episode a later week
 }
@@ -8643,6 +8660,19 @@ function nextSlot(s) {
   // ledger says is dark.
   if (ms === null || !hasAired(s)) return ms;
   return ledgerSlot(s, ms);
+}
+
+// The next episode bgm has dated, as local midnight of that day, for a show on
+// the air that AniList never timed. Without it such a show had no line on the
+// board at all: nextSlot needs a time, and the --:-- line below was kept for
+// premieres only, so a running show vanished from the 48 hours it airs in.
+function ledgerNextDay(s) {
+  const p = showProgress(s.bgm_id);
+  if (!p || p.cold || !p.episodes) return null;
+  const n = new Date();
+  const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  const nx = p.episodes.find(e => YMD_RE.test(e.airdate || "") && e.airdate >= today);
+  return nx ? parseYmd(nx.airdate)?.getTime() ?? null : null;
 }
 
 function renderUpcoming() {
@@ -8657,6 +8687,12 @@ function renderUpcoming() {
       // timetable already files it under its weekday as --:--), never a
       // countdown to a midnight nobody scheduled.
       if (!s.airing_at && !hasAired(s) && Number.isFinite(airMs(s))) return [airMs(s), s, true];
+      // On the air, dated by bgm, untimed: today's episode stays on the board
+      // for the rest of the day rather than dropping off at midnight.
+      if (!s.airing_at && s.airing) {
+        const d = ledgerNextDay(s);
+        if (d !== null) return [Math.max(d, now), s, true];
+      }
       return [null, s, false];
     })
     .filter(([ms]) => ms !== null && ms >= now && ms <= end)
