@@ -1438,6 +1438,293 @@ def switch_must_contain(mikan_id: int, subgroup: int) -> str:
     return pick_one_per_episode_tag(titles) or CJK_SUB_REQUIRED
 
 
+# --- 自定义关键词：按番、按字幕组的最高优先级过滤 --------------------------- #
+# 主人在卡片上给某部番填一个关键词，只下载当前字幕组 feed 里标题命中它的那些集
+# （如桜都一集发「简体内嵌/繁体内嵌/简繁内封」三版，填「简繁内封」只要内封）。
+# 它压过一切自动取舍：
+#   * 规则 mustContain 直接换成关键词（顶掉组过滤词 / CJK 白名单 / 每集一标签）；
+#   * mustNotContain 里与关键词冲突的项（如关键词就是 ABEMA）被摘掉；
+#   * prefer_variant_dedup 同集取舍时命中关键词的版本先赢（源/语言排序只在命中者
+#     之间再比）；reject_hard_variants 不删命中关键词的种子。
+# 存储按 bgm_id -> {subgroup: keyword}：关键词是对某组命名习惯说的话，换组后旧词
+# 不套到新组上（新组自动过滤），换回来原词自动复活。语法同 qB 非正则：空格=且、
+# `|`=或、* ? 通配，大小写不敏感。
+CUSTOM_KEYWORDS_PATH = Path(__file__).with_name("custom_keywords.json")
+_EPISODE_HASH_RE = re.compile(r"/Episode/([0-9a-fA-F]{40})")
+
+
+def load_custom_keywords() -> dict[str, dict[str, str]]:
+    try:
+        data = json.loads(CUSTOM_KEYWORDS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for bid, per in data.items():
+        if str(bid).startswith("_") or not isinstance(per, dict):
+            continue
+        clean = {str(g): str(k).strip() for g, k in per.items() if str(k).strip()}
+        if clean:
+            out[str(bid)] = clean
+    return out
+
+
+def normalize_keyword(keyword: str) -> str:
+    """方括号进 qB 的通配会变成字符集（`[简繁内封]` = 四个字任一），与直觉相反；
+    主人照抄标题里的 `[1080P][简繁内封]` 时把括号当分隔，等于两个词都要有。"""
+    kw = re.sub(r"[\[\]【】]+", " ", str(keyword or ""))
+    alts = [" ".join(a.split()) for a in kw.split("|")]
+    return "|".join(a for a in alts if a)
+
+
+def custom_keyword(bgm_id, subgroup) -> str:
+    if bgm_id is None or subgroup is None:
+        return ""
+    return load_custom_keywords().get(str(bgm_id), {}).get(str(subgroup), "")
+
+
+def set_custom_keyword(bgm_id: int, subgroup: int, keyword: str) -> str:
+    """存/清一条关键词（空串=清），返回归一化后的词。"""
+    kw = normalize_keyword(keyword)
+    data = load_custom_keywords()
+    per = data.setdefault(str(bgm_id), {})
+    if kw:
+        per[str(subgroup)] = kw
+    else:
+        per.pop(str(subgroup), None)
+        if not per:
+            data.pop(str(bgm_id), None)
+    _atomic_write_json(CUSTOM_KEYWORDS_PATH, data)
+    return kw
+
+
+def _qb_wildcard(word: str) -> re.Pattern:
+    pat = re.escape(word).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.compile(pat, re.I)
+
+
+def qb_filter_match(expr: str, title: str) -> bool:
+    """按 qB 非正则过滤词的语义判断标题是否命中：`|` 分开的任一备选整体命中即可，
+    备选内空格分开的每个词都要出现（子串、大小写不敏感、* ? 通配）。空串恒命中。"""
+    if not (expr or "").strip():
+        return True
+    for alt in expr.split("|"):
+        words = alt.split()
+        if not words:
+            return True   # qB: "expr|" 恒命中，与正则同
+        if all(_qb_wildcard(w).search(title) for w in words):
+            return True
+    return False
+
+
+def drop_keyword_conflicts(must_not: str, keyword: str) -> str:
+    """摘掉 mustNotContain 里会把关键词版本拒掉的备选：该备选的每个词都落在关键词
+    某个词里（关键词 ABEMA -> 摘 ABEMA；关键词 先行 1080p -> 摘 先行）。其余照留。"""
+    if not keyword:
+        return must_not
+    kw_words = [w.lower() for w in re.split(r"[\s|]+", keyword) if w]
+    keep = []
+    for alt in (must_not or "").split("|"):
+        words = [w.lower() for w in alt.split()]
+        if not words:
+            continue
+        if all(any(w in k for k in kw_words) for w in words):
+            continue
+        keep.append(alt.strip())
+    return "|".join(keep)
+
+
+def restore_must_not_contain(must_not: str) -> str:
+    """关键词清掉/换组后，把默认排除词（先行）和源黑名单补回来。"""
+    base = str(CONFIG.get("rule_must_not_contain", "先行"))
+    tokens = [t for t in (must_not or "").split("|") if t.strip()]
+    have = {t.strip().lower() for t in tokens}
+    for t in base.split("|"):
+        if t.strip() and t.strip().lower() not in have:
+            tokens.append(t.strip())
+            have.add(t.strip().lower())
+    return _merge_must_not_contain("|".join(tokens))
+
+
+def rule_custom_keyword(rdef: dict | None, cache: dict[int, int | None]) -> str:
+    if not rdef:
+        return ""
+    gid = rule_subgroup_id(rdef)
+    if gid is None:
+        return ""
+    return custom_keyword(rule_bgm_id(rdef, cache), gid)
+
+
+def _rss_articles_by_feed() -> dict[str, list[dict]]:
+    """qB RSS 树里每个 feed URL 的条目（本地调用，不联网）。"""
+    tree = qb_get_json("/api/v2/rss/items?withData=true")
+    out: dict[str, list[dict]] = {}
+
+    def walk(node: dict) -> None:
+        for v in node.values():
+            if isinstance(v, dict) and "url" in v:
+                out[v["url"]] = v.get("articles") or []
+            elif isinstance(v, dict):
+                walk(v)
+
+    walk(tree)
+    return out
+
+
+def _article_hash(a: dict) -> str | None:
+    for k in ("link", "torrentURL", "torrent"):
+        m = _EPISODE_HASH_RE.search(str(a.get(k) or ""))
+        if m:
+            return m.group(1).lower()
+    m = re.search(r"/([0-9a-fA-F]{40})\.torrent", str(a.get("torrentURL") or ""))
+    return m.group(1).lower() if m else None
+
+
+def keyword_hits(rules: dict, cache: dict[int, int | None]) -> tuple[dict[str, str], set[str]]:
+    """(savePath -> 关键词, 命中关键词的种子 hash 集)。
+
+    种子名常与 RSS 标题写法不同（标题「简日双语」、种子里是 JPSC），只拿种子名去
+    比会把关键词版本认成「没命中」而被去重删掉。所以以 feed 条目为准：标题命中
+    关键词的条目，其 hash（mikan 条目链接里就是 infohash）就是关键词版本。"""
+    by_path: dict[str, str] = {}
+    feeds: dict[str, str] = {}
+    for rdef in rules.values():
+        kw = rule_custom_keyword(rdef, cache)
+        if not kw:
+            continue
+        sp = (rdef.get("savePath") or "").replace("\\", "/").rstrip("/").lower()
+        if sp:
+            by_path[sp] = kw
+        for f in rdef.get("affectedFeeds", []):
+            feeds[f] = kw
+    hashes: set[str] = set()
+    if feeds:
+        try:
+            arts = _rss_articles_by_feed()
+        except Exception:  # noqa: BLE001
+            arts = {}
+        for url, kw in feeds.items():
+            for a in arts.get(url, []):
+                if qb_filter_match(kw, str(a.get("title") or "")):
+                    h = _article_hash(a)
+                    if h:
+                        hashes.add(h)
+    return by_path, hashes
+
+
+def _is_keyword_hit(t: dict, by_path: dict[str, str], hashes: set[str]) -> bool:
+    if t.get("hash", "").lower() in hashes:
+        return True
+    sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
+    kw = by_path.get(sp)
+    return bool(kw) and qb_filter_match(kw, t.get("name") or "")
+
+
+def mark_present_articles_read(rdef: dict) -> int:
+    """把规则 feed 里「种子已在 qB」却仍未读的条目标成已读。
+
+    qB 每次 setRule 都会把未读条目重跑一遍；种子若是别的路径进来的（换组、手动加），
+    条目一直未读，重跑时 qB 再加一次、撞上已存在的种子，弹「添加 torrent 失败：
+    合并 Tracker 已禁用」。没有下载也没有删除，但每改一次规则就弹一次，故改规则前先清。"""
+    arts = _rss_articles_by_feed()
+    have = {t["hash"].lower() for t in qb_get_json("/api/v2/torrents/info")}
+    paths = rss_feed_paths()
+    n = 0
+    for f in rdef.get("affectedFeeds", []):
+        path = paths.get(f)
+        if not path:
+            continue
+        for a in arts.get(f, []):
+            if a.get("isRead") or _article_hash(a) not in have or not a.get("id"):
+                continue
+            try:
+                qb_post("/api/v2/rss/markAsRead", {"itemPath": path, "articleId": a["id"]})
+                n += 1
+            except Exception:  # noqa: BLE001
+                pass
+    return n
+
+
+def keyword_backfill(rdef: dict, keyword: str, *, dry_run: bool = False) -> list[str]:
+    """刚设关键词时补抓：qB 只重扫未读条目，而下过又被去重删掉的条目是已读的，
+    关键词再指向它也不会重下（如 Baha＞CR 删掉的 CR 版，主人现在点名要 CR）。
+    把 feed 里命中关键词、qB 里却没有这个种子的已读条目直接按磁力补进来。
+    只在主人保存关键词那一刻跑一次——每轮都补会把主人手动删掉的集再拉回来。"""
+    if not keyword:
+        return []
+    mnc = rdef.get("mustNotContain") or ""
+    arts = _rss_articles_by_feed()
+    have = {t["hash"].lower() for t in qb_get_json("/api/v2/torrents/info")}
+    season = (rdef.get("torrentParams", {}).get("tags") or [current_season()])[0]
+    save = (rdef.get("torrentParams", {}).get("save_path")
+            or (rdef.get("savePath") or "").replace("\\", "/"))
+    added: list[str] = []
+    for f in rdef.get("affectedFeeds", []):
+        for a in arts.get(f, []):
+            title = str(a.get("title") or "")
+            if not a.get("isRead") or not qb_filter_match(keyword, title):
+                continue
+            if mnc and qb_filter_match(mnc, title):
+                continue
+            if _is_batch_pack(title):
+                continue
+            h = _article_hash(a)
+            if not h or h in have:
+                continue
+            if not dry_run:
+                qb_add_magnet(f"magnet:?xt=urn:btih:{h}", save, season)
+            have.add(h)
+            added.append(title)
+    return added
+
+
+def reconcile_custom_keywords(*, ctx: "SyncContext | None" = None, dry_run: bool = False) -> int:
+    """把 custom_keywords.json 灌进对应规则（幂等，自愈）：mustContain=关键词、
+    mustNotContain 摘掉冲突项。新建的规则、被 mikan 搬家改写过的规则、面板外被
+    改动的规则下轮都会回到关键词。关键词是主人亲手设的，不受旧番季度红线限制。"""
+    if not load_custom_keywords():
+        return 0
+    if ctx:
+        ctx.invalidate_rules()   # 黑名单/白名单两趟刚写过规则，别拿旧快照把它们写回去
+    rules = ctx.rules() if ctx else existing_rules()
+    cache = ctx.rule_bgmid if ctx else {}
+    changed = 0
+    for rname, rdef in rules.items():
+        kw = rule_custom_keyword(rdef, cache)
+        if not kw:
+            continue
+        old_mc = rdef.get("mustContain", "") or ""
+        old_mnc = rdef.get("mustNotContain", "") or ""
+        new_mnc = drop_keyword_conflicts(old_mnc, kw)
+        if old_mc == kw and old_mnc == new_mnc and not rdef.get("useRegex"):
+            continue
+        print(f"  rule-keyword: {rname}  mustContain: {old_mc!r} -> {kw!r}"
+              + (f"  mustNotContain: {old_mnc!r} -> {new_mnc!r}" if new_mnc != old_mnc else ""))
+        if not dry_run:
+            nd = dict(rdef)
+            nd["mustContain"] = kw
+            nd["mustNotContain"] = new_mnc
+            nd["useRegex"] = False
+            try:
+                mark_present_articles_read(nd)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                qb_post("/api/v2/rss/setRule",
+                        {"ruleName": rname, "ruleDef": json.dumps(nd)})
+            except Exception as ex:  # noqa: BLE001
+                print(f"     ! setRule 失败: {ex}")
+                continue
+        changed += 1
+    if changed:
+        print(f"# rule-keyword: 更新 {changed} 条规则"
+              f"{'（dry-run 未实写）' if dry_run else ''}")
+        if ctx and not dry_run:
+            ctx.invalidate_rules()
+    return changed
+
+
 def existing_rules() -> dict:
     return qb_get_json("/api/v2/rss/rules")
 
@@ -1477,7 +1764,7 @@ def _merge_must_not_contain(base: str) -> str:
 
 
 def make_rule_def(name: str, season: str, feed: str, must_contain: str,
-                  must_not_contain: str | None = None) -> dict:
+                  must_not_contain: str | None = None, keyword: str = "") -> dict:
     save_bs = f"{BANGUMI_LIBRARY}\\{season}\\{name}"
     save_fs = save_bs.replace("\\", "/")
     if must_not_contain is None:
@@ -1485,6 +1772,9 @@ def make_rule_def(name: str, season: str, feed: str, must_contain: str,
         must_not_contain = str(CONFIG.get("rule_must_not_contain", "先行"))
     # 黑名单源（如 ABEMA）永不下载 -> 直接进 mustNotContain，feed 层就拦掉。
     must_not_contain = _merge_must_not_contain(must_not_contain)
+    if keyword:  # 主人的自定义关键词压过一切自动过滤（见 custom_keyword）
+        must_contain = keyword
+        must_not_contain = drop_keyword_conflicts(must_not_contain, keyword)
     return {
         "enabled": True,
         "mustContain": must_contain,
@@ -1626,6 +1916,8 @@ def build_plan(user: str, season: str, *, ctx: "SyncContext | None" = None,
             "mustContain": (GROUP_FILTER.get(resolved["subgroup"])
                             or ("" if resolved["subgroup"] in RAW_SUBGROUP_IDS
                                 else CJK_SUB_REQUIRED)),
+            # 主人在卡片上给这番这个组设过的关键词（换组再换回来、规则重建都认）。
+            "keyword": custom_keyword(s["bgm_id"], resolved["subgroup"]),
             "confidence": resolved["confidence"],
             "feed": feed_url(mid, resolved["subgroup"])
             if mid and resolved["subgroup"]
@@ -1691,7 +1983,8 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool,
         feed = feed_url(e["mikan_id"], e["subgroup"])  # rebuild from possibly-edited ids
         feed_path = e.get("feed_path") or f"{season}\\Mikan Project - {name}"
         if dry_run:
-            rd = make_rule_def(name, season, feed, e.get("mustContain", ""))
+            rd = make_rule_def(name, season, feed, e.get("mustContain", ""),
+                                keyword=e.get("keyword", ""))
             print(f"  [dry] folder {feed_path.rsplit(chr(92), 1)[0]}")
             print(f"  [dry] feed  {feed_path}")
             print(f"  [dry] rule  {name} -> {rd['savePath']}  ({feed})")
@@ -1709,7 +2002,8 @@ def apply_entries(to_add: list[dict], cookie: str | None, dry_run: bool,
             else:
                 print(f"  ! addFeed {name}: {ex} — SKIP rule (feed missing, would orphan)")
                 continue
-        rule_def = make_rule_def(name, season, feed, e.get("mustContain", ""))
+        rule_def = make_rule_def(name, season, feed, e.get("mustContain", ""),
+                                keyword=e.get("keyword", ""))
         try:
             qb_post(
                 "/api/v2/rss/setRule",
@@ -1915,6 +2209,7 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 "subgroup": subgroup,
                 "subgroup_name": GROUP_NAME.get(subgroup, f"subgroup {subgroup}"),
                 "mustContain": GROUP_FILTER.get(subgroup) or CJK_SUB_REQUIRED,
+                "keyword": custom_keyword(bgm_id, subgroup),
                 "feed_path": f"{season}\\{info['title']}",
             }
             apply_entries([entry], cookie, False)
@@ -4478,7 +4773,8 @@ def reconcile_rule_blacklist(*, ctx: "SyncContext | None" = None, dry_run: bool 
                     m.group(1), rule_bgm_id(rdef, mikan_cache), span_cache)):
             continue  # 旧番规则不碰（正在更新的半年番/年番豁免，照常补黑名单）
         old = rdef.get("mustNotContain", "") or ""
-        new = _merge_must_not_contain(old)
+        new = drop_keyword_conflicts(_merge_must_not_contain(old),
+                                     rule_custom_keyword(rdef, mikan_cache))
         if new != old:
             print(f"  rule-blacklist: {rname}  mustNotContain: {old!r} -> {new!r}")
             if not dry_run:
@@ -4523,6 +4819,8 @@ def reconcile_rule_cjk_whitelist(*, ctx: "SyncContext | None" = None, dry_run: b
             continue  # 旧番规则不碰（正在更新的半年番/年番豁免，照常升级）
         if rule_wants_raw(rdef):
             continue  # 订的就是生肉桶：灌白名单等于把这条规则拒收成空
+        if rule_custom_keyword(rdef, mikan_cache):
+            continue  # 主人的关键词（哪怕恰好是「简」这种白名单前缀）不许被白名单盖掉
         old = rdef.get("mustContain", "") or ""
         if not old or old == cur:
             continue
@@ -4559,9 +4857,11 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         return 0
     manual_hashes = set(load_manual_imports())  # 主人亲手粘的包，不删
     torrents = qb_get_json("/api/v2/torrents/info")
-    rule_by_path = rules_by_savepath(ctx.rules() if ctx else existing_rules())
+    rules = ctx.rules() if ctx else existing_rules()
+    rule_by_path = rules_by_savepath(rules)
     mikan_cache = ctx.rule_bgmid if ctx else {}
     span_cache = ctx.span if ctx else {}
+    kw_paths, kw_hashes = keyword_hits(rules, mikan_cache)
     victims = []
     for t in torrents:
         cour = _cour_of_torrent(t)
@@ -4573,6 +4873,8 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
         if rule_wants_raw(rule_by_path.get(sp)):
             continue  # 这番订的就是生肉桶 -> 删的正是点名要的东西
+        if _is_keyword_hit(t, kw_paths, kw_hashes):
+            continue  # 主人用关键词点名要的版本，生肉标记也不删
         if _hard_reject(t["name"]) or (
                 _is_batch_pack(t["name"]) and t["hash"].lower() not in manual_hashes):
             victims.append(t)
@@ -4606,11 +4908,13 @@ def prefer_variant_dedup(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
     季度/集号的种子一律不碰。只删「至少带一个可识别源/语言标签、且严格劣于同集最优
     版本」的种子——完全无标签的未知种子保留、不误伤（修正版维度不计入此标签判定）。
     """
-    if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
+    rules = ctx.rules() if ctx else existing_rules()
+    mikan_cache = ctx.rule_bgmid if ctx else {}
+    kw_paths, kw_hashes = keyword_hits(rules, mikan_cache)
+    if not kw_paths and not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
         return 0
     torrents = qb_get_json("/api/v2/torrents/info")
-    rule_by_path = rules_by_savepath(ctx.rules() if ctx else existing_rules())
-    mikan_cache = ctx.rule_bgmid if ctx else {}
+    rule_by_path = rules_by_savepath(rules)
     span_cache = ctx.span if ctx else {}
     groups: dict[tuple[str, str], list[dict]] = {}
     for t in torrents:
@@ -4627,8 +4931,21 @@ def prefer_variant_dedup(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         groups.setdefault((save, ep), []).append(t)
 
     victims: list[dict] = []
-    for items in groups.values():
+    for (save, _ep), items in groups.items():
         if len(items) < 2:
+            continue
+        if save in kw_paths:
+            # 关键词最优先：同集里有命中关键词的版本，其余版本一律让位（不看源/语言
+            # 标签），但要等命中的那份下完，否则它卡住时这集一份都没得看。
+            # 命中的若不止一份，再在它们之间按常规排序取舍。
+            hits = [t for t in items if _is_keyword_hit(t, kw_paths, kw_hashes)]
+            if hits:
+                if any(float(t.get("progress", 0)) >= 1 for t in hits):
+                    victims += [t for t in items if t not in hits]
+                items = hits
+                if len(items) < 2:
+                    continue
+        if not any(dims for dims in (SOURCE_PRIORITY, LANG_PRIORITY)):
             continue
         ranked = [(t, _variant_rank(t["name"])) for t in items]
         best = min(r for _t, r in ranked)
@@ -5100,6 +5417,7 @@ def run_sync_once(user, cookie, season, purge, token=None):
         try:
             reconcile_rule_blacklist(ctx=ctx)
             reconcile_rule_cjk_whitelist(ctx=ctx)
+            reconcile_custom_keywords(ctx=ctx)   # 主人的关键词最后落笔，压过上面两趟
             reject_hard_variants(ctx=ctx)   # 先删无中文字幕生肉（Netflix 等）
             prefer_variant_dedup(ctx=ctx)
         except Exception:  # noqa: BLE001
@@ -5190,6 +5508,7 @@ def cmd_dedup(args):
     """独立跑一趟同组同集多版本取舍：补规则黑名单 + 删生肉 + 同集只留最优版本。"""
     reconcile_rule_blacklist(dry_run=args.dry_run)
     reconcile_rule_cjk_whitelist(dry_run=args.dry_run)
+    reconcile_custom_keywords(dry_run=args.dry_run)
     reject_hard_variants(dry_run=args.dry_run)
     prefer_variant_dedup(dry_run=args.dry_run)
 

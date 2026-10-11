@@ -693,6 +693,7 @@ def api_overview():
                 "mikan_id": mid,
                 "subgroup": gid,
                 "subgroup_name": ensure_group_name(mid, gid),
+                "keyword": core.custom_keyword(s["bgm_id"], gid),
             }
             entry["status"] = "subscribed"
             # The panel only shows an n/m-ready summary — ship progress alone.
@@ -1264,6 +1265,116 @@ def api_grace_expire(body: GraceExpire):
             "note": "grace ended; next sync pass (<=5 min) locks the best available group"}
 
 
+def _rule_for_bgm(bgm_id: int) -> tuple[str, dict] | None:
+    for rname, rdef in core.existing_rules().items():
+        if core.rule_bgm_id(rdef, _mikan_bgm) == bgm_id:
+            return rname, rdef
+    return None
+
+
+def _feed_titles(rdef: dict) -> list[str]:
+    """Titles in the rule's feed, as qB holds them; mikan's own feed when qB has
+    not read it yet (a rule created a moment ago)."""
+    arts = core._rss_articles_by_feed()
+    titles = [str(a.get("title") or "")
+              for f in rdef.get("affectedFeeds", []) for a in arts.get(f, [])]
+    if not titles:
+        mid, gid = rule_subgroup(rdef)
+        if mid and gid:
+            xml = core.http_get(core.feed_url(mid, gid), retries=1).decode("utf-8", "replace")
+            titles = [html.unescape(m) for m in
+                      re.findall(r"<item>.*?<title>(.*?)</title>", xml, re.S)]
+    return list(dict.fromkeys(t for t in titles if t))
+
+
+@app.get("/api/rule/keyword")
+def api_keyword_preview(bgm_id: int, keyword: str = ""):
+    """What a keyword would take from the show's current group: every release in
+    the feed marked hit or not, plus how many episodes that covers. An empty
+    keyword previews the filter the rule runs on now."""
+    hit = _rule_for_bgm(bgm_id)
+    if not hit:
+        raise HTTPException(404, {"code": "no_rule"})
+    _rname, rdef = hit
+    mid, gid = rule_subgroup(rdef)
+    if not mid:
+        raise HTTPException(400, {"code": "no_mikan_feed"})
+    kw = core.normalize_keyword(keyword)
+    saved = core.custom_keyword(bgm_id, gid)
+    mnc = rdef.get("mustNotContain") or ""
+    if kw:
+        expr, mnc = kw, core.drop_keyword_conflicts(core.restore_must_not_contain(mnc), kw)
+    else:
+        expr = rdef.get("mustContain") or ""
+    try:
+        titles = _feed_titles(rdef)
+    except Exception as ex:  # noqa: BLE001
+        raise HTTPException(502, {"code": "mikan_fetch_failed", "message": str(ex)})
+    rows, eps, eps_hit = [], set(), {}
+    for t in titles:
+        take = core.qb_filter_match(expr, t) and not (mnc and core.qb_filter_match(mnc, t))
+        ep = core._episode_key(t)
+        if ep is not None:
+            eps.add(ep)
+            if take:
+                eps_hit[ep] = eps_hit.get(ep, 0) + 1
+        rows.append({"t": t, "hit": take})
+    return {
+        "keyword": kw, "saved": saved, "filter": expr,
+        "total": len(rows), "matched": sum(r["hit"] for r in rows),
+        "episodes": len(eps), "episodes_hit": len(eps_hit),
+        "doubled": sum(1 for n in eps_hit.values() if n > 1),
+        "titles": rows[:80],
+    }
+
+
+class KeywordSet(BaseModel):
+    bgm_id: int
+    keyword: str = ""   # empty clears it
+
+
+@app.post("/api/rule/keyword")
+def api_keyword_set(body: KeywordSet):
+    """Save (or clear) the show's keyword for the group it follows now and put it
+    on the qB rule at once. It outranks every automatic filter; see
+    core.custom_keyword."""
+    hit = _rule_for_bgm(body.bgm_id)
+    if not hit:
+        raise HTTPException(404, {"code": "no_rule"})
+    rname, rdef = hit
+    mid, gid = rule_subgroup(rdef)
+    if not mid or gid is None:
+        raise HTTPException(400, {"code": "no_mikan_feed"})
+    before = core.custom_keyword(body.bgm_id, gid)
+    kw = core.set_custom_keyword(body.bgm_id, gid, body.keyword)
+    nd = dict(rdef)
+    mnc = core.restore_must_not_contain(rdef.get("mustNotContain", ""))
+    if kw:
+        nd["mustContain"] = kw
+        nd["mustNotContain"] = core.drop_keyword_conflicts(mnc, kw)
+    else:
+        nd["mustContain"] = core.switch_must_contain(mid, gid)
+        nd["mustNotContain"] = mnc
+    nd["useRegex"] = False
+    # setRule makes qB re-run every unread article; one whose torrent is
+    # already in qB comes back as a "merging trackers is disabled" popup.
+    with contextlib.suppress(Exception):
+        core.mark_present_articles_read(nd)
+    try:
+        core.qb_post("/api/v2/rss/setRule", {"ruleName": rname, "ruleDef": json.dumps(nd)})
+    except Exception as ex:  # noqa: BLE001
+        core.set_custom_keyword(body.bgm_id, gid, before)   # the rule did not change, so neither does the record
+        raise HTTPException(502, {"code": "setrule_failed", "message": str(ex)})
+    notes, added = [], []
+    if kw:
+        try:
+            added = core.keyword_backfill(nd, kw)
+        except Exception as ex:  # noqa: BLE001
+            notes.append(f"backfill: {ex}")
+    return {"ok": True, "code": "kw_saved" if kw else "kw_cleared", "keyword": kw,
+            "added": len(added), "notes": notes}
+
+
 class RuleSwitch(BaseModel):
     rule_name: str
     subgroup: int
@@ -1346,7 +1457,17 @@ def api_rule_switch(body: RuleSwitch):
 
     # 2) rewrite the rule
     rdef["affectedFeeds"] = [new_feed]
-    rdef["mustContain"] = core.switch_must_contain(mid, body.subgroup)
+    # A keyword set earlier for the new group comes back with it; the old
+    # group's keyword stays filed under the old group and does not follow.
+    kw = core.custom_keyword(core.rule_bgm_id(rdef, _mikan_bgm), body.subgroup)
+    if kw:
+        rdef["mustContain"] = kw
+        rdef["mustNotContain"] = core.drop_keyword_conflicts(
+            core.restore_must_not_contain(rdef.get("mustNotContain", "")), kw)
+    else:
+        rdef["mustContain"] = core.switch_must_contain(mid, body.subgroup)
+        rdef["mustNotContain"] = core.restore_must_not_contain(rdef.get("mustNotContain", ""))
+    rdef["useRegex"] = False
     # We just deleted the whole folder, so let qB re-match every episode of the
     # new feed instead of skipping ones it "already grabbed" under the old group.
     rdef["previouslyMatchedEpisodes"] = []

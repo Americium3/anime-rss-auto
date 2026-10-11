@@ -1352,6 +1352,20 @@ if (new URLSearchParams(location.search).has("probe")) {
     margin-top: 4px; font-style: italic;
   }
   .nomikan-box .murl { margin-top: 0; }
+  /* The keyword docket: the same paper, ruled in ink rather than red. It is a
+     standing order the owner wrote, not a fault waiting to be cleared. */
+  .nomikan-box.kwbox::before { background: var(--accent-b); }
+  .kwbox .nmb-h { color: var(--accent-b); }
+  .kw-sum { font-size: calc(.8rem * var(--ui)); color: var(--text-dim); margin-top: 7px; }
+  .kw-sum.warn { color: var(--warn); }
+  .kw-list {
+    margin-top: 4px; max-height: 9.6em; overflow-y: auto;
+    font-size: calc(.76rem * var(--ui)); line-height: 1.5;
+  }
+  .kwt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
+  .kwt.hit { color: var(--text); }
+  .kwt .m { display: inline-block; width: 1.3em; font-family: var(--mono); }
+  .kwt.hit .m { color: var(--ok); }
   .gracebar { font-size: calc(.86rem * var(--ui)); color: var(--warn); display: flex; align-items: center; gap: 10px; }
   .gracebar .cd { font-family: var(--mono); font-size: calc(.88rem * var(--ui)); }
 
@@ -4322,6 +4336,19 @@ const I18N = {
     nmbMagnetHint: "Takes this one release into the library, for the movies and specials mikan has no feed for",
     nmbGoMagnet: "Import",
     replHead: "Bound by hand. Swap the source",
+    kwHead: "Keyword",
+    kwPh: "e.g. 简繁内封, or 1080p CR",
+    kwHint: "Only this group's releases whose title matches are downloaded, ahead of every automatic filter. A space means all words, | means any one",
+    kwSave: "Save",
+    kwClear: "Clear",
+    kwLoading: "Reading the feed…",
+    kwSum: o => `Matches ${o.matched} of ${o.total} releases, ${o.eh} of ${o.eps} episodes`,
+    kwDoubled: n => `${n} with more than one match`,
+    kwNone: "Matches nothing in this group's feed",
+    kwSaved: n => n ? `Keyword saved. Fetching ${n} earlier ${n === 1 ? "episode" : "episodes"}` : "Keyword saved",
+    kwCleared: "Keyword cleared. The automatic filter is back",
+    kwWarn: e => "Keyword saved, with problems: " + e,
+    kwFail: e => "Keyword not saved: " + e,
     replMikanHint: "Subscribes the season, then deletes the hand-imported release above",
     replMagnetHint: "Fetches this release, then deletes the one above, files included",
     replGoMikan: "Subscribe and swap",
@@ -4511,6 +4538,19 @@ const I18N = {
     nmbMagnetHint: "只把这一个资源收进库，mikan 没有 feed 的剧场版 / 特别篇走这条",
     nmbGoMagnet: "导入",
     replHead: "已手动接入，可换源",
+    kwHead: "关键词",
+    kwPh: "如 简繁内封，或 1080p CR",
+    kwHint: "只下载本组标题命中的分集，优先于所有自动过滤。空格表示几个词都要有，| 表示任一",
+    kwSave: "保存",
+    kwClear: "清除",
+    kwLoading: "正在读取 feed…",
+    kwSum: o => `命中 ${o.matched}/${o.total} 条，覆盖 ${o.eh}/${o.eps} 集`,
+    kwDoubled: n => `其中 ${n} 集不止一份`,
+    kwNone: "本组 feed 里没有命中的条目",
+    kwSaved: n => n ? `关键词已保存，补抓 ${n} 集旧集` : "关键词已保存",
+    kwCleared: "关键词已清除，恢复自动过滤",
+    kwWarn: e => "关键词已保存，但有问题：" + e,
+    kwFail: e => "关键词保存失败：" + e,
     replMikanHint: "订阅整季，然后删掉上面手动导入的那一版",
     replMagnetHint: "下载这个资源，再把上面那一版连文件一起删掉",
     replGoMikan: "订阅并换源",
@@ -5631,6 +5671,115 @@ function boundBox(show) {
   return src.length ? noMikanBox(show.bgm_id, { replace: true, sources: src }) : "";
 }
 
+// ----- keyword: a standing filter on the group a show follows -----
+// Previews live here, keyed by show, so a card rebuilt by a poll paints the
+// same reading instead of dropping it.
+const kwPreview = new Map();
+let kwTimer = null, seqKw = 0;
+
+// The part of a release title that tells it apart from its siblings. Every
+// release of one group repeats the group tag and the show's name (not always
+// spelt the same way), and the episode, resolution and 内嵌/内封 come last,
+// where an ellipsis would eat them. "- 01 [...]" groups keep everything from
+// the dash; bracket-only groups keep their tags after the group tag. The full
+// title stays on hover.
+function kwTail(title) {
+  const dash = /\s-\s\d.*$/.exec(title);
+  if (dash) return dash[0].trim();
+  const tags = (title.match(/[\[【][^\]】]*[\]】]/g) || []).slice(1).join("");
+  return tags || title;
+}
+
+function kwPreviewHtml(id) {
+  const pv = kwPreview.get(id);
+  if (!pv) return "";
+  if (pv.loading) return `<div class="kw-sum">${esc(t("kwLoading"))}</div>`;
+  if (pv.err) return `<div class="kw-sum warn">${esc(pv.err)}</div>`;
+  const d = pv.data;
+  if (!d.matched) return `<div class="kw-sum warn">${esc(t("kwNone"))}</div>`;
+  const sum = t("kwSum", { matched: d.matched, total: d.total, eh: d.episodes_hit, eps: d.episodes })
+    + (d.doubled ? " · " + t("kwDoubled", d.doubled) : "");
+  // Hits first; the rest stay listed, dimmed, so a too-narrow keyword shows
+  // what it is leaving behind.
+  const rows = [...d.titles].sort((a, b) => b.hit - a.hit).map(x =>
+    `<div class="kwt${x.hit ? " hit" : ""}" title="${esc(x.t)}"><span class="m">${x.hit ? "✓" : "·"}</span>${
+      esc(kwTail(x.t))}</div>`).join("");
+  return `<div class="kw-sum${d.doubled ? " warn" : ""}">${esc(sum)}</div><div class="kw-list">${rows}</div>`;
+}
+
+function kwBox(show) {
+  const id = show.bgm_id, saved = show.rule.keyword || "";
+  return `<div class="nomikan-box kwbox">
+    <div class="nmb-h">${t("kwHead")}</div>
+    <div class="grouprow murl">
+      <input id="kw-${id}" type="text" value="${esc(saved)}" placeholder="${esc(t("kwPh"))}"
+             spellcheck="false" aria-label="${esc(t("kwHead"))}" aria-describedby="kwp-${id}"
+             oninput="kwPreviewSoon(${id})" onfocus="kwPreviewSoon(${id}, true)"
+             onkeydown="if(event.key==='Enter')saveKeyword(${id})">
+      <button class="btn small" id="kwgo-${id}" onclick="saveKeyword(${id})">${t("kwSave")}</button>
+      ${saved ? `<button class="btn ghost small" onclick="saveKeyword(${id}, true)">${t("kwClear")}</button>` : ""}
+    </div>
+    <div class="nmb-hint">${t("kwHint")}</div>
+    <div id="kwp-${id}" aria-live="polite">${kwPreviewHtml(id)}</div>
+  </div>`;
+}
+
+// Focus reads the feed once, typing re-reads it after a pause. Only the
+// preview block is repainted, never the input, so the caret stays put.
+function kwPreviewSoon(id, onFocus) {
+  if (onFocus && kwPreview.has(id)) return;
+  clearTimeout(kwTimer);
+  kwTimer = setTimeout(() => kwFetchPreview(id), onFocus ? 0 : 350);
+}
+
+function kwPaint(id) {
+  const el = $("kwp-" + id);
+  if (el) el.innerHTML = kwPreviewHtml(id);
+}
+
+async function kwFetchPreview(id) {
+  const inp = $("kw-" + id);
+  if (!inp) return;
+  const q = inp.value.trim(), n = ++seqKw;
+  kwPreview.set(id, { q, loading: true });
+  kwPaint(id);
+  try {
+    const r = await fetch(`/api/rule/keyword?bgm_id=${id}&keyword=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    if (n !== seqKw) return;   // a newer keystroke owns the preview
+    kwPreview.set(id, r.ok ? { q, data: d } : { q, err: errText(d, r) });
+  } catch (e) {
+    if (n !== seqKw) return;
+    kwPreview.set(id, { q, err: e.message });
+  }
+  kwPaint(id);
+}
+
+async function saveKeyword(id, clear) {
+  const inp = $("kw-" + id);
+  const kw = clear ? "" : (inp ? inp.value.trim() : "");
+  const btn = $("kwgo-" + id);
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/api/rule/keyword", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bgm_id: id, keyword: kw }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      toast(d.notes && d.notes.length ? t("kwWarn", d.notes.join("; "))
+            : d.keyword ? t("kwSaved", d.added) : t("kwCleared"));
+      // Blurred, so the refresh below is not held off by a field with text in it.
+      if (inp) { inp.value = d.keyword; inp.blur(); }
+      kwPreview.delete(id);
+      refresh();
+    } else {
+      toast(t("kwFail", errText(d, r)));
+    }
+  } catch (e) { toast(t("kwFail", e.message)); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 function card(show) {
   const st = show.status;
   // "subscribed" is the normal state — only exceptional statuses get a pill.
@@ -5716,6 +5865,7 @@ function card(show) {
       <h3>${bgmLink(show.bgm_id, esc(displayTitle(show)))}${showLinks(show)}</h3>
       ${jpLine(show)}
       ${airRow}${gaugeHtml(show)}${groupRow}${graceRow}${torrents}
+      ${show.rule && show.rule.mikan_id ? kwBox(show) : ""}
       ${show.no_mikan ? noMikanBox(show.bgm_id) : boundBox(show)}
     </div>
   </div>`;
@@ -5945,11 +6095,13 @@ function refreshCard() {
   // Unfocused boxes with text survive the swap the way the banner's do
   // (refreshUnresolved): value only. Focus is put back on whichever control
   // had it, so a rebuild under a keyboard user does not drop them to <body>.
-  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"], input[id^="rmurl-"], input[id^="rmag-"]')]
+  const keep = [...body.querySelectorAll('input[id^="cmurl-"], input[id^="cmag-"], input[id^="rmurl-"], input[id^="rmag-"], input[id^="kw-"]')]
     .filter(i => i.value).map(i => [i.id, i.value]);
   const fid = body.contains(a) && a.id ? a.id : "";
   setHTML(body, found.watching ? card(found.show) : basicCard(found.show));
-  for (const [id, v] of keep) { const inp = $(id); if (inp && !inp.value) inp.value = v; }
+  // The keyword box comes back holding the saved keyword, so an unsaved edit
+  // has to overwrite it rather than wait for an empty field.
+  for (const [id, v] of keep) { const inp = $(id); if (inp && (!inp.value || id.startsWith("kw-"))) inp.value = v; }
   if (fid) { const el = $(fid); if (el && document.activeElement !== el) el.focus({ preventScroll: true }); }
   tuneGauges(body);
   tickCountdowns();
