@@ -264,6 +264,38 @@ class ReconcileUnderOutageTest(unittest.TestCase):
         rm.assert_called_once()
         self.assertTrue(rm.call_args.kwargs["delete_files"])
 
+    def _current_show_marked(self, ctype: int):
+        ctx = StubCtx({"a current show": {"savePath": "X:/Anime/2026.07/a current show",
+                                          "affectedFeeds": []}},
+                      {"X:/Anime/2026.07/a current show": 777}, watching=[])
+
+        def routed(url, *, retries=3, timeout=15):
+            if "/v0/subjects/" in url:
+                return b'{"date": "2026-07-05"}'
+            return ('{"type": %d}' % ctype).encode()
+
+        with mock.patch.object(core, "http_get", routed), \
+                mock.patch.object(core, "remove_subscription") as rm:
+            core.reconcile_removed("u", "cookie", dry_run=False, purge_dropped=True, ctx=ctx)
+        return rm
+
+    def test_dropped_show_loses_its_files_but_keeps_mikan(self):
+        rm = self._current_show_marked(5)
+        rm.assert_called_once()
+        self.assertTrue(rm.call_args.kwargs["delete_files"])
+        self.assertFalse(rm.call_args.kwargs["unsubscribe_mikan"])
+
+    def test_dropped_show_keeps_files_when_switched_off(self):
+        with mock.patch.object(core, "DROP_DELETES_FILES", False):
+            rm = self._current_show_marked(5)
+        self.assertFalse(rm.call_args.kwargs["delete_files"])
+
+    def test_finished_show_still_keeps_its_files(self):
+        rm = self._current_show_marked(2)
+        rm.assert_called_once()
+        self.assertFalse(rm.call_args.kwargs["delete_files"])
+        self.assertFalse(rm.call_args.kwargs["unsubscribe_mikan"])
+
     def test_watching_show_is_kept_while_bgm_is_up(self):
         rm = self._run("up", watching=[555])
         rm.assert_not_called()

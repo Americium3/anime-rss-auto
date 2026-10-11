@@ -11,6 +11,7 @@
   "cross_season_year_min_weeks": 40,
   "cour_rollover_days": 14,
   "purge_dropped_files": true,
+  "drop_deletes_files": true,
   "ani_grace_hours": 3,
   "resolve_ttl_seconds": 86400,
   "resolve_negative_ttl_seconds": 1800,
