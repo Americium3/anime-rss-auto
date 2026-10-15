@@ -267,6 +267,27 @@ class TestManualResolveOrchestration(unittest.TestCase):
         # backlink names ANOTHER subject -> we obey the paste, but say so
         self.assertTrue(any("999" in n for n in r["notes"]))
 
+    def test_raw_bucket_pick_gets_no_cjk_whitelist(self):
+        # No GROUP_PRIORITY group on the page -> pick_subgroup falls back to the
+        # lowest id, the raw bucket. The CJK whitelist would reject every raw
+        # release, and no later pass repairs a raw rule, so it must match build_plan.
+        with mock.patch.object(core, "http_get", return_value=self.subject), \
+             mock.patch.object(core, "bgm_english_alias", return_value=""), \
+             mock.patch.object(core, "mikan_bangumi_info", return_value={
+                 "bgm_id": 643828, "subgroups": [202, 1100], "title": "Mikan - 缎带"}), \
+             mock.patch.object(core, "existing_rules",
+                               side_effect=[{}, {"缎带英雄": {}}]), \
+             mock.patch.object(core, "GROUP_FILTER", {}), \
+             mock.patch.object(core, "RAW_SUBGROUP_IDS", {202}), \
+             mock.patch.object(core, "apply_entries") as apl, \
+             mock.patch.object(core, "bgm_collection_type", return_value=3):
+            r = core.manual_resolve(
+                "942942", 643828, "https://mikanani.me/Home/Bangumi/3644")
+        self.assertTrue(r["subscribed"])
+        entry = apl.call_args[0][0][0]
+        self.assertEqual(entry["subgroup"], 202)
+        self.assertEqual(entry["mustContain"], "")
+
     def test_bad_link_raises_before_any_network(self):
         with mock.patch.object(core, "http_get") as hg:
             with self.assertRaises(ValueError):

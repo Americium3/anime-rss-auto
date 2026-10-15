@@ -2219,7 +2219,11 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 "mikan_id": mikan_id,
                 "subgroup": subgroup,
                 "subgroup_name": GROUP_NAME.get(subgroup, f"subgroup {subgroup}"),
-                "mustContain": GROUP_FILTER.get(subgroup) or CJK_SUB_REQUIRED,
+                # Same rule as build_plan: the raw bucket must not get the CJK
+                # whitelist, or qB rejects every raw release it exists to fetch.
+                "mustContain": (GROUP_FILTER.get(subgroup)
+                                or ("" if subgroup in RAW_SUBGROUP_IDS
+                                    else CJK_SUB_REQUIRED)),
                 "keyword": custom_keyword(bgm_id, subgroup),
                 "feed_path": f"{season}\\{info['title']}",
             }
