@@ -4779,7 +4779,6 @@ def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
             add_event("show.remapped", {
                 "title": rname, "bgm_id": bid, "season": season,
                 "from_mikan": old_mid, "to_mikan": int(new_mid),
-                "split_cour": split_cour,
                 "subgroup": gid, "subgroup_name": GROUP_NAME.get(gid, f"subgroup {gid}"),
             })
         moved += 1

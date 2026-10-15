@@ -207,6 +207,19 @@ class MikanMoveCase(unittest.TestCase):
     def test_a_show_with_no_rule_is_not_searched(self):
         self.assertEqual(self.run_pass(_ctx(rules={})), 0)
 
+    def test_the_move_is_recorded(self):
+        """The panel learns of a re-pointed rule only through this event."""
+        ctx = _ctx()
+        with mock.patch.object(core, "qb_post", return_value={}), \
+             mock.patch.object(core, "rss_feed_paths", return_value={}), \
+             mock.patch.object(core, "add_event") as add_event:
+            self.assertEqual(core.reconcile_mikan_moves(ctx), 1)
+        add_event.assert_called_once()
+        kind, params = add_event.call_args.args
+        self.assertEqual(kind, "show.remapped")
+        self.assertEqual((params["bgm_id"], params["from_mikan"], params["to_mikan"],
+                          params["subgroup"]), (TAIL_BGM, HEAD_MIKAN, TAIL_MIKAN, ANI))
+
     def test_dry_run_writes_nothing(self):
         ctx = _ctx()
         self.assertEqual(self.run_pass(ctx, dry_run=True), 1)
