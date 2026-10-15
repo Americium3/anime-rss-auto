@@ -8326,7 +8326,13 @@ function closeGroupPickers() {
 const gpickCache = new Map();
 function subgroupsFor(mikanId) {
   if (!gpickCache.has(mikanId)) {
-    const p = fetch("/api/subgroups/" + mikanId).then(r => r.json()).then(d => d.subgroups);
+    // A 502 from a slow mikan still has a JSON body; it must reject, or the
+    // catch below never evicts it and the picker is stuck until a reload.
+    const p = fetch("/api/subgroups/" + mikanId).then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !Array.isArray(d.subgroups)) throw new Error(errText(d, r));
+      return d.subgroups;
+    });
     p.catch(() => gpickCache.delete(mikanId));   // let the next open try the fetch again
     gpickCache.set(mikanId, p);
   }
