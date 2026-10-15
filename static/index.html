@@ -8354,7 +8354,10 @@ async function toggleGroupPicker(bgmId, mikanId, currentGid) {
   list.setAttribute("aria-label", t("gpickHead"));
   list.hidden = false;
   btn.setAttribute("aria-expanded", "true");
-  if (!gpickCache.has(mikanId)) list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
+  // Unconditional: a cached entry can still be a pending promise, and the
+  // list may hold another show's options from the last open. A settled
+  // promise replaces this before the next paint, so it never flashes.
+  list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
   placeGroupList(btn, list);
   try {
     const groups = await subgroupsFor(mikanId);
