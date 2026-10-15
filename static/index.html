@@ -3536,9 +3536,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .now-line { position: relative; }
   /* The now marker used to be a rule with nothing to read off it. It carries
-     the time it represents and how long until the next slot in this column. */
-  .now-line::after {
-    content: attr(data-read);
+     the time it represents and how long until the next slot in this column.
+     A real child, not ::after: that pseudo-element is the struck rule itself. */
+  .now-line .now-read {
     position: absolute; right: 0; top: 50%; transform: translateY(-50%);
     padding: 0 4px; border-radius: 4px;
     background: var(--paper-form);
@@ -6924,7 +6924,7 @@ function renderSchedule() {
       const m = say ? minuteOf(say) : null;
       items.splice(at, 0, `<div class="now-line" data-read="" data-next="${
         say && Number.isFinite(m) ? m : ""}"${say && !Number.isFinite(m) ? ' data-tba="1"' : ""}${
-        say && !next ? ' data-hidden="1"' : ""}></div>`);
+        say && !next ? ' data-hidden="1"' : ""}><span class="now-read"></span></div>`);
     }
     const body = items.length ? items.join("") : `<div class="empty">${t("dayEmpty")}</div>`;
     // The margin rule is drawn by the column, so a column with nothing typed
@@ -7049,6 +7049,8 @@ function tickNowLine() {
   const read = `${clock} · ${gap}`;
   if (el.dataset.read !== read) {
     el.dataset.read = read;
+    const words = el.querySelector(".now-read");
+    if (words) words.textContent = read;
     el.title = `${t("nowRead")} ${clock}`;
   }
 }
