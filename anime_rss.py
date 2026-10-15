@@ -89,10 +89,13 @@ ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
+        # utf-8-sig: Notepad's "UTF-8 with BOM" must load, not fail.
         try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            return {}
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
+            # The defaults are destructive (drop_deletes_files=True etc.), so a
+            # file the user wrote but we can't read must stop us, never be ignored.
+            raise SystemExit(f"cannot load config {CONFIG_PATH}: {e}") from e
     return {}
 
 
