@@ -2352,7 +2352,7 @@ def rule_bgm_id(rdef: dict, cache: dict[int, int | None]) -> int | None:
             try:
                 cache[mid] = mikan_bangumi_info(mid)["bgm_id"]
             except Exception:  # noqa: BLE001
-                cache[mid] = None
+                continue                      # an outage is not an answer: ask again next time
         if cache[mid]:
             return cache[mid]
     return None
@@ -2747,13 +2747,25 @@ def resolve_torrent_target(
     else:
         bgm_id = rule_bgm_id(rdef, mikan_cache)
     if not bgm_id:
+        # rule_bgm_id leaves a mikan id it could not fetch out of the cache, so a
+        # feed still missing from it means mikan was down, not that it had no answer.
+        if rdef is not None and any(
+                int(m) not in mikan_cache
+                for f in rdef.get("affectedFeeds", [])
+                for m in re.findall(r"bangumiId=(\d+)", f)):
+            return None, None, "mikan 未响应，bgm id 无法解析（本轮跳过，下轮重试）"
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
     if sea is _NO_ANSWER:
         return None, None, "bgm 未响应，季度无法判定（本轮跳过，下轮重试）"
+    spans = span_cache if span_cache is not None else {}
     if (sea is not None and sea < SKIP_BEFORE_SEASON
             and bgm_id not in PIN_CURRENT_BGM_IDS
-            and not cour_still_airing(bgm_id, sea, span_cache if span_cache is not None else {})):
+            and not cour_still_airing(bgm_id, sea, spans)):
+        # A blank span reads as "finished"; when bgm simply didn't answer, the show
+        # may still be airing, so this is not yet an old-cour verdict.
+        if (spans.get(bgm_id) or {}).get(_SPAN_NO_ANSWER):
+            return None, None, "bgm 未响应，放送表无法判定（本轮跳过，下轮重试）"
         return None, None, f"旧番 {sea} < {SKIP_BEFORE_SEASON}（手动管理）"
     ep = parse_episode(t.get("name", ""))
     eps = bgm_subject_episodes(bgm_id, ep_cache)
@@ -3147,7 +3159,7 @@ JF_PLAYED_SCAN_LIMIT = int(CONFIG.get("jellyfin_played_scan_limit", 100))
 JF_PLAYED_LEDGER_KEEP = 5000
 # Verdicts that could change once something is fixed, and so are never written to
 # the ledger — the sweep must be able to come back for them.
-_JF_PLAYED_RETRY_REASONS = ("bgm 未响应", "集数")
+_JF_PLAYED_RETRY_REASONS = ("bgm 未响应", "mikan 未响应", "集数")
 
 
 def load_jf_played_seen() -> dict[str, str]:

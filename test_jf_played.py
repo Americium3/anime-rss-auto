@@ -192,6 +192,52 @@ class RefusalTest(SweepCase):
         self.assertEqual(n, 0)
 
 
+class OutageThroughResolverTest(SweepCase):
+    """An outage seen through the real resolver must read as retryable, not as a
+    verdict — otherwise one mikan or bgm blip settles the episode for good."""
+
+    FED_RULE = dict(RULE, affectedFeeds=[
+        "https://mikanani.me/RSS/Bangumi?bangumiId=3500&subgroupid=583"])
+
+    def sweep_real(self, items) -> int:
+        with mock.patch.object(core, "_jf_req", lambda *_a, **_k: (200, {"Items": items})):
+            return core.jellyfin_played_reconcile_pass(
+                "tok", ctx=StubCtx({"A Show": self.FED_RULE}))
+
+    def test_mikan_down_is_retried(self):
+        self.seed_ledger("other")
+
+        def down(_mid):
+            raise OSError("mikan unreachable")
+
+        with mock.patch.object(core, "mikan_bangumi_info", down):
+            self.sweep_real([PLAYED])
+        self.assertNotIn("item-1", self.read_ledger())
+
+    def test_mikan_down_is_not_cached(self):
+        cache: dict = {}
+        with mock.patch.object(core, "mikan_bangumi_info",
+                               mock.Mock(side_effect=OSError("down"))):
+            self.assertIsNone(core.rule_bgm_id(self.FED_RULE, cache))
+        self.assertNotIn(3500, cache)
+
+    def test_bgm_span_down_on_an_old_cour_is_retried(self):
+        # An old-cour 半年番 still airing: with no span, it would read as finished.
+        self.seed_ledger("other")
+
+        def down(*_a, **_k):
+            raise OSError("bgm timeout")
+
+        with mock.patch.object(core, "mikan_bangumi_info",
+                               lambda _mid: {"bgm_id": 7, "subgroups": [], "title": "t"}), \
+             mock.patch.object(core, "bgm_subject_season", lambda *_a: "2026.01"), \
+             mock.patch.object(core, "SKIP_BEFORE_SEASON", "2026.04"), \
+             mock.patch.object(core, "PIN_CURRENT_BGM_IDS", set()), \
+             mock.patch.object(core, "http_get", down):
+            self.sweep_real([PLAYED])
+        self.assertNotIn("item-1", self.read_ledger())
+
+
 class LedgerTrimTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
