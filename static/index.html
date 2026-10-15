@@ -5332,15 +5332,19 @@ function applyStatic() {
    duplicate. */
 const toastQ = [];
 let toastBusy = false;
+let toastPending = null;   // off the queue, waiting out the fade in el._h
 
 function toast(msg) {
   const el = $("toast");
-  if (toastBusy && el.textContent === msg) {   // said again while still on screen
+  // Checks .show, not toastBusy: during the fade the old text is still in the
+  // element but el._h holds the next message's show(), which must not be cancelled.
+  if (el.classList.contains("show") && el.textContent === msg) {   // said again while still on screen
     clearTimeout(el._h);
     el._h = setTimeout(nextToast, 3500);
     return;
   }
-  if (toastQ[toastQ.length - 1] === msg) return;
+  const last = toastQ.length ? toastQ[toastQ.length - 1] : toastPending;
+  if (last === msg) return;
   toastQ.push(msg);
   if (!toastBusy) nextToast();
 }
@@ -5356,6 +5360,7 @@ function nextToast() {
   }
   toastBusy = true;
   const show = () => {
+    toastPending = null;
     el.textContent = msg;
     el.classList.add("show");
     el._h = setTimeout(nextToast, 3500);
@@ -5364,6 +5369,7 @@ function nextToast() {
   // into another. 260ms clears the .25s fade the stylesheet gives it.
   if (el.classList.contains("show")) {
     el.classList.remove("show");
+    toastPending = msg;
     el._h = setTimeout(show, 260);
   } else {
     show();
