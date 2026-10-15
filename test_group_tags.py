@@ -40,3 +40,19 @@ def test_unreachable_feed_keeps_the_generic_whitelist(monkeypatch):
     monkeypatch.setattr(c, "http_get", boom)
     monkeypatch.setitem(c.GROUP_FILTER, 99999, "")
     assert c.switch_must_contain(1, 99999) == c.CJK_SUB_REQUIRED
+
+
+def test_raw_bucket_gets_no_whitelist_like_build_plan(monkeypatch):
+    # Raw titles never carry a Chinese-subtitle marker; the whitelist would match nothing.
+    def boom(*a, **k):
+        raise OSError("down")
+    monkeypatch.setattr(c, "http_get", boom)
+    monkeypatch.setattr(c, "RAW_SUBGROUP_IDS", {202})
+    monkeypatch.delitem(c.GROUP_FILTER, 202, raising=False)
+    assert c.switch_must_contain(12345, 202) == ""
+
+
+def test_raw_bucket_configured_filter_still_wins(monkeypatch):
+    monkeypatch.setattr(c, "RAW_SUBGROUP_IDS", {202})
+    monkeypatch.setitem(c.GROUP_FILTER, 202, "1080")
+    assert c.switch_must_contain(12345, 202) == "1080"

@@ -89,10 +89,13 @@ ILLEGAL_WIN = re.compile(r'[<>:"/\\|?*]')
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
+        # utf-8-sig: Notepad's "UTF-8 with BOM" must load, not fail.
         try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            return {}
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as e:
+            # The defaults are destructive (drop_deletes_files=True etc.), so a
+            # file the user wrote but we can't read must stop us, never be ignored.
+            raise SystemExit(f"cannot load config {CONFIG_PATH}: {e}") from e
     return {}
 
 
@@ -1435,6 +1438,9 @@ def switch_must_contain(mikan_id: int, subgroup: int) -> str:
     base = GROUP_FILTER.get(subgroup, "")
     if base:
         return base
+    # 生肉桶与 build_plan 一致：不加白名单，否则生肉标题一集都匹配不上。
+    if subgroup in RAW_SUBGROUP_IDS:
+        return ""
     try:
         xml = http_get(feed_url(mikan_id, subgroup), retries=1).decode("utf-8", "replace")
         titles = [html.unescape(m) for m in re.findall(r"<item>.*?<title>(.*?)</title>", xml, re.S)]
@@ -2213,7 +2219,11 @@ def manual_resolve(user: str, bgm_id: int, url: str, *,
                 "mikan_id": mikan_id,
                 "subgroup": subgroup,
                 "subgroup_name": GROUP_NAME.get(subgroup, f"subgroup {subgroup}"),
-                "mustContain": GROUP_FILTER.get(subgroup) or CJK_SUB_REQUIRED,
+                # Same rule as build_plan: the raw bucket must not get the CJK
+                # whitelist, or qB rejects every raw release it exists to fetch.
+                "mustContain": (GROUP_FILTER.get(subgroup)
+                                or ("" if subgroup in RAW_SUBGROUP_IDS
+                                    else CJK_SUB_REQUIRED)),
                 "keyword": custom_keyword(bgm_id, subgroup),
                 "feed_path": f"{season}\\{info['title']}",
             }
@@ -2342,7 +2352,7 @@ def rule_bgm_id(rdef: dict, cache: dict[int, int | None]) -> int | None:
             try:
                 cache[mid] = mikan_bangumi_info(mid)["bgm_id"]
             except Exception:  # noqa: BLE001
-                cache[mid] = None
+                continue                      # an outage is not an answer: ask again next time
         if cache[mid]:
             return cache[mid]
     return None
@@ -2737,13 +2747,25 @@ def resolve_torrent_target(
     else:
         bgm_id = rule_bgm_id(rdef, mikan_cache)
     if not bgm_id:
+        # rule_bgm_id leaves a mikan id it could not fetch out of the cache, so a
+        # feed still missing from it means mikan was down, not that it had no answer.
+        if rdef is not None and any(
+                int(m) not in mikan_cache
+                for f in rdef.get("affectedFeeds", [])
+                for m in re.findall(r"bangumiId=(\d+)", f)):
+            return None, None, "mikan 未响应，bgm id 无法解析（本轮跳过，下轮重试）"
         return None, None, "无法解析 bgm id"
     sea = bgm_subject_season(bgm_id, season_cache)
     if sea is _NO_ANSWER:
         return None, None, "bgm 未响应，季度无法判定（本轮跳过，下轮重试）"
+    spans = span_cache if span_cache is not None else {}
     if (sea is not None and sea < SKIP_BEFORE_SEASON
             and bgm_id not in PIN_CURRENT_BGM_IDS
-            and not cour_still_airing(bgm_id, sea, span_cache if span_cache is not None else {})):
+            and not cour_still_airing(bgm_id, sea, spans)):
+        # A blank span reads as "finished"; when bgm simply didn't answer, the show
+        # may still be airing, so this is not yet an old-cour verdict.
+        if (spans.get(bgm_id) or {}).get(_SPAN_NO_ANSWER):
+            return None, None, "bgm 未响应，放送表无法判定（本轮跳过，下轮重试）"
         return None, None, f"旧番 {sea} < {SKIP_BEFORE_SEASON}（手动管理）"
     ep = parse_episode(t.get("name", ""))
     eps = bgm_subject_episodes(bgm_id, ep_cache)
@@ -2764,6 +2786,12 @@ def resolve_torrent_target(
             return cont[0], cont[1], "ok"
         return None, None, f"集数 {ep} 在 subject {bgm_id} 找不到对应集(ep/sort 都无)"
     return bgm_id, eid, "ok"
+
+
+# Skip reasons that can clear up on a later pass (bgm/mikan down or slow). The
+# seed state is only one transition deep, so for these the old seeding state is
+# saved back instead of the new stopped one, or the mark would never fire again.
+_MARK_RETRY_REASONS = ("bgm 未响应", "无法解析 bgm id", "找不到对应集")
 
 
 def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
@@ -2820,6 +2848,8 @@ def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
         nm = t.get("name", "")[:55]
         if reason != "ok":
             print(f"   [mark] 跳过（{reason}）: {nm}")
+            if any(r in reason for r in _MARK_RETRY_REASONS):
+                states_new[h] = prev           # keep the transition pending
             continue
         ep = parse_episode(t.get("name", ""))
         if dry_run:
@@ -2832,6 +2862,7 @@ def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
             print(f"   [mark] ✓ ep{ep} 看过 (subject {bgm_id}): {nm}")
         except Exception as ex:  # noqa: BLE001
             print(f"   [mark] ! 标记失败 ep{ep} (subject {bgm_id}): {ex}")
+            states_new[h] = prev               # retried next pass
 
     if dry_run:
         print(f"# mark-watched [dry-run]: 命中 {marked} 个已暂停种子（未写入 bgm，未更新基线）")
@@ -3128,7 +3159,7 @@ JF_PLAYED_SCAN_LIMIT = int(CONFIG.get("jellyfin_played_scan_limit", 100))
 JF_PLAYED_LEDGER_KEEP = 5000
 # Verdicts that could change once something is fixed, and so are never written to
 # the ledger — the sweep must be able to come back for them.
-_JF_PLAYED_RETRY_REASONS = ("bgm 未响应", "集数")
+_JF_PLAYED_RETRY_REASONS = ("bgm 未响应", "mikan 未响应", "集数")
 
 
 def load_jf_played_seen() -> dict[str, str]:
@@ -4776,7 +4807,6 @@ def reconcile_mikan_moves(ctx: "SyncContext", *, dry_run: bool = False) -> int:
             add_event("show.remapped", {
                 "title": rname, "bgm_id": bid, "season": season,
                 "from_mikan": old_mid, "to_mikan": int(new_mid),
-                "split_cour": split_cour,
                 "subgroup": gid, "subgroup_name": GROUP_NAME.get(gid, f"subgroup {gid}"),
             })
         moved += 1
