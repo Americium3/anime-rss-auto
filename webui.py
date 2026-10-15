@@ -1410,13 +1410,19 @@ def api_rule_switch(body: RuleSwitch):
     #    just like a current show, matching the backend's destructive passes.
     deleted = 0
     save_path = rdef.get("savePath", "")
+    # The cour comes from savePath like the backend's destructive passes; tags
+    # are absent on hand-made/qB 4.x rules and may not be a cour at all. No
+    # cour found means we cannot prove the show is current, so keep the files.
+    m = core._COUR_IN_PATH_RE.search(save_path.replace("\\", "/"))
+    tag = str((rdef.get("torrentParams", {}).get("tags") or [""])[0])
+    cour = m.group(1) if m else (tag if re.fullmatch(r"\d{4}\.\d{2}", tag) else None)
     try:
-        exempt = (str(season) < core.SKIP_BEFORE_SEASON
+        exempt = (cour is not None and cour < core.SKIP_BEFORE_SEASON
                   and core._old_cour_exempt(
-                      str(season), core.rule_bgm_id(rdef, {}), _span_cache))
+                      cour, core.rule_bgm_id(rdef, {}), _span_cache))
     except Exception:  # noqa: BLE001
         exempt = False
-    if save_path and (str(season) >= core.SKIP_BEFORE_SEASON or exempt):
+    if save_path and cour and (cour >= core.SKIP_BEFORE_SEASON or exempt):
         try:
             victims = core.qb_torrents_under(save_path)
             if victims:
@@ -1434,8 +1440,10 @@ def api_rule_switch(body: RuleSwitch):
                     core.save_manual_imports({h: v for h, v in ledger.items() if h not in gone})
         except Exception as ex:  # noqa: BLE001
             notes.append(f"delete old files: {ex}")
+    elif save_path and not cour:
+        notes.append(f"kept old files (no cour in savePath or tags: {save_path})")
     elif save_path:
-        notes.append(f"kept old files (旧番 {season} < {core.SKIP_BEFORE_SEASON})")
+        notes.append(f"kept old files (旧番 {cour} < {core.SKIP_BEFORE_SEASON})")
 
     # 1) swap RSS feed items (remove old first: same tree path)
     feed_paths = core.rss_feed_paths()
