@@ -2769,6 +2769,12 @@ def resolve_torrent_target(
     return bgm_id, eid, "ok"
 
 
+# Skip reasons that can clear up on a later pass (bgm/mikan down or slow). The
+# seed state is only one transition deep, so for these the old seeding state is
+# saved back instead of the new stopped one, or the mark would never fire again.
+_MARK_RETRY_REASONS = ("bgm 未响应", "无法解析 bgm id", "找不到对应集")
+
+
 def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
                       dry_run: bool = False) -> None:
     """Detect torrents the user just paused and mark that episode 看过 on bgm.
@@ -2823,6 +2829,8 @@ def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
         nm = t.get("name", "")[:55]
         if reason != "ok":
             print(f"   [mark] 跳过（{reason}）: {nm}")
+            if any(r in reason for r in _MARK_RETRY_REASONS):
+                states_new[h] = prev           # keep the transition pending
             continue
         ep = parse_episode(t.get("name", ""))
         if dry_run:
@@ -2835,6 +2843,7 @@ def mark_watched_pass(token: str | None, *, ctx: "SyncContext | None" = None,
             print(f"   [mark] ✓ ep{ep} 看过 (subject {bgm_id}): {nm}")
         except Exception as ex:  # noqa: BLE001
             print(f"   [mark] ! 标记失败 ep{ep} (subject {bgm_id}): {ex}")
+            states_new[h] = prev               # retried next pass
 
     if dry_run:
         print(f"# mark-watched [dry-run]: 命中 {marked} 个已暂停种子（未写入 bgm，未更新基线）")
