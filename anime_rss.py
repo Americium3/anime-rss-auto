@@ -1435,6 +1435,9 @@ def switch_must_contain(mikan_id: int, subgroup: int) -> str:
     base = GROUP_FILTER.get(subgroup, "")
     if base:
         return base
+    # 生肉桶与 build_plan 一致：不加白名单，否则生肉标题一集都匹配不上。
+    if subgroup in RAW_SUBGROUP_IDS:
+        return ""
     try:
         xml = http_get(feed_url(mikan_id, subgroup), retries=1).decode("utf-8", "replace")
         titles = [html.unescape(m) for m in re.findall(r"<item>.*?<title>(.*?)</title>", xml, re.S)]
