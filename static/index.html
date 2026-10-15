@@ -1107,7 +1107,7 @@ if (new URLSearchParams(location.search).has("probe")) {
      runs along the top where the lamp catches the bevel, the underside is
      dark, and one specular band crosses the pane. The gilt rule the paper
      used to carry is kept, set just inside the edge, so the plate still reads
-     as this desk's stationery under glass rather than as a phone's sheet. */
+     as this desk's stationery under glass rather than as a phone's sheet.
      Only the panes that genuinely have a room behind them are blurred. A chip
      or a key sits flat on the leather, where a backdrop filter has nothing to
      blur and buys a backdrop root per element for it; those get the glass
@@ -3536,9 +3536,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .now-line { position: relative; }
   /* The now marker used to be a rule with nothing to read off it. It carries
-     the time it represents and how long until the next slot in this column. */
-  .now-line::after {
-    content: attr(data-read);
+     the time it represents and how long until the next slot in this column.
+     A real child, not ::after: that pseudo-element is the struck rule itself. */
+  .now-line .now-read {
     position: absolute; right: 0; top: 50%; transform: translateY(-50%);
     padding: 0 4px; border-radius: 4px;
     background: var(--paper-form);
@@ -5332,15 +5332,19 @@ function applyStatic() {
    duplicate. */
 const toastQ = [];
 let toastBusy = false;
+let toastPending = null;   // off the queue, waiting out the fade in el._h
 
 function toast(msg) {
   const el = $("toast");
-  if (toastBusy && el.textContent === msg) {   // said again while still on screen
+  // Checks .show, not toastBusy: during the fade the old text is still in the
+  // element but el._h holds the next message's show(), which must not be cancelled.
+  if (el.classList.contains("show") && el.textContent === msg) {   // said again while still on screen
     clearTimeout(el._h);
     el._h = setTimeout(nextToast, 3500);
     return;
   }
-  if (toastQ[toastQ.length - 1] === msg) return;
+  const last = toastQ.length ? toastQ[toastQ.length - 1] : toastPending;
+  if (last === msg) return;
   toastQ.push(msg);
   if (!toastBusy) nextToast();
 }
@@ -5356,6 +5360,7 @@ function nextToast() {
   }
   toastBusy = true;
   const show = () => {
+    toastPending = null;
     el.textContent = msg;
     el.classList.add("show");
     el._h = setTimeout(nextToast, 3500);
@@ -5364,6 +5369,7 @@ function nextToast() {
   // into another. 260ms clears the .25s fade the stylesheet gives it.
   if (el.classList.contains("show")) {
     el.classList.remove("show");
+    toastPending = msg;
     el._h = setTimeout(show, 260);
   } else {
     show();
@@ -6924,7 +6930,7 @@ function renderSchedule() {
       const m = say ? minuteOf(say) : null;
       items.splice(at, 0, `<div class="now-line" data-read="" data-next="${
         say && Number.isFinite(m) ? m : ""}"${say && !Number.isFinite(m) ? ' data-tba="1"' : ""}${
-        say && !next ? ' data-hidden="1"' : ""}></div>`);
+        say && !next ? ' data-hidden="1"' : ""}><span class="now-read"></span></div>`);
     }
     const body = items.length ? items.join("") : `<div class="empty">${t("dayEmpty")}</div>`;
     // The margin rule is drawn by the column, so a column with nothing typed
@@ -7049,6 +7055,8 @@ function tickNowLine() {
   const read = `${clock} · ${gap}`;
   if (el.dataset.read !== read) {
     el.dataset.read = read;
+    const words = el.querySelector(".now-read");
+    if (words) words.textContent = read;
     el.title = `${t("nowRead")} ${clock}`;
   }
 }
@@ -8326,7 +8334,13 @@ function closeGroupPickers() {
 const gpickCache = new Map();
 function subgroupsFor(mikanId) {
   if (!gpickCache.has(mikanId)) {
-    const p = fetch("/api/subgroups/" + mikanId).then(r => r.json()).then(d => d.subgroups);
+    // A 502 from a slow mikan still has a JSON body; it must reject, or the
+    // catch below never evicts it and the picker is stuck until a reload.
+    const p = fetch("/api/subgroups/" + mikanId).then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !Array.isArray(d.subgroups)) throw new Error(errText(d, r));
+      return d.subgroups;
+    });
     p.catch(() => gpickCache.delete(mikanId));   // let the next open try the fetch again
     gpickCache.set(mikanId, p);
   }
@@ -8354,7 +8368,10 @@ async function toggleGroupPicker(bgmId, mikanId, currentGid) {
   list.setAttribute("aria-label", t("gpickHead"));
   list.hidden = false;
   btn.setAttribute("aria-expanded", "true");
-  if (!gpickCache.has(mikanId)) list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
+  // Unconditional: a cached entry can still be a pending promise, and the
+  // list may hold another show's options from the last open. A settled
+  // promise replaces this before the next paint, so it never flashes.
+  list.innerHTML = `<div class="empty">${esc(t("gpickLoading"))}</div>`;
   placeGroupList(btn, list);
   try {
     const groups = await subgroupsFor(mikanId);
