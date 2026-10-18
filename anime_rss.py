@@ -3553,7 +3553,7 @@ def _jf_user_id() -> str | None:
 
 def _jf_make_cover_png(name: str) -> bytes | None:
     """复用 jellyfin-setup/season_covers.py 生成季节封面 PNG（缺模块/字体则返回 None）。"""
-    tools = str(CONFIG.get("jellyfin_tools_dir", r"X:\Github\jellyfin-setup"))
+    tools = str(CONFIG.get("jellyfin_tools_dir", r"X:\A-Code\Github\jellyfin-setup"))
     try:
         if tools not in sys.path:
             sys.path.insert(0, tools)
