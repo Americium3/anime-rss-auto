@@ -24,6 +24,8 @@ def dbd(tag: str) -> str:
 
 class TestMirrorSeason(unittest.TestCase):
     def test_extras_folders_match_in_any_case(self):
+        self.assertEqual(core._mirror_season(("rel", "Extra", "休憩時間")), "Season 00")
+        self.assertEqual(core._mirror_season(("rel", "Menus")), "Season 00")
         self.assertEqual(core._mirror_season(("rel", "menu")), "Season 00")
         self.assertEqual(core._mirror_season(("rel", "PV")), "Season 00")
         self.assertEqual(core._mirror_season(("SPS",)), "Season 00")
@@ -116,6 +118,82 @@ class TestEpisodeNfo(MirrorCase):
         core.mirror_sync_pass()
         core.mirror_unlink(str(self.src / "2025.04" / SHOW), {dbd("[01]")})
         self.assertEqual(list(self.show().iterdir()), [])
+
+
+class TestMisreadLayouts(unittest.TestCase):
+    """Name layouts Jellyfin numbers wrongly, seen in the library on 2026-10-19."""
+
+    def test_flagged(self):
+        for name in (
+            "【10月】与暗黑召唤师秘密恋爱中 01【完全无修版】.mp4",
+            "[Acgnation] Panty & Stocking with Garterbelt 第01話 (超分 2560x1440).mkv",
+            "Re Zero kara Hajimeru Isekai Seikatsu 2nd Season - 40.mkv",
+            "[SweetSub&LoliHouse] Fujimoto Tatsuki 17-26 - 01 [WebRip 1080p AAC].mkv",
+            "[Sakurato] 86—Eitishikkusu— [01v2][HEVC-10bit 1080p AAC][CHS&CHT].mkv",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(core._jellyfin_misreads(name))
+
+    def test_plain_layouts_not_flagged(self):
+        for name in (
+            "[ANi] Show - 04 [1080P][Baha][WEB-DL][AAC AVC][CHT].mp4",
+            "[Nekomoe kissaten] Engage Kiss [01][WebRip 1080p AAC].mkv",
+            "【10月】标题【简体】.mp4",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(core._jellyfin_misreads(name))
+
+    def test_versioned_bracket_number(self):
+        self.assertEqual(core.parse_episode(
+            "[Sakurato] 86—Eitishikkusu— [12v2][HEVC-10bit 1080p AAC][CHS&CHT].mkv"), 12)
+
+
+class TestCourWebRipNfo(MirrorCase):
+    def test_cjk_layout_gets_number_and_season(self):
+        name = "【10月】与暗黑召唤师秘密恋爱中 01【完全无修版】.mp4"
+        self.episode("2026.10", "Dark Summoner", name)
+        core.mirror_sync_pass()
+        nfo = (self.dst / "2026.10" / "Dark Summoner" / "Season 01" / name).with_suffix(".nfo")
+        text = nfo.read_text(encoding="utf-8")
+        self.assertIn("<season>1</season>", text)
+        self.assertIn("<episode>1</episode>", text)
+
+
+class TestAncientNfo(MirrorCase):
+    """Ancient is linked by build_mirror.ps1; the watcher only adds NFOs there."""
+
+    def link(self, show: str, season: str, name: str) -> Path:
+        d = self.dst / "Ancient" / show / season
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_bytes(b"x")
+        return d / name
+
+    def test_existing_links_get_nfos_and_no_new_links(self):
+        src = self.src / "Ancient" / "P&S"
+        src.mkdir(parents=True)
+        (src / "extra.mkv").write_bytes(b"x")       # never linked by the watcher
+        v = self.link("P&S", "Season 01", "[Acgnation] P&S 第02話 (HEVC).mkv")
+        core.mirror_sync_pass()
+        self.assertIn("<episode>2</episode>",
+                      v.with_suffix(".nfo").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in v.parent.iterdir()),
+                         sorted([v.name, v.with_suffix(".nfo").name]))
+
+    def test_mixed_folder_is_left_alone(self):
+        a = self.link("Re 0", "Season 01", "[DMG] Re 異世界生活 第01話 [BDRip].mkv")
+        b = self.link("Re 0", "Season 01", "[DMG] Re 休憩時間 第01話 [BDRip].mkv")
+        core.mirror_sync_pass()
+        self.assertFalse(a.with_suffix(".nfo").exists())
+        self.assertFalse(b.with_suffix(".nfo").exists())
+
+    def test_orphan_nfo_is_dropped_but_hand_nfo_kept(self):
+        v = self.link("86", "Season 01", "[Sakurato] 86 [01v2][HEVC-10bit 1080p].mkv")
+        core.mirror_sync_pass()
+        hand = v.parent / "season.nfo"
+        hand.write_text("<season/>", encoding="utf-8")
+        v.unlink()
+        core.mirror_sync_pass()
+        self.assertEqual([p.name for p in v.parent.iterdir()], ["season.nfo"])
 
 
 if __name__ == "__main__":

@@ -301,12 +301,20 @@ _SUB_LANG_ALIASES = {
 # Compared case-insensitively: DBD-Raws ships "menu" and "PV", and until
 # 2026-10-19 an exact-case check sent both into Season 01, where Jellyfin listed
 # the disc menus and trailers as episodes.
-MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu",
-                       "PV", "CM", "NCOP", "NCED", "特典映像"}
+# "Extra" and "Menus" (H-Enc's Re:Zero 2, Nekomoe's Fairy gone) are the same
+# folders spelled differently.
+MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Extra", "Scans", "CDs", "Menu",
+                       "Menus", "PV", "CM", "NCOP", "NCED", "特典映像"}
 # Jellyfin's filename parser reads the "10" of "HEVC-10bit" as the episode number
 # and ignores the real one in "[01]", so every Sakurato, Nekomoe and DBD-Raws
 # release showed up as episode 10 (2026-10-19: over 100 items across 9 shows).
 _BIT_DEPTH_RE = re.compile(r"\d+\s*-?\s*bit", re.I)
+# Two more layouts Jellyfin cannot number. It finds nothing in "第08話" or in
+# "<title> 01【完全无修版】" (Dark Summoner, Re:Zero, Panty & Stocking came out
+# unnumbered and unseasoned), and when the title carries a number of its own it
+# takes that one: "2nd Season - 40" read as 2, "17-26 - 01" as 26.
+_CJK_EP_RE = re.compile(r"第\s*\d{1,3}\s*[集话話]|\s\d{1,3}(?:v\d+)?\s*【")
+_DASH_EP_RE = re.compile(r"^(.*?)[-–]\s*\d{1,3}(?:v\d+)?\s*(?:\[|\(|$)")
 # Marks the episode NFOs the mirror writes, so pruning never touches one it did
 # not write (a hand-made file, or one a Jellyfin metadata saver put there).
 _MIRROR_NFO_MARK = "<!-- anime-rss-auto mirror: episode number pinned -->"
@@ -1116,7 +1124,7 @@ def parse_episode(name: str) -> int | None:
         if n not in _EP_RES:
             return n
     # "[04]" bracketed number (Nekomoe/VCB); exclude resolutions / large junk
-    for mm in re.finditer(r"\[(\d{1,3})\]", base):
+    for mm in re.finditer(r"\[(\d{1,3})(?:v\d+)?\]", base):
         n = int(mm.group(1))
         if 0 < n < 200 and n not in _EP_RES:
             return n
@@ -3482,15 +3490,27 @@ def _mirror_season(parents: tuple[str, ...]) -> str:
     return "Season 00" if any(p.casefold() in special for p in parents) else "Season 01"
 
 
+def _jellyfin_misreads(name: str) -> bool:
+    """True for a name in a layout Jellyfin's filename parser numbers wrongly."""
+    base = name.rsplit(".", 1)[0]
+    if _BIT_DEPTH_RE.search(base) or _CJK_EP_RE.search(base):
+        return True
+    m = _DASH_EP_RE.search(base)
+    if not m:
+        return False
+    title = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", m.group(1))  # drop "[Group]" tags
+    return bool(re.search(r"\d", title))
+
+
 def _mirror_episode_nfo(link: Path) -> bool:
     """Pin the episode number of a mirrored video whose name Jellyfin misreads.
 
-    Writes "<stem>.nfo" beside the link when the name has a bit-depth tag and
-    parse_episode finds the number. Jellyfin's NFO reader overrides its own
+    Writes "<stem>.nfo" beside the link when _jellyfin_misreads flags the name
+    and parse_episode finds the number. Jellyfin's NFO reader overrides its own
     filename guess and online metadata still fills in the title. An existing
     NFO is left alone. Returns True when a file was written.
     """
-    if not _BIT_DEPTH_RE.search(link.name):
+    if not _jellyfin_misreads(link.name):
         return False
     ep = parse_episode(link.name)
     nfo = link.with_suffix(".nfo")
@@ -3508,6 +3528,61 @@ def _mirror_episode_nfo(link: Path) -> bool:
         print(f"# mirror: NFO 写入失败 {nfo}：{ex}")
         return False
     return True
+
+
+def _mirror_numbers_collide(folder: Path) -> bool:
+    """True when two videos in a mirror season folder parse to the same number.
+
+    In a hand-assembled folder that means a second series or a pile of extras is
+    mixed in with the episodes (Re:Zero's DMG pack holds the show, Break Time and
+    Petit side by side). Pinning numbers there would only make the mix-up look
+    settled, so such a folder is left alone until it is sorted.
+    """
+    seen: set[int] = set()
+    for v in folder.iterdir():
+        if not v.is_file() or v.suffix.lower() not in MIRROR_VIDEO_EXT:
+            continue
+        ep = parse_episode(v.name)
+        if ep is None:
+            continue
+        if ep in seen:
+            return True
+        seen.add(ep)
+    return False
+
+
+def _mirror_manual_nfo_pass(dst_root: Path) -> int:
+    """Episode NFOs for the hand-built parts of the mirror (Ancient).
+
+    build_mirror.ps1 links those folders and the watcher never adds or removes a
+    link there, but Jellyfin misreads their names just the same. This only writes
+    the mirror's own NFOs beside links that already exist, skipping any season
+    folder where _mirror_numbers_collide, and drops a marked NFO whose video is
+    gone. Returns NFOs written.
+    """
+    written = 0
+    if not dst_root.is_dir():
+        return 0
+    for top in dst_root.iterdir():
+        if not top.is_dir() or _COUR_DIR_RE.match(top.name):
+            continue
+        for show_dir in top.iterdir():
+            if not show_dir.is_dir():
+                continue
+            for season_dir in (show_dir / "Season 00", show_dir / "Season 01"):
+                if not season_dir.is_dir():
+                    continue
+                videos = {v.stem for v in season_dir.iterdir()
+                          if v.is_file() and v.suffix.lower() in MIRROR_VIDEO_EXT}
+                for nfo in season_dir.glob("*.nfo"):
+                    if nfo.stem not in videos:
+                        _mirror_drop_nfo(nfo)  # same stem, so this is the NFO itself
+                if _mirror_numbers_collide(season_dir):
+                    continue
+                for v in season_dir.iterdir():
+                    if v.is_file() and v.suffix.lower() in MIRROR_VIDEO_EXT:
+                        written += _mirror_episode_nfo(v)
+    return written
 
 
 def _mirror_drop_nfo(video_link: Path) -> None:
@@ -3641,6 +3716,7 @@ def mirror_sync_pass() -> int:
                 linked += 1
                 nfos_written += _mirror_episode_nfo(link)
             subs_linked += _mirror_show_subs(show_dir, dst_root / cour / show_dir.name)
+    nfos_written += _mirror_manual_nfo_pass(dst_root)
     if nfos_written:
         print(f"# mirror: 写入 {nfos_written} 个集号 NFO")
     if subs_linked:
