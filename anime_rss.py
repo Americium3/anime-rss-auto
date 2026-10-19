@@ -278,6 +278,25 @@ MIRROR_SKIP_BEFORE_SEASON = str(CONFIG.get("mirror_skip_before_season", ""))
 JELLYFIN_URL     = str(CONFIG.get("jellyfin_url", "http://127.0.0.1:8096")).rstrip("/")
 JELLYFIN_API_KEY = str(CONFIG.get("jellyfin_api_key", ""))  # secret: config only
 MIRROR_VIDEO_EXT = (".mkv", ".mp4")
+# Sidecar subtitles ride along with their video. Before 2026-10-19 only videos
+# were linked, so a release that ships its Chinese track as "<video>.sc.ass"
+# (Erai-raws Tempal) played fine in VLC from X:\Bangumi but had no Chinese in
+# Jellyfin at all.
+MIRROR_SUB_EXT = (".ass", ".ssa", ".srt", ".vtt")
+# Fansub language tags Jellyfin cannot read. "sc" is ISO 639-1 for Sardinian, so
+# even a linked "<video>.sc.ass" would show up as Sardinian and never match a
+# Chinese subtitle preference. Each tag becomes "<title>.chi": Jellyfin takes the
+# unknown segment as the track title and "chi" as the language.
+_SUB_LANG_ALIASES = {
+    **dict.fromkeys(("sc", "chs", "gb", "zhs", "hans", "zh-hans", "zh-cn", "zh_cn",
+                     "zh-sg"), "简体中文"),
+    **dict.fromkeys(("tc", "cht", "big5", "zht", "hant", "zh-hant", "zh-tw", "zh_tw",
+                     "zh-hk"), "繁體中文"),
+    **dict.fromkeys(("jpsc", "scjp", "sc_jp", "jp_sc", "chs_jp", "chs_jpn", "jpn_chs",
+                     "chs&jpn", "jpn&chs"), "简日双语"),
+    **dict.fromkeys(("jptc", "tcjp", "tc_jp", "jp_tc", "cht_jp", "cht_jpn", "jpn_cht",
+                     "cht&jpn", "jpn&cht"), "繁日双语"),
+}
 MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu"}
 _COUR_DIR_RE = re.compile(r"^\d{4}\.\d{2}$")
 # Filenames reject_hard_variants deleted this pass. qB unlinks asynchronously, so
@@ -3443,6 +3462,59 @@ def mirror_unlink(save_path: str, names: set[str]) -> int:
     return dropped
 
 
+def _mirror_sub_name(sub_name: str, video_stem: str) -> str:
+    """Mirror filename for a sidecar subtitle of the video whose stem is video_stem.
+
+    Keeps every tag between the stem and the extension (Jellyfin reads title,
+    language and flags from them) and rewrites the fansub language tags in
+    _SUB_LANG_ALIASES into "<title>.chi".
+    """
+    ext = Path(sub_name).suffix
+    middle = sub_name[len(video_stem):len(sub_name) - len(ext)]
+    tags = [f"{_SUB_LANG_ALIASES[t.lower()]}.chi" if t.lower() in _SUB_LANG_ALIASES else t
+            for t in middle.split(".") if t]
+    return ".".join([video_stem, *tags]) + ext
+
+
+def _mirror_show_subs(show_dir: Path, mirror_show: Path) -> int:
+    """Hardlink sidecar subtitles in show_dir next to their videos' mirror links.
+
+    A subtitle belongs to the video in the same folder whose stem plus "." starts
+    its name (longest stem wins). It is linked only once that video's own link
+    exists, so it never lands ahead of the episode. Returns links made.
+    """
+    linked = 0
+    for sub in show_dir.rglob("*"):
+        if not sub.is_file() or sub.suffix.lower() not in MIRROR_SUB_EXT:
+            continue
+        videos = {v.stem: v.name for v in sub.parent.iterdir()
+                  if v.is_file() and v.suffix.lower() in MIRROR_VIDEO_EXT
+                  and v.name not in _HARD_REJECTED_NAMES
+                  and sub.name.startswith(v.stem + ".")}
+        if not videos:
+            continue
+        stem = max(videos, key=len)
+        parents = sub.relative_to(show_dir).parts[:-1]
+        season = "Season 00" if any(p in MIRROR_SPECIAL_DIRS for p in parents) else "Season 01"
+        if not (mirror_show / season / videos[stem]).exists():
+            continue
+        link = mirror_show / season / _mirror_sub_name(sub.name, stem)
+        if link.exists():
+            continue
+        # Already linked under another name (hand-titled, or by build_mirror.ps1):
+        # a second link would list the same track twice.
+        if any(m.is_file() and m.suffix.lower() in MIRROR_SUB_EXT and m.samefile(sub)
+               for m in link.parent.iterdir()):
+            continue
+        try:
+            os.link(str(sub), str(link))
+        except OSError as ex:
+            print(f"# mirror: 字幕链接失败 {link}：{ex}")
+            continue
+        linked += 1
+    return linked
+
+
 def mirror_sync_pass() -> int:
     """把 X:\\Bangumi\\<cour>\\<show>\\… 的新剧集硬链接到 X:\\BangumiJF\\<cour>\\<show>\\Season NN\\。
 
@@ -3460,6 +3532,7 @@ def mirror_sync_pass() -> int:
     if not src_root.exists():
         return 0
     linked = 0
+    subs_linked = 0
     landed: list[dict] = []
     for cour_dir in src_root.iterdir():
         if not cour_dir.is_dir():
@@ -3504,6 +3577,11 @@ def mirror_sync_pass() -> int:
                         link.unlink()
                     continue
                 linked += 1
+            subs_linked += _mirror_show_subs(show_dir, dst_root / cour / show_dir.name)
+    if subs_linked:
+        print(f"# mirror: 新建 {subs_linked} 个外挂字幕硬链接")
+        if not linked:
+            _jellyfin_refresh()  # a scan picks up new sidecars on existing episodes
     if linked:
         print(f"# mirror: 新建 {linked} 个硬链接 -> Jellyfin")
         _jellyfin_refresh()
@@ -4025,7 +4103,8 @@ def mirror_prune_orphan_files() -> int:
     以 X:\\Bangumi 为真相，镜像里某集视频若在源对应 <cour>/<show>/ 下已无同名文件，
     就删该硬链接（只删镜像、绝不碰源）。这正是「换组/去重后 Jellyfin 还显示旧版本」
     的根因。安全闸：源根不存在/为空（疑似盘未挂载）一律中止；某番在源里一个视频都
-    没有时整番跳过（避免下载搬运中的瞬时空态误删）；只删 dst_root 下的视频文件。
+    没有时整番跳过（避免下载搬运中的瞬时空态误删）；只删 dst_root 下的视频文件，
+    以及同目录已没有对应视频的外挂字幕链接。
     """
     src_root = Path(BANGUMI_LIBRARY)
     dst_root = Path(JELLYFIN_MIRROR)
@@ -4064,6 +4143,23 @@ def mirror_prune_orphan_files() -> int:
                     link.unlink()
                     pruned += 1
                     print(f"# mirror-prune: 删孤儿硬链接 {link}")
+                except OSError as ex:
+                    print(f"# mirror-prune: 删除失败 {link}：{ex}")
+            # Subtitle links go with their video: once no video in the same mirror
+            # folder owns the name (pruned just above, or earlier), drop it too.
+            for link in show_dir.rglob("*"):
+                if not link.is_file() or link.suffix.lower() not in MIRROR_SUB_EXT:
+                    continue
+                if any(v.is_file() and v.suffix.lower() in MIRROR_VIDEO_EXT
+                       and link.name.startswith(v.stem + ".")
+                       for v in link.parent.iterdir()):
+                    continue
+                if not str(link).lower().startswith(dst_prefix):  # 双重断言：只删镜像内
+                    continue
+                try:
+                    link.unlink()
+                    pruned += 1
+                    print(f"# mirror-prune: 删孤儿字幕硬链接 {link}")
                 except OSError as ex:
                     print(f"# mirror-prune: 删除失败 {link}：{ex}")
     if pruned:
