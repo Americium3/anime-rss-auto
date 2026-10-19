@@ -1033,6 +1033,10 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .upip.wait { background: var(--warn); }
   .upip.none { background: var(--muted); }
+  /* Figure on top, its meaning under it in small type. */
+  .upip { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+  .upip b { font-weight: 700; font-size: 1.05em; line-height: 1.1; }
+  .upip small { font-family: var(--font-body, inherit); font-size: .72em; line-height: 1.15; opacity: .92; }
   /* The key to the pips, one line under the sort bar. Its swatches are their
      own class: .upip is pinned to a volume's corner, and the class the
      harness counts must never double as a swatch (the gauge's legend keeps
@@ -1049,6 +1053,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     color: var(--btn-text); background: var(--ok);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.25);
   }
+  .pk:empty { width: 12px; min-width: 0; height: 12px; padding: 0; vertical-align: middle; }
   .pk-wait { background: var(--warn); }
   .pk-none { background: var(--muted); }
   .pk-slip {
@@ -2829,6 +2834,19 @@ if (new URLSearchParams(location.search).has("probe")) {
     border-radius: 4px; padding: 1px 4px; transform: rotate(var(--rot, -2deg));
     display: inline-block;
   }
+  /* The unwatched list writes on the same paper. Each line is a button that
+     opens the show's card; the margin column holds how many are waiting. */
+  .qrow {
+    width: 100%; margin: 0; text-align: left; cursor: pointer; color: inherit;
+    background: none; border: 0; border-bottom: 1px dashed var(--ledger-rule);
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+  }
+  .qrow .ld { text-align: right; color: var(--text); font-weight: 650; }
+  .qrow:hover .ln, .qrow:focus-visible .ln { color: var(--text); }
+  .qrow:focus-visible { outline: 1px solid var(--gilt); outline-offset: -1px; }
+  .qcold { padding: 6px 12px 6px 30px; font-size: calc(.8rem * var(--ui)); }
+  .qtotal { font-family: var(--mono); font-weight: 400; letter-spacing: 0;
+    font-size: .82em; color: var(--text-faint); }
 
   .mrow { display: flex; align-items: center; gap: 10px; font-size: calc(.9rem * var(--ui)); padding: 7px 0;
     color: var(--text-dim); border-top: 1px dashed var(--gilt-soft); }
@@ -4025,11 +4043,9 @@ if (new URLSearchParams(location.search).has("probe")) {
        #cards and #sortbar for the same reason the sort bar is; relabelled by
        the [data-i18n] pass, shown or hidden by renderCards(). -->
   <div class="pipkey" id="pipkey" hidden>
-    <span><i class="pk">+n</i><span data-i18n="pipKeyReady">ready to watch</span></span>
-    <span><i class="pk pk-wait">−n</i><span data-i18n="pipKeyBehind">episodes behind</span></span>
-    <span><i class="pk pk-wait">n/m</i><span data-i18n="pipKeyWait">downloaded, ledger still warming</span></span>
-    <span><i class="pk pk-wait" data-i18n="gracePip">HOLD</i><span data-i18n="st_grace">ANi grace</span></span>
-    <span><i class="pk pk-none">?</i><i class="pk pk-slip"></i><span data-i18n="t_no_mikan">Awaiting mikan</span></span>
+    <span><i class="pk"></i><span data-i18n="pipKeyReady">on disk, not watched</span></span>
+    <span><i class="pk pk-wait"></i><span data-i18n="pipKeyBehind">aired, not on disk yet</span></span>
+    <span><i class="pk pk-none"></i><i class="pk pk-slip"></i><span data-i18n="pipKeyNone">no source, or kept by hand</span></span>
   </div>
 
   <h2 class="sr-only" data-i18n="showsHeading">Shows</h2>
@@ -4128,9 +4144,11 @@ if (new URLSearchParams(location.search).has("probe")) {
       <h3 data-i18n="soundHead">Progress</h3>
       <div id="soundings"></div>
     </section>
+    <!-- Everything finished downloading that has not been watched, one line
+         per show, so the backlog can be read without opening a card. -->
     <section class="deskpanel">
-      <h3 data-i18n="ledgerHead">Accession ledger</h3>
-      <div class="ledger" id="ledger"></div>
+      <h3><span data-i18n="queueHead">Unwatched</span><span class="qtotal" id="queue-n"></span></h3>
+      <div class="ledger" id="queue"></div>
     </section>
     <section class="deskpanel">
       <h3 data-i18n="machineHead">Machine</h3>
@@ -4268,7 +4286,7 @@ if (new URLSearchParams(location.search).has("probe")) {
 // ---------------------------------------------------------------------------
 const I18N = {
   en: {
-    settings: "Settings", gracePip: "HOLD",
+    settings: "Settings", gracePip: "ANi grace",
     appearance: "Appearance", theme: "Theme", language: "Language",
     season: "Season", lastSync: "Last sync", syncNow: "Sync now", syncing: "Syncing…",
     subgroupPriority: "Subgroup priority", daemonLog: "Daemon log", show: "Show", hide: "Hide",
@@ -4375,7 +4393,10 @@ const I18N = {
     textSize: "Text size", sizeM: "Normal", sizeL: "Large", sizeXL: "Larger",
     upNext: "Next 48 hours", tzLocal: "Local", tzTokyo: "Tokyo",
     upNone: "Nothing airing in the next 48 hours",
-    ledgerHead: "Accession ledger", ledgerNone: "No episodes recorded yet",
+    queueHead: "Unwatched", queueNone: "Nothing downloaded is waiting",
+    queueTotal: n => ` · ${n} ep${n === 1 ? "" : "s"}`,
+    queueEps: runs => `ep ${runs.join(", ")}`,
+    queueCold: n => `${n} show${n === 1 ? "" : "s"} still loading watch history`,
     machineHead: "Machine",
     mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
     mSync: "Last sync", mSyncing: "running",
@@ -4428,8 +4449,12 @@ const I18N = {
     // The corner pips, and the key to them under the sort bar.
     pipDownloading: n => `${n} episode${n === 1 ? "" : "s"} downloading`,
     pipReady: n => `${n} episode${n === 1 ? "" : "s"} ready to watch`,
-    pipKeyReady: "ready to watch", pipKeyBehind: "episodes behind",
-    pipKeyWait: "on disk, ledger still warming",
+    pipKeyReady: "on disk, not watched", pipKeyBehind: "aired, not on disk yet",
+    pipKeyNone: "no source, or kept by hand",
+    pipWordReady: "to watch", pipWordMissing: "missing", pipWordFetching: "downloading",
+    pipWordNoSource: "no source", pipWordOnDisk: "on disk",
+    pipMissing: n => `${n} aired episode${n === 1 ? "" : "s"} not on disk`,
+    pipMissingManual: n => `${n} aired episode${n === 1 ? "" : "s"} not on disk. This show is managed by hand`,
     // The archive's arrows state the order the wall is in, not the sign of
     // the comparator behind it.
     dirNewest: "newest first", dirOldest: "oldest first",
@@ -4470,7 +4495,7 @@ const I18N = {
     kbdHint: "←/→ switch tabs · 1–9 jump · / search · Esc close",
   },
   zh: {
-    settings: "设置", gracePip: "等",
+    settings: "设置", gracePip: "等 ANi",
     appearance: "外观", theme: "主题", language: "语言",
     season: "季度", lastSync: "上次同步", syncNow: "立即同步", syncing: "同步中…",
     subgroupPriority: "字幕组优先级", daemonLog: "守护进程日志", show: "展开", hide: "收起",
@@ -4577,7 +4602,10 @@ const I18N = {
     textSize: "字号", sizeM: "标准", sizeL: "大", sizeXL: "特大",
     upNext: "接下来 48 小时", tzLocal: "本地", tzTokyo: "东京",
     upNone: "48 小时内没有放送",
-    ledgerHead: "入库登记簿", ledgerNone: "还没有入库记录",
+    queueHead: "待看片单", queueNone: "下好的都看完了",
+    queueTotal: n => ` · ${n} 集`,
+    queueEps: runs => `第 ${runs.join("、")} 集`,
+    queueCold: n => `还有 ${n} 部的观看记录没读到`,
     machineHead: "机器状态",
     mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
     mSync: "上次同步", mSyncing: "进行中",
@@ -4626,8 +4654,12 @@ const I18N = {
     matchCount: (n, m) => `${n} / ${m}`,
     pipDownloading: n => `${n} 集下载中`,
     pipReady: n => `${n} 集可以观看`,
-    pipKeyReady: "可观看", pipKeyBehind: "落后集数",
-    pipKeyWait: "已在盘，分集账还在预热",
+    pipKeyReady: "已下好，还没看", pipKeyBehind: "已播出，还没下到",
+    pipKeyNone: "没有片源，或手动管理",
+    pipWordReady: "待看", pipWordMissing: "缺集", pipWordFetching: "下载中",
+    pipWordNoSource: "无片源", pipWordOnDisk: "已下载",
+    pipMissing: n => `${n} 集已播出，盘里还没有`,
+    pipMissingManual: n => `${n} 集已播出，盘里没有。这部是手动管理的`,
     dirNewest: "最新在前", dirOldest: "最早在前",
     dirHighest: "高分在前", dirLowest: "低分在前",
     sortReverse: "再按一次反向",
@@ -5562,34 +5594,46 @@ function bookUnit(s, type) {
   // of the unit's accessible name. An aria-label replaces the button's
   // content, so without this a reader tabbing the wall heard the title and
   // nothing of what the pip says; a finger got nothing at all.
+  // The tag is a figure with its meaning written under it. A bare "+1" or
+  // "−7" needed the key below the sort bar to be read at all, and nobody
+  // reads a key; "1 / to watch" needs nothing.
+  const tag = (cls, fig, word) =>
+    `<span class="upip${cls}" title="${esc(pipText)}">${fig === "" ? "" : `<b>${esc(String(fig))}</b>`}<small>${esc(word)}</small></span>`;
+  const warm = p && !p.cold && p.total;
   let pip = "", pipText = "";
   if (s.status === "grace" && s.grace && s.grace.expires > Date.now() / 1000) {
     // A grace window is the one state that expires on its own — it has to be
     // visible from the wall, not only once the card is open.
     pipText = t("waitingAni");
-    pip = `<span class="upip wait" title="${esc(pipText)}">${esc(t("gracePip"))}</span>`;
+    pip = tag(" wait", "", t("gracePip"));
+  } else if (warm && p.ready) {
+    // Episodes finished and not yet watched. Ahead of the no-source check: a
+    // movie bound by hand has no mikan entry and can still be on disk.
+    pipText = t("pipReady", p.ready);
+    pip = tag("", p.ready, t("pipWordReady"));
   } else if (nomk || s.status === "unresolved") {
-    // Before the ledger, not after: an unmatched show has a warm ledger too,
-    // and it would read "−N" in the waiting colour — true, but not the fact
-    // that matters, which is that nothing can be downloaded from anywhere.
+    // Before the depth, not after: an unmatched show has a warm ledger too,
+    // and "3 missing" is true but not the fact that matters, which is that
+    // nothing can be downloaded from anywhere.
     pipText = nomk ? t("t_no_mikan") : t("st_unresolved");
-    pip = `<span class="upip none" title="${esc(pipText)}">?</span>`;
-  } else if (p && !p.cold && p.total) {
-    // The ledger is the reading: episodes finished and not yet watched, or
-    // the depth when nothing is in hand. A level show wears no tag at all —
-    // the one reading available without a click has to mean something, and
-    // "8/8" in the ok colour on a level show and on one three behind did not.
-    // Same guard as depthOf, so the pip and the progress sort key agree.
-    if (p.ready) {
-      pipText = t("pipReady", p.ready);
-      pip = `<span class="upip" title="${esc(pipText)}">+${p.ready}</span>`;
-    } else if (p.depth) {
-      pipText = t("gaugeDepth", p.depth);
-      pip = `<span class="upip wait" title="${esc(pipText)}">−${p.depth}</span>`;
+    pip = tag(" none", "", t("pipWordNoSource"));
+  } else if (warm) {
+    // Behind, with nothing in hand: say whether it is on its way or absent.
+    // A level show wears no tag at all. Same guard as depthOf, so the tag
+    // and the progress sort key agree.
+    const miss = p.missing != null ? p.missing : p.depth;
+    if (!p.depth) {
+      // level: nothing to say
+    } else if (miss) {
+      pipText = t(s.status === "manual" ? "pipMissingManual" : "pipMissing", miss);
+      pip = tag(s.status === "manual" ? " none" : " wait", miss, t("pipWordMissing"));
+    } else if (p.fetching) {
+      pipText = t("pipDownloading", p.fetching);
+      pip = tag(" wait", p.fetching, t("pipWordFetching"));
     }
   } else if (r) {
     pipText = r.done ? t("epReady", r) : t("pipDownloading", r.total);
-    pip = `<span class="upip${r.done ? "" : " wait"}" title="${esc(pipText)}">${r.done}/${r.total}</span>`;   // cold: what qB knows
+    pip = tag(r.done ? "" : " wait", `${r.done}/${r.total}`, t("pipWordOnDisk"));   // cold: what qB knows
   }
   // The slip stays decorative: it is the twin of a state the label carries.
   const slip = nomk
@@ -7877,7 +7921,6 @@ async function refresh() {
     // is gone, so a later poll calling it again costs nothing.
     await refreshPremieres();
     bootDone();
-    refreshLedger();   // a no-op unless the desk is showing (room on, or the desk drawer open)
   } catch (e) {
     if (q !== seqO) return;
     // Toast once per outage, then hold a persistent indicator in the header —
@@ -7908,6 +7951,7 @@ async function refreshProgress() {
     guardPanel("cards", renderCards);   // the pips and the sort key both move
     guardPanel("soundings", renderSoundings);
     guardPanel("upcoming", renderUpcoming);   // the ledger can move a slot off a break week
+    if (deskOn()) guardPanel("queue", renderQueue);
     refreshCard();
     reanchorPeek();
   } catch (e) { /* transient — the last good reading stays up */ }
@@ -8556,7 +8600,6 @@ function openDesk() {
   $("deskbtn").setAttribute("aria-expanded", "true");
   showPanel("desk");
   renderRoom();
-  refreshLedger();
 }
 
 // ?sort=score joins ?lang/?theme/?tab as a per-visit override, so a deep link
@@ -8567,8 +8610,6 @@ const qsSort = QS.get("sort");
 const [qsSortKey, qsSortSuffix] = qsSort ? qsSort.split("-") : [];
 let spineSort = pick(qsSortKey || localStorage.getItem("spineSort") || "season",
   ["season", "score", "year"], "season");
-let ledger = null;
-let seqL = 0;
 let spineFirst = true;
 
 // ----- the archive -----
@@ -8884,40 +8925,56 @@ function renderUpcoming() {
   setHTML($("upcoming"), html || `<div class="none">${esc(t("upNone"))}</div>`);
 }
 
-// The ledger is the daemon's own record — it is read, never written here.
-const GROUP_RE = /^\[([^\]]{1,24})\]/;
-
-async function refreshLedger() {
-  if (!deskOn()) return;
-  const q = ++seqL;
-  try {
-    const d = await (await fetch("/api/events?limit=200")).json();
-    if (q !== seqL) return;
-    ledger = d.events || [];
-    renderLedger();
-  } catch (e) { /* transient */ }
+// Episodes on disk and not watched, per show. Read off /api/progress, which
+// already knows both halves: the episode is finished in qB and bgm does not
+// have it marked 看过. Newest arrivals first, so the top line is what landed
+// most recently.
+function epRuns(nums) {
+  const out = [];
+  for (const n of nums) {
+    const last = out[out.length - 1];
+    if (last && n === last[1] + 1) last[1] = n; else out.push([n, n]);
+  }
+  return out.map(([a, b]) => a === b ? String(a) : `${a}–${b}`);
 }
 
-function renderLedger() {
-  if (!deskOn() || !ledger) return;
-  const today = new Date().toDateString();
-  const rows = ledger.filter(e => e.kind === "episode.landed").slice(-16).reverse();
-  const html = rows.map(e => {
-    const d = new Date((e.ts || 0) * 1000);
-    const p = e.params || {};
-    const g = GROUP_RE.exec(p.file || "");
-    const stamped = d.toDateString() === today ? " today" : "";
-    // Each stamp lands at its own angle, from the entry's own sequence number —
-    // a hand-pressed stamp is never square, and two in a row are never alike.
-    const rot = ((e.seq || 0) % 7) - 3;
-    return `<div class="lrow${stamped}">
-      <span class="ld">${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}</span>
-      <span class="ln" title="${esc(p.show || "")}">${esc(p.show || "—")}${
-        g ? `<span class="lg"> ${esc(g[1])}</span>` : ""}</span>
-      <span class="le" style="--rot:${rot}deg">${p.ep != null ? "#" + p.ep : "—"}</span>
-    </div>`;
+function renderQueue() {
+  if (!deskOn() || !state || !progress) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const recent = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+  let total = 0, cold = 0;
+  const rows = [];
+  for (const s of state.shows) {
+    const p = showProgress(s.bgm_id);
+    if (!p || p.cold) { if (!ledgerStalled(s.bgm_id)) cold++; continue; }
+    const eps = (p.episodes || []).filter(e => e.state === "seeding" || e.state === "downloaded");
+    if (!eps.length) continue;
+    total += eps.length;
+    // An episode that leaked ahead of its airdate counts as arriving today.
+    const newest = eps.reduce((m, e) => {
+      const d = e.airdate && e.airdate > today ? today : (e.airdate || "");
+      return d > m ? d : m;
+    }, "");
+    rows.push({ s, eps: eps.map(e => e.ep).sort((a, b) => a - b), newest });
+  }
+  rows.sort((a, b) => b.newest.localeCompare(a.newest) || b.eps.length - a.eps.length);
+  const html = rows.map(({ s, eps, newest }) => {
+    const title = displayTitle(s);
+    const runs = t("queueEps", epRuns(eps));
+    // Aired in the last two days: stamped, the way the old ledger stamped the
+    // day's arrivals. Each stamp lands at its own angle.
+    const fresh = newest && newest >= recent && newest <= today ? " today" : "";
+    const rot = (s.bgm_id % 7) - 3;
+    return `<button class="lrow qrow${fresh}" onclick="openCard(${s.bgm_id})"
+        title="${esc(title + " · " + runs)}">
+      <span class="ld">${eps.length}</span>
+      <span class="ln">${esc(title)}</span>
+      <span class="le" style="--rot:${rot}deg">${esc(runs)}</span>
+    </button>`;
   }).join("");
-  setHTML($("ledger"), html || `<div class="none">${esc(t("ledgerNone"))}</div>`);
+  const foot = cold ? `<div class="none qcold">${esc(t("queueCold", cold))}</div>` : "";
+  setHTML($("queue"), (html || `<div class="none">${esc(t("queueNone"))}</div>`) + foot);
+  $("queue-n").textContent = total ? t("queueTotal", total) : "";
 }
 
 function renderMachine() {
@@ -9063,7 +9120,7 @@ function renderRoom() {
   guardPanel("spinewall", () => renderSpineWall(false));
   guardPanel("machine", renderMachine);
   guardPanel("census", renderCensus);
-  guardPanel("ledger", renderLedger);
+  guardPanel("queue", renderQueue);
 }
 
 // Crossing the breakpoint builds the room for the first time. Collapsing it
@@ -9077,7 +9134,6 @@ roomMedia.addEventListener("change", () => {
   placeDesk();
   if (!roomOn()) { driftBlocks().forEach(el => el.style.removeProperty("transform")); return; }
   renderRoom();
-  refreshLedger();
 });
 
 // Depth: the rails drift down at a fraction of the page's scroll, so the room

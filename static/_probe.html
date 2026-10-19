@@ -135,7 +135,7 @@ frame.addEventListener("load", async () => {
       return bar.querySelector("b").textContent.trim();
     });
     check("fault: panels after the broken one still draw", () => {
-      const after = ["soundings", "spinewall", "machine", "census", "ledger"]
+      const after = ["soundings", "spinewall", "machine", "census", "queue"]
         .filter(id => id !== faulted);
       const blank = after.filter(id => {
         const el = d.getElementById(id);

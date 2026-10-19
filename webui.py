@@ -1037,20 +1037,39 @@ def api_progress():
         watching = list(_progress)
 
     today = datetime.date.today().isoformat()
+    # Releases bound to a show by hand (a movie pasted as a magnet, a pack from
+    # outside mikan) live outside any rule's save path, so the path match above
+    # never sees them. Without this a finished movie read as "nothing on disk".
+    by_hash = {(t.get("hash") or "").lower(): t for t in torrents}
+    manual_of: dict[int, list[dict]] = {}
+    for h, v in core.load_manual_imports().items():
+        t = by_hash.get(h.lower())
+        if t and v.get("bgm_id"):
+            manual_of.setdefault(int(v["bgm_id"]), []).append(t)
+
     shows: dict[str, dict] = {}
     for bid in watching:
         hit = _progress.get(bid)
         have = _torrent_episodes(torrents, path_of.get(bid, ""))
+        only_ep = hit["eps"][0]["ep"] if hit and len(hit["eps"]) == 1 else None
+        for t in manual_of.get(bid, []):
+            # A one-episode subject is unambiguous even when the name carries
+            # no number, the same rule resolve_torrent_target uses.
+            ep = core.parse_episode(t.get("name", "")) or only_ep
+            if ep is not None and ep not in have:
+                have[ep] = {"progress": round(float(t.get("progress", 0)), 4),
+                            "seeding": t.get("state") in core._SEEDING_STATES}
         if not hit:
             # Nothing known about the episodes yet — still report the download
             # side, which needs no bgm call, so the card has something true to
             # say while the ledger warms.
             shows[str(bid)] = {"cold": True, "episodes": [], "total": None,
                                "aired": 0, "downloaded": len(have),
-                               "watched": 0, "ready": 0, "depth": 0}
+                               "watched": 0, "ready": 0, "depth": 0,
+                               "missing": 0, "fetching": 0}
             continue
         eps = []
-        aired = watched = downloaded = ready = 0
+        aired = watched = downloaded = ready = missing = fetching = 0
         for e in hit["eps"]:
             tor = have.get(e["ep"])
             is_aired = bool(e["airdate"]) and e["airdate"] <= today
@@ -1066,6 +1085,8 @@ def api_progress():
                 st = "unaired"
             aired += is_aired
             watched += e["watched"]
+            missing += st == "aired"
+            fetching += st == "downloading"
             if tor:
                 downloaded += 1
                 if tor["progress"] >= 1 and not e["watched"]:
@@ -1085,6 +1106,10 @@ def api_progress():
             # negative: watching ahead of the schedule (a leak, a simulcast the
             # airdate has not caught up with) is being level, not being early.
             "depth": max(0, aired - watched),
+            # The depth split by why: broadcast with nothing on disk, and
+            # torrents still running. The wall's tag names the reason.
+            "missing": missing,
+            "fetching": fetching,
         }
     _start_progress_fill(watching, token)
     return {"shows": shows, "qb_ok": qb_ok}
