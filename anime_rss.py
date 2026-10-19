@@ -297,7 +297,19 @@ _SUB_LANG_ALIASES = {
     **dict.fromkeys(("jptc", "tcjp", "tc_jp", "jp_tc", "cht_jp", "cht_jpn", "jpn_cht",
                      "cht&jpn", "jpn&cht"), "繁日双语"),
 }
-MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu"}
+# Folders (at any depth under the show) whose videos are extras for Season 00.
+# Compared case-insensitively: DBD-Raws ships "menu" and "PV", and until
+# 2026-10-19 an exact-case check sent both into Season 01, where Jellyfin listed
+# the disc menus and trailers as episodes.
+MIRROR_SPECIAL_DIRS = {"SPs", "Specials", "SP", "Extras", "Scans", "CDs", "Menu",
+                       "PV", "CM", "NCOP", "NCED", "特典映像"}
+# Jellyfin's filename parser reads the "10" of "HEVC-10bit" as the episode number
+# and ignores the real one in "[01]", so every Sakurato, Nekomoe and DBD-Raws
+# release showed up as episode 10 (2026-10-19: over 100 items across 9 shows).
+_BIT_DEPTH_RE = re.compile(r"\d+\s*-?\s*bit", re.I)
+# Marks the episode NFOs the mirror writes, so pruning never touches one it did
+# not write (a hand-made file, or one a Jellyfin metadata saver put there).
+_MIRROR_NFO_MARK = "<!-- anime-rss-auto mirror: episode number pinned -->"
 _COUR_DIR_RE = re.compile(r"^\d{4}\.\d{2}$")
 # Filenames reject_hard_variants deleted this pass. qB unlinks asynchronously, so
 # a file it was just told to delete can still be on disk when mirror_sync_pass
@@ -3459,7 +3471,54 @@ def mirror_unlink(save_path: str, names: set[str]) -> int:
             print(f"# mirror: 连带删镜像硬链接 {link}")
         except OSError as ex:
             print(f"# mirror: 删除失败 {link}：{ex}")
+            continue
+        _mirror_drop_nfo(link)
     return dropped
+
+
+def _mirror_season(parents: tuple[str, ...]) -> str:
+    """Mirror season folder for a video whose folders under the show are parents."""
+    special = {d.casefold() for d in MIRROR_SPECIAL_DIRS}
+    return "Season 00" if any(p.casefold() in special for p in parents) else "Season 01"
+
+
+def _mirror_episode_nfo(link: Path) -> bool:
+    """Pin the episode number of a mirrored video whose name Jellyfin misreads.
+
+    Writes "<stem>.nfo" beside the link when the name has a bit-depth tag and
+    parse_episode finds the number. Jellyfin's NFO reader overrides its own
+    filename guess and online metadata still fills in the title. An existing
+    NFO is left alone. Returns True when a file was written.
+    """
+    if not _BIT_DEPTH_RE.search(link.name):
+        return False
+    ep = parse_episode(link.name)
+    nfo = link.with_suffix(".nfo")
+    if ep is None or nfo.exists():
+        return False
+    season = 0 if link.parent.name == "Season 00" else 1
+    try:
+        nfo.write_text(
+            '<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n'
+            f"{_MIRROR_NFO_MARK}\n"
+            f"<episodedetails>\n  <season>{season}</season>\n"
+            f"  <episode>{ep}</episode>\n</episodedetails>\n",
+            encoding="utf-8")
+    except OSError as ex:
+        print(f"# mirror: NFO 写入失败 {nfo}：{ex}")
+        return False
+    return True
+
+
+def _mirror_drop_nfo(video_link: Path) -> None:
+    """Remove the episode NFO the mirror wrote beside video_link, if any."""
+    nfo = video_link.with_suffix(".nfo")
+    try:
+        if nfo.is_file() and _MIRROR_NFO_MARK in nfo.read_text(encoding="utf-8",
+                                                                 errors="replace"):
+            nfo.unlink()
+    except OSError as ex:
+        print(f"# mirror: NFO 删除失败 {nfo}：{ex}")
 
 
 def _mirror_sub_name(sub_name: str, video_stem: str) -> str:
@@ -3495,7 +3554,7 @@ def _mirror_show_subs(show_dir: Path, mirror_show: Path) -> int:
             continue
         stem = max(videos, key=len)
         parents = sub.relative_to(show_dir).parts[:-1]
-        season = "Season 00" if any(p in MIRROR_SPECIAL_DIRS for p in parents) else "Season 01"
+        season = _mirror_season(parents)
         if not (mirror_show / season / videos[stem]).exists():
             continue
         link = mirror_show / season / _mirror_sub_name(sub.name, stem)
@@ -3533,6 +3592,7 @@ def mirror_sync_pass() -> int:
         return 0
     linked = 0
     subs_linked = 0
+    nfos_written = 0
     landed: list[dict] = []
     for cour_dir in src_root.iterdir():
         if not cour_dir.is_dir():
@@ -3549,9 +3609,11 @@ def mirror_sync_pass() -> int:
                 if f.name in _HARD_REJECTED_NAMES:
                     continue  # deleted this pass, qB just hasn't unlinked it yet
                 parents = f.relative_to(show_dir).parts[:-1]
-                season = "Season 00" if any(p in MIRROR_SPECIAL_DIRS for p in parents) else "Season 01"
+                season = _mirror_season(parents)
                 link = dst_root / cour / show_dir.name / season / f.name
                 if link.exists():
+                    # Also backfills episodes mirrored before NFOs existed.
+                    nfos_written += _mirror_episode_nfo(link)
                     continue
                 try:
                     link.parent.mkdir(parents=True, exist_ok=True)
@@ -3577,11 +3639,14 @@ def mirror_sync_pass() -> int:
                         link.unlink()
                     continue
                 linked += 1
+                nfos_written += _mirror_episode_nfo(link)
             subs_linked += _mirror_show_subs(show_dir, dst_root / cour / show_dir.name)
+    if nfos_written:
+        print(f"# mirror: 写入 {nfos_written} 个集号 NFO")
     if subs_linked:
         print(f"# mirror: 新建 {subs_linked} 个外挂字幕硬链接")
-        if not linked:
-            _jellyfin_refresh()  # a scan picks up new sidecars on existing episodes
+    if (subs_linked or nfos_written) and not linked:
+        _jellyfin_refresh()  # a scan picks up new sidecars and NFOs on existing episodes
     if linked:
         print(f"# mirror: 新建 {linked} 个硬链接 -> Jellyfin")
         _jellyfin_refresh()
@@ -4127,14 +4192,24 @@ def mirror_prune_orphan_files() -> int:
             src_show = src_cour / show_dir.name
             if not src_show.is_dir():
                 continue  # 整番不在源（改名等）-> 保守跳过
-            have = {f.name for f in src_show.rglob("*")
-                    if f.is_file() and f.suffix.lower() in MIRROR_VIDEO_EXT}
+            # name -> the season folders mirror_sync_pass would put it in
+            have: dict[str, set[str]] = {}
+            for f in src_show.rglob("*"):
+                if f.is_file() and f.suffix.lower() in MIRROR_VIDEO_EXT:
+                    have.setdefault(f.name, set()).add(
+                        _mirror_season(f.relative_to(src_show).parts[:-1]))
             if not have:
                 continue  # 源里该番一个视频都没有 -> 疑似瞬时空态，整番跳过
             for link in show_dir.rglob("*"):
                 if not link.is_file() or link.suffix.lower() not in MIRROR_VIDEO_EXT:
                     continue
-                if link.name in have:
+                # A link in the wrong season folder is stale too: extras linked
+                # into Season 01 before their folder counted as special.
+                season = link.parent.name
+                misplaced = (link.name in have and link.parent.parent == show_dir
+                             and season in ("Season 00", "Season 01")
+                             and season not in have[link.name])
+                if link.name in have and not misplaced:
                     continue
                 lp = str(link).rstrip("\\").lower()
                 if not lp.startswith(dst_prefix):  # 双重断言：只删镜像内
@@ -4142,9 +4217,11 @@ def mirror_prune_orphan_files() -> int:
                 try:
                     link.unlink()
                     pruned += 1
-                    print(f"# mirror-prune: 删孤儿硬链接 {link}")
+                    print(f"# mirror-prune: 删{'错季' if misplaced else '孤儿'}硬链接 {link}")
                 except OSError as ex:
                     print(f"# mirror-prune: 删除失败 {link}：{ex}")
+                    continue
+                _mirror_drop_nfo(link)
             # Subtitle links go with their video: once no video in the same mirror
             # folder owns the name (pruned just above, or earlier), drop it too.
             for link in show_dir.rglob("*"):
