@@ -1089,6 +1089,15 @@ def parse_episode(name: str) -> int | None:
         n = int(mm.group(1))
         if 0 < n < 200 and n not in _EP_RES:
             return n
+    # Chinese web-rip layouts: "第03集" / "第3话", and "<title> 03【完全无修版】"
+    # where the number stands alone before a 【】 tag. The leading space keeps
+    # the "【10月】" cour prefix from ever matching.
+    m = (re.search(r"第\s*(\d{1,3})\s*[集话話]", base)
+         or re.search(r"\s(\d{1,3})(?:v\d+)?\s*【", base))
+    if m:
+        n = int(m.group(1))
+        if 0 < n < 200 and n not in _EP_RES:
+            return n
     return None
 
 
