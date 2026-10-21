@@ -5192,13 +5192,14 @@ def reject_hard_variants(*, ctx: "SyncContext | None" = None, dry_run: bool = Fa
         if (cour < SKIP_BEFORE_SEASON and not _old_cour_exempt(
                 cour, _torrent_bgm_id(t, rule_by_path, mikan_cache), span_cache)):
             continue  # 旧番 -> 不碰（正在更新的半年番/年番豁免）
+        if t["hash"].lower() in manual_hashes:
+            continue  # 主人亲手粘的种子：生肉标记与合集包都不删（点名要的就是它）
         sp = (t.get("save_path") or "").replace("\\", "/").rstrip("/").lower()
         if rule_wants_raw(rule_by_path.get(sp)):
             continue  # 这番订的就是生肉桶 -> 删的正是点名要的东西
         if _is_keyword_hit(t, kw_paths, kw_hashes):
             continue  # 主人用关键词点名要的版本，生肉标记也不删
-        if _hard_reject(t["name"]) or (
-                _is_batch_pack(t["name"]) and t["hash"].lower() not in manual_hashes):
+        if _hard_reject(t["name"]) or _is_batch_pack(t["name"]):
             victims.append(t)
     for t in victims:
         print(f"  hard-reject: 删生肉 {t['name']}")
