@@ -379,6 +379,21 @@ class RawBucketCase(unittest.TestCase):
             self.assertEqual(core.reject_hard_variants(), 1)
         post.assert_called_once()
 
+    def test_a_hand_pasted_raw_is_never_hard_rejected(self):
+        # Pasting a magnet of a Netflix raw is an explicit request; the ledger
+        # entry must protect it from the raw sweep, not only from the pack check.
+        save = r"X:\Bangumi\2026.10\Some Show"
+        torrent = {"hash": "ABC123", "save_path": save, "content_path": save + r"\x.mkv",
+                   "name": "Some.Show.S02.1080p.NF.WEB-DL.DUAL.DDP5.1.H.264-GROUP"}
+        self.assertTrue(core._hard_reject(torrent["name"]))
+        with mock.patch.object(core, "qb_get_json", return_value=[torrent]), \
+             mock.patch.object(core, "existing_rules", return_value={}), \
+             mock.patch.object(core, "load_manual_imports",
+                               return_value={"abc123": {"bgm_id": 1}}), \
+             mock.patch.object(core, "qb_post") as post:
+            self.assertEqual(core.reject_hard_variants(), 0)
+        post.assert_not_called()
+
     def test_the_feed_filter_does_not_demand_subtitles_of_a_raw_group(self):
         entry = {"subgroup": RAW}
         self.assertEqual(
