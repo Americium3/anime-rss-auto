@@ -6565,7 +6565,7 @@ const byAir = (a, b) => airMs(a) - airMs(b);
 const bySeasonThen = inner => (a, b) =>
   (b.season || "").localeCompare(a.season || "") || inner(a, b);
 
-// Same, but oldest cour first — for 在看/想看, which read as a backlog to clear.
+// Same, but oldest cour first — for 想看, which reads as a backlog to clear.
 // Season-less shows still sink to the end (not floated to the top).
 const bySeasonAscThen = inner => (a, b) => {
   const sa = a.season || "", sb = b.season || "";
@@ -6964,12 +6964,14 @@ function renderCards() {
     if (activeType === "watching" && watchWeekday !== "all") {
       shows = shows.filter(sh => airWeekday(sh) === +watchWeekday);
     }
+    // 在看 leads with the newest cour: the shows airing this season are the ones
+    // being followed week to week, and they used to sit under every long-runner.
     // 想看 reads oldest cour first (a backlog to clear); 看过 orders each cour by
     // when it was marked; 搁置/抛弃 stay newest cour first.
     // no-mikan reads oldest first for the same reason 想看 does: it is a
     // backlog to work through, and the one that has been waiting longest is
     // the one to deal with first.
-    const cmp = activeType === "watching" || activeType === "want" || activeType === "no_mikan"
+    const cmp = activeType === "want" || activeType === "no_mikan"
       ? bySeasonAscThen(byAir)
       : activeType === "done" ? byDone
       : bySeasonThen(byAir);
