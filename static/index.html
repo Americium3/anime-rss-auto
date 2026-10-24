@@ -1068,6 +1068,7 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .pipkey[hidden] { display: none; }
   .pipkey > span { display: inline-flex; align-items: center; gap: 5px; }
+  .pipkey > span[hidden] { display: none; }
   .pk {
     display: inline-block; min-width: 14px; padding: 1px 4px; border-radius: var(--r-xs);
     font-family: var(--mono); font-style: normal; font-size: .9em; line-height: 1.2;
@@ -1197,16 +1198,20 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   .ext-ico { width: 14px; height: 14px; border-radius: 2px; object-fit: contain; }
   /* Brand-tinted: bangumi pink, mikan orange. Faint fill at rest, solid on hover. */
+  /* Brand inks are set per theme: the raw brand pink and orange read 3.5:1 on
+     the felt and 2:1 on the daylight paper. These clear 4.5:1 on both. */
+  :root { --bgm-ink: #f6b3b8; --mikan-ink: #ffbe6b; }
+  html[data-theme="light"] { --bgm-ink: #8f2a33; --mikan-ink: #733900; }
   .ext-link.bgm {
-    color: #d6636b; border-color: color-mix(in srgb, #f09199 55%, transparent);
+    color: var(--bgm-ink); border-color: color-mix(in srgb, #f09199 55%, transparent);
     background: color-mix(in srgb, #f09199 12%, transparent);
   }
-  .ext-link.bgm:hover { color: #fff; background: #f09199; border-color: transparent; }
+  .ext-link.bgm:hover { color: #3a1014; background: #f09199; border-color: transparent; }
   .ext-link.mikan {
-    color: #e06a00; border-color: color-mix(in srgb, #f98c00 55%, transparent);
+    color: var(--mikan-ink); border-color: color-mix(in srgb, #f98c00 55%, transparent);
     background: color-mix(in srgb, #f98c00 12%, transparent);
   }
-  .ext-link.mikan:hover { color: #fff; background: #f98c00; border-color: transparent; }
+  .ext-link.mikan:hover { color: #2a1600; background: #f98c00; border-color: transparent; }
   .jp { color: var(--text-faint); font-size: calc(.86rem * var(--ui)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .pill {
@@ -1752,6 +1757,9 @@ if (new URLSearchParams(location.search).has("probe")) {
   .indexline .sched-filters { margin: 0; gap: 2px 4px; align-items: baseline; }
   #cards.schedule > .indexline { margin: 0 0 14px; justify-content: flex-start; }
   .indexline .sortbar { margin: 0 0 0 auto; align-items: baseline; }
+  /* Alone on the line (every tab but 在看) the order starts at the left edge
+     like the rest of the page rather than hanging off the right. */
+  .indexline .subfilters[hidden] + .sortbar { margin-left: 0; }
   .sortbar[hidden] { display: none; }
   /* On a phone each half keeps to one line and swipes sideways, instead of
      the two halves breaking into four ragged rows. */
@@ -2305,7 +2313,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     font-size: calc(1.04rem * var(--ui)); line-height: 1; padding: 7px 9px; border-radius: var(--r-s);
   }
   .drawer-close:hover { color: var(--text); background: var(--panel); }
-  .drawer-body { padding: 18px; display: flex; flex-direction: column; gap: 18px; }
+  .drawer-body { padding: 18px; display: flex; flex-direction: column; gap: 30px; }
 
   /* The card sheet: the clicked volume, opened in the middle of the screen. */
   .sheet {
@@ -2349,14 +2357,22 @@ if (new URLSearchParams(location.search).has("probe")) {
 
   /* Settings groups. */
   .set-group { display: flex; flex-direction: column; gap: 10px; }
+  /* Section heads are engraved in the drawer-label brass with a hairline run
+     out to the edge; the rows under them read in plain ink. Same size as a
+     row, told apart by colour, tracking and the rule. */
   .set-group > h4 {
-    margin: 0; font-family: var(--font-display);
-    font-size: calc(.95rem * var(--ui)); font-weight: 600; letter-spacing: .05em;
-    color: var(--text-faint);
+    margin: 0 0 2px; font-family: var(--font-display);
+    font-size: calc(.86rem * var(--ui)); font-weight: 600; letter-spacing: .14em;
+    color: var(--drawer-ink);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .set-group > h4::after {
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--gilt-soft), transparent);
   }
   .set-row {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    font-size: calc(.95rem * var(--ui)); color: var(--text-dim);
+    font-size: calc(.95rem * var(--ui)); color: var(--text);
   }
   .set-row .lab { margin-right: auto; }
   /* A segmented control is a row of brass keys in one bezel. */
@@ -3033,8 +3049,12 @@ if (new URLSearchParams(location.search).has("probe")) {
     background: none; border: 0; border-bottom: 1px dashed var(--ledger-rule);
     grid-template-columns: 22px minmax(0, 1fr) auto;
   }
-  .qrow .ld { text-align: right; color: var(--text); font-weight: 600; }
-  .qrow:hover .ln, .qrow:focus-visible .ln { color: var(--text); }
+  /* The title is what the row is for, so it takes the full ink; the count
+     and the episode range step back a tone. */
+  .qrow .ld { text-align: right; color: var(--text-dim); font-weight: 600; }
+  .qrow .ln { color: var(--text); }
+  .qrow .le { color: var(--text-dim); }
+  .qrow:hover .ln, .qrow:focus-visible .ln { color: var(--accent-a); }
   .qrow:focus-visible { outline: 1px solid var(--gilt); outline-offset: -1px; }
   .qcold { padding: 6px 12px 6px 30px; font-size: calc(.86rem * var(--ui)); }
   .qtotal { font-family: var(--mono); font-weight: 400; letter-spacing: 0;
@@ -4247,9 +4267,9 @@ if (new URLSearchParams(location.search).has("probe")) {
        #cards and #sortbar for the same reason the sort bar is; relabelled by
        the [data-i18n] pass, shown or hidden by renderCards(). -->
   <div class="pipkey" id="pipkey" hidden>
-    <span><i class="pk"></i><span data-i18n="pipKeyReady">on disk, not watched</span></span>
-    <span><i class="pk pk-wait"></i><span data-i18n="pipKeyBehind">aired, not on disk yet</span></span>
-    <span><i class="pk pk-none"></i><i class="pk pk-slip"></i><span data-i18n="pipKeyNone">no source, or kept by hand</span></span>
+    <span data-k="ready"><i class="pk"></i><span data-i18n="pipKeyReady">on disk, not watched</span></span>
+    <span data-k="wait"><i class="pk pk-wait"></i><span data-i18n="pipKeyBehind">aired, not on disk yet</span></span>
+    <span data-k="none"><i class="pk pk-none"></i><i class="pk pk-slip"></i><span data-i18n="pipKeyNone">no source, or kept by hand</span></span>
   </div>
 
   <h2 class="sr-only" data-i18n="showsHeading">Shows</h2>
@@ -4608,7 +4628,7 @@ const I18N = {
     mQb: "qBittorrent", mQbUp: "answering", mQbDown: "unreachable",
     mSync: "Last sync", mSyncing: "running",
     mSubs: "Subscriptions", mDownloads: "Downloads complete",
-    mGrace: "In grace", mWaiting: "Awaiting mikan",
+    mGrace: "In grace",
     censusHead: "The census", censusNone: "Nothing shelved yet",
     censusVols: "volumes", censusSpan: "years", censusMean: "mean bgm rating",
     censusBar: o => `${o.y} · ${o.n === 1 ? "1 volume" : o.n + " volumes"}`,
@@ -4820,7 +4840,7 @@ const I18N = {
     mQb: "qBittorrent", mQbUp: "在线", mQbDown: "无法连接",
     mSync: "上次同步", mSyncing: "进行中",
     mSubs: "订阅", mDownloads: "下载完成",
-    mGrace: "宽限中", mWaiting: "等待 mikan",
+    mGrace: "宽限中",
     censusHead: "藏书年谱", censusNone: "书架上还没有藏书",
     censusVols: "卷", censusSpan: "年份", censusMean: "bgm 均分",
     censusBar: o => `${o.y} 年 · ${o.n} 卷`,
@@ -6995,7 +7015,16 @@ function renderCards() {
   // The key explains the pips; with no volumes on the shelf there are none to
   // explain, and four swatches over a sentence saying the shelf is empty read
   // as a legend for the sentence.
-  $("pipkey").hidden = !list.length;
+  // Only the kinds actually on this shelf get a line: 看过 carries no pips at
+  // all, and a key for marks nobody can see is noise.
+  const cardsEl = $("cards");
+  const has = {
+    ready: !!cardsEl.querySelector(".upip:not(.wait):not(.none)"),
+    wait: !!cardsEl.querySelector(".upip.wait"),
+    none: !!cardsEl.querySelector(".upip.none, .slip"),
+  };
+  for (const sp of $("pipkey").querySelectorAll(":scope > [data-k]")) sp.hidden = !has[sp.dataset.k];
+  $("pipkey").hidden = !list.length || !(has.ready || has.wait || has.none);
   applyStagger();
   applyXhl();
   // After every rebuild, not only the poll's: a season badge pressed on an
@@ -9250,7 +9279,11 @@ function renderMachine() {
   html += row("", t("mSubs"), String(count("subscribed")));
   html += row(ready < held ? "warn" : "", t("mDownloads"), `${ready}/${held}`);
   if (count("grace")) html += row("warn", t("mGrace"), String(count("grace")));
-  if (count("unresolved")) html += row("bad", t("mWaiting"), String(count("unresolved")));
+  // Same population and name as the 待接入 tab: this row used to count only
+  // the tracked shows marked unresolved (1) while the tab and the ledger above
+  // it said 4, under the same words.
+  const nm = noMikanCount();
+  if (nm) html += row("bad", t("t_no_mikan"), String(nm));
   setHTML($("machine"), html);
 }
 
