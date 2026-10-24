@@ -141,6 +141,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     --key-a: #f0d074;
     --key-b: #c8960a;
     --key-text: #1a0e06;
+    --drawer-ink: #f0d074;
     --gilt: rgba(226,178,72,.42);          /* tooled rules, panel edges */
     --gilt-soft: rgba(226,178,72,.20);
     --skiver: #142a1c;                     /* bottle-green desk leather */
@@ -278,6 +279,7 @@ if (new URLSearchParams(location.search).has("probe")) {
     --key-a: #f2d98f;
     --key-b: #d5ae4c;
     --key-text: #241a10;
+    --drawer-ink: #6a4a12;
     --gilt: rgba(133,98,20,.48);
     --gilt-soft: rgba(133,98,20,.22);
     --skiver: #a8b898;
@@ -1512,6 +1514,134 @@ if (new URLSearchParams(location.search).has("probe")) {
   }
   html[data-theme="light"] .premiere.completed .btn.rate { color: #fffdf7; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
 
+  /* ---------- the unfiled ledger ----------
+     Shows that aired with no mikan feed. One folded register on the desk, not a
+     banner each: the summary strip fans the covers and carries the stamp, the
+     ruled pages open underneath. Same warning ink as the slips on the shelf. */
+  .unfiled {
+    position: relative; border-radius: var(--r-m);
+    background:
+      linear-gradient(180deg, var(--glass-hi-soft), transparent 45%),
+      var(--grain),
+      linear-gradient(135deg, color-mix(in srgb, var(--warn) 13%, transparent), color-mix(in srgb, var(--warn) 4%, transparent) 60%),
+      var(--glass);
+    background-size: auto, 140px 140px, auto, auto;
+    background-blend-mode: normal, var(--grain-blend), normal, normal;
+    border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--glass-edge));
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 -1px 0 var(--glass-edge-lo),
+                0 1px 2px var(--drop-soft), 3px 10px 24px -8px var(--drop);
+    animation: slidein .4s cubic-bezier(.22,1,.36,1) backwards;
+  }
+  .unfiled.settled { animation: none; }
+  /* The bookmark ribbon down the spine edge, cut short of the rounded corners. */
+  .unfiled::before {
+    content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px;
+    border-radius: 0 3px 3px 0; background: var(--warn);
+    box-shadow: 1px 0 3px color-mix(in srgb, var(--warn) 50%, transparent);
+  }
+  .unfiled-head {
+    appearance: none; background: none; border: 0; font: inherit; color: var(--text-dim);
+    width: 100%; display: flex; align-items: center; gap: 14px; cursor: pointer;
+    padding: 10px 16px 10px 22px; text-align: left; border-radius: var(--r-m);
+  }
+  .unfiled-head:focus-visible { outline: 2px solid var(--brass-hi); outline-offset: -2px; }
+  /* Covers fanned like slips pushed into the register's front cover. */
+  .unfiled-fan { display: flex; padding-left: 9px; flex-shrink: 0; }
+  .unfiled-fan > span {
+    width: 26px; height: 36px; margin-left: -9px; border-radius: 2px; overflow: hidden;
+    background: var(--media-bg); position: relative;
+    box-shadow: 0 0 0 1px var(--gilt-soft), 1px 2px 4px rgba(0,0,0,.5);
+    transform: rotate(var(--r, -5deg)); transition: transform .2s ease;
+  }
+  .unfiled-fan > span:nth-child(2) { --r: 4deg; } .unfiled-fan > span:nth-child(3) { --r: -2deg; }
+  .unfiled-fan > span:nth-child(4) { --r: 6deg; } .unfiled-fan > span:nth-child(5) { --r: -7deg; }
+  .unfiled-head:hover .unfiled-fan > span { transform: rotate(var(--r, -5deg)) translateY(-2px); }
+  .unfiled-fan img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .unfiled-fan .ph { font-size: 12px; }
+  .unfiled-sum { flex: 1; min-width: 0; font-size: calc(.95rem * var(--ui)); }
+  .unfiled-sum b { color: var(--warn); font-family: var(--mono); font-weight: 700; margin-right: 2px; }
+  /* A rubber stamp: double rule, a slight cant, ink that did not take evenly. */
+  .unfiled-stamp {
+    font-family: var(--mono); font-size: calc(.74rem * var(--ui)); font-weight: 600; letter-spacing: .16em;
+    color: var(--warn); padding: 2px 8px; border: 1.5px solid currentColor; border-radius: 2px;
+    box-shadow: inset 0 0 0 2px transparent, inset 0 0 0 3px color-mix(in srgb, currentColor 35%, transparent);
+    transform: rotate(-4deg); opacity: .88; flex-shrink: 0;
+    -webkit-mask: repeating-linear-gradient(115deg, #000 0 5px, rgba(0,0,0,.72) 5px 7px);
+            mask: repeating-linear-gradient(115deg, #000 0 5px, rgba(0,0,0,.72) 5px 7px);
+  }
+  .unfiled-chev { font-size: calc(.85rem * var(--ui)); flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
+  .unfiled-chev::after {
+    content: ""; width: 0; height: 0; border: 4px solid transparent; border-top: 5px solid currentColor; border-bottom: 0;
+    transition: transform .2s ease;
+  }
+  .unfiled.open .unfiled-chev::after { transform: rotate(180deg); }
+  .unfiled-head:hover .unfiled-chev { color: var(--text); }
+  .unfiled-body[hidden] { display: none; }
+  /* The open pages: a double brass rule under the cover strip, then ruled lines
+     with a red margin running down past the covers. */
+  .unfiled-body {
+    position: relative; padding: 4px 16px 10px 22px;
+    border-top: 3px double color-mix(in srgb, var(--brass-hi) 45%, transparent);
+  }
+  .unfiled-body::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 62px; width: 1px;
+    background: var(--ledger-margin);
+  }
+  .unfiled-hint { margin: 6px 0 4px 54px; color: var(--text-faint); font-size: calc(.84rem * var(--ui)); }
+  .unfiled-rows { list-style: none; margin: 0; padding: 0; }
+  .unfiled-row {
+    display: grid; align-items: center; column-gap: 14px;
+    grid-template-columns: 28px minmax(0, 1fr) auto minmax(220px, 1.25fr) 26px;
+    padding: 8px 0; border-top: 1px dashed color-mix(in srgb, var(--glass-edge) 85%, transparent);
+    animation: slidein .35s cubic-bezier(.22,1,.36,1) backwards;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  .unfiled-row.settled { animation: none; }
+  .unfiled-row:first-child { border-top: 0; }
+  .lcover { width: 28px; height: 38px; border-radius: 2px; overflow: hidden; background: var(--media-bg); position: relative;
+    box-shadow: 0 0 0 1px var(--gilt-soft), 1px 2px 4px rgba(0,0,0,.45); }
+  .lcover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .lcover .ph { font-size: 12px; }
+  .lname { min-width: 0; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .lname > a:first-child { color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lname .show-links { flex-shrink: 0; }
+  .lwhen { font-family: var(--mono); font-size: calc(.78rem * var(--ui)); color: var(--text-faint); white-space: nowrap; }
+  .lpaste { display: flex; gap: 8px; align-items: center; min-width: 0; margin: 0; }
+  .lpaste input { flex: 1; }
+  /* Resolve stays an outlined key until there is a link to resolve: the one
+     filled brass key on the page is Sync now. */
+  .lpaste input:placeholder-shown + .unfiled-go:not(:disabled) {
+    background: transparent; color: var(--text-dim); text-shadow: none; font-weight: 550;
+    box-shadow: inset 0 0 0 1px var(--glass-edge);
+  }
+  .lpaste input:placeholder-shown + .unfiled-go:not(:disabled):hover { color: var(--text); filter: none; box-shadow: inset 0 0 0 1px var(--hover-border); }
+  .unfiled-x {
+    appearance: none; background: none; border: 0; cursor: pointer; font: inherit;
+    color: var(--text-faint); font-size: 1.15rem; line-height: 1; width: 26px; height: 26px; border-radius: var(--r-xs);
+  }
+  .unfiled-x:hover { color: var(--text); background: var(--glass); }
+  .unfiled-x:focus-visible, .unfiled-all:focus-visible { outline: 2px solid var(--brass-hi); outline-offset: 1px; }
+  .unfiled-foot { display: flex; justify-content: flex-end; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--glass-edge) 85%, transparent); }
+  .unfiled-all {
+    appearance: none; background: none; border: 0; cursor: pointer; font: inherit; padding: 2px 0;
+    color: var(--text-faint); font-size: calc(.84rem * var(--ui));
+    text-decoration: underline dotted; text-underline-offset: 3px;
+  }
+  .unfiled-all:hover { color: var(--text-dim); }
+  @media (max-width: 640px) {
+    .unfiled-head { flex-wrap: wrap; gap: 8px 12px; padding-left: 18px; }
+    .unfiled-sum { flex-basis: calc(100% - 90px); }
+    .unfiled-body { padding-left: 18px; }
+    .unfiled-body::before { display: none; }
+    .unfiled-hint { margin-left: 0; }
+    .unfiled-row { grid-template-columns: 28px minmax(0, 1fr) 26px; row-gap: 8px; }
+    .lwhen { display: none; }
+    .lname { flex-wrap: wrap; row-gap: 4px; }
+    .lname > a:first-child { flex-basis: 100%; }
+    .lpaste { grid-column: 1 / -1; }
+    .unfiled-x { grid-row: 1; grid-column: 3; }
+  }
+
   /* ---------- the drawer fronts: one label holder per collection ----------
      Each tab is a card-catalogue label slipped behind a brass holder — a bright
      top edge, a dark bottom, and the card itself set back inside it. The open
@@ -1535,17 +1665,22 @@ if (new URLSearchParams(location.search).has("probe")) {
   .fchip:hover { color: var(--text); border-color: var(--hover-border); }
   .fchip:hover::before { opacity: .6; }
   .fchip b { color: var(--text); font-family: var(--mono); margin-left: 7px; font-weight: 600; }
+  /* The open drawer is pulled forward, not cast in brass: a lit label face, a
+     brass frame round it and the pull rod along its foot. Filled brass stays
+     reserved for the one key that acts (Sync now). */
   .fchip.active {
-    color: var(--key-text); border-color: transparent; transform: translateY(-2px);
+    color: var(--drawer-ink); border-color: transparent; transform: translateY(-2px);
     background:
-      linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 46%),
-      linear-gradient(180deg, var(--key-a), var(--key-b) 80%, color-mix(in srgb, var(--key-b) 78%, #000));
-    text-shadow: 0 1px 0 rgba(255,246,214,.35);
-    box-shadow: inset 0 1px 0 rgba(255,248,220,.7), inset 0 0 0 1px rgba(255,236,190,.18),
+      linear-gradient(180deg, rgba(255,250,232,.13), rgba(255,250,232,0) 55%),
+      color-mix(in srgb, var(--brass-hi) 9%, var(--glass));
+    text-shadow: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brass-hi) 72%, transparent),
+                inset 0 -3px 0 color-mix(in srgb, var(--brass-hi) 85%, transparent),
+                inset 0 1px 0 rgba(255,248,220,.25),
                 0 1px 0 rgba(0,0,0,.35), 0 4px 10px -1px rgba(0,0,0,.5);
   }
   .fchip.active::before { opacity: 1; background: var(--brass-hi); }
-  .fchip.active b { color: var(--key-text); }
+  .fchip.active b { color: var(--drawer-ink); }
   html[data-theme="light"] .fchip:not(.active) {
     box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 1px 2px rgba(92,60,24,.14);
   }
@@ -4331,8 +4466,11 @@ const I18N = {
     nowWatching: "Marked as watching",
     gotIt: "Got it",
     dismissAll: "Dismiss all",
-    unresolvedTag: "NO MIKAN MATCH",
-    unresolvedHint: "Aired, but no mikan feed matched. Paste its mikan link below to resolve by hand",
+    ledgerSum: n => n === 1 ? "show aired with no mikan feed yet" : "shows aired with no mikan feed yet",
+    ledgerStamp: "UNFILED",
+    ledgerShow: "Show",
+    ledgerHide: "Hide",
+    ledgerHint: "A mikan link subscribes the whole show. A magnet imports just that release.",
     resolvePh: "mikanani.me episode / bangumi link, or magnet…",
     resolveGo: "Resolve",
     resolving: "Resolving…",
@@ -4540,8 +4678,11 @@ const I18N = {
     nowWatching: "已自动标为在看",
     gotIt: "知道了",
     dismissAll: "全部知道了",
-    unresolvedTag: "未匹配 mikan",
-    unresolvedHint: "已开播但没匹配到 mikan feed，把 mikan 链接粘到下面手动解析",
+    ledgerSum: () => "部新番已开播，mikan 上还没有片源",
+    ledgerStamp: "待编目",
+    ledgerShow: "展开",
+    ledgerHide: "收起",
+    ledgerHint: "贴 mikan 链接会订阅整部番，贴磁力链只导入那一个资源。",
     resolvePh: "mikanani.me 剧集/番组页链接，或磁力链…",
     resolveGo: "解析",
     resolving: "解析中…",
@@ -4728,6 +4869,7 @@ let activeType = pick(QS.get("tab") || localStorage.getItem("tab") || "watching"
 let schedFilter = pick(localStorage.getItem("schedFilter") || "all",
   ["all", "aired", "upcoming"], "all");   // timetable premiere-status filter
 let schedSeasonOnly = localStorage.getItem("schedSeasonOnly") === "1";  // timetable: limit to current cour
+let ledgerOpen = localStorage.getItem("ledgerOpen") === "1";  // unfiled-shows ledger: folded by default
 let schedBand = pick(localStorage.getItem("schedBand") || "all",
   ["all", "late", "morning", "afternoon", "evening"], "all");  // timetable: time-of-day band
 let watchWeekday = pick(localStorage.getItem("watchWeekday") || "all",
@@ -8114,32 +8256,43 @@ async function refreshUnresolved() {
   try {
     const d = await (await fetch("/api/unresolved")).json();
     if (q !== seqU) return;
-    const banners = d.unresolved.map(u => {
+    // One folded unfiled instead of a banner per show: the summary line keeps the
+    // shelf on the first screen, the ruled rows open on demand.
+    const list = d.unresolved;
+    const rows = list.map(u => {
       const when = fmtStamp(u.detected_at);
       // Prefer the live collections entry so the title follows the UI language.
       const src = (collections && FILTER_ORDER.flatMap(k => collections.groups[k] || [])
         .find(x => x.bgm_id === u.bgm_id)) || u;
       const title = displayTitle(src);
-      const sub = [esc(t("unresolvedHint")), esc(when)].filter(Boolean).join(" · ");
-      return `<div class="premiere unresolved" data-bgm="${u.bgm_id}">
-        <div class="pcover">${coverHtml(u.image)}</div>
-        <div class="pbody">
-          <div class="ptitle"><span class="bemo">⚠</span> <span class="ptag">${t("unresolvedTag")}</span>${bgmLink(u.bgm_id, esc(title))}${showLinks(src)}</div>
-          <div class="psub" title="${sub}">${sub}</div>
-          <div class="grouprow murl">
-            <input id="murl-${u.bgm_id}" type="text" placeholder="${esc(t("resolvePh"))}"
-                   spellcheck="false" onkeydown="if(event.key==='Enter')resolveByUrl(${u.bgm_id})">
-            <button class="btn small" id="murlgo-${u.bgm_id}" onclick="resolveByUrl(${u.bgm_id})">${t("resolveGo")}</button>
-          </div>
-        </div>
-        <button class="btn ghost small" onclick="dismissUnresolved(${u.bgm_id})">${t("gotIt")}</button>
-      </div>`;
+      return `<li class="unfiled-row unresolved" data-bgm="${u.bgm_id}">
+        <span class="lcover">${coverHtml(u.image)}</span>
+        <span class="lname">${bgmLink(u.bgm_id, esc(title))}${showLinks(src)}</span>
+        <span class="lwhen">${esc(when)}</span>
+        <span class="lpaste murl">
+          <input id="murl-${u.bgm_id}" type="text" placeholder="${esc(t("resolvePh"))}"
+                 aria-label="${esc(title)}: ${esc(t("resolvePh"))}"
+                 spellcheck="false" onkeydown="if(event.key==='Enter')resolveByUrl(${u.bgm_id})">
+          <button class="btn small unfiled-go" id="murlgo-${u.bgm_id}" onclick="resolveByUrl(${u.bgm_id})">${t("resolveGo")}</button>
+        </span>
+        <button class="unfiled-x" title="${esc(t("gotIt"))}" aria-label="${esc(t("gotIt"))}: ${esc(title)}"
+                onclick="dismissUnresolved(${u.bgm_id})">×</button>
+      </li>`;
     });
-    if (d.unresolved.length > 1) {
-      banners.unshift(`<div class="premiere-actions">
-        <button class="btn ghost small" onclick="dismissAllUnresolved()">${t("dismissAll")}</button>
-      </div>`);
-    }
+    const fan = list.slice(0, 5).map(u => `<span>${coverHtml(u.image)}</span>`).join("");
+    const banners = list.length ? [`<section class="unfiled${ledgerOpen ? " open" : ""}" aria-label="${esc(t("ledgerStamp"))}">
+        <button class="unfiled-head" aria-expanded="${ledgerOpen}" aria-controls="unfiled-body" onclick="toggleLedger()">
+          <span class="unfiled-fan" aria-hidden="true">${fan}</span>
+          <span class="unfiled-sum"><b>${list.length}</b> ${esc(t("ledgerSum", list.length))}</span>
+          <span class="unfiled-stamp">${esc(t("ledgerStamp"))}</span>
+          <span class="unfiled-chev">${esc(t(ledgerOpen ? "ledgerHide" : "ledgerShow"))}</span>
+        </button>
+        <div class="unfiled-body" id="unfiled-body"${ledgerOpen ? "" : " hidden"}>
+          <p class="unfiled-hint">${esc(t("ledgerHint"))}</p>
+          <ol class="unfiled-rows">${rows.join("")}</ol>
+          ${list.length > 1 ? `<div class="unfiled-foot"><button class="unfiled-all" onclick="dismissAllUnresolved()">${esc(t("dismissAll"))}</button></div>` : ""}
+        </div>
+      </section>`] : [];
     // A poll must never eat a half-typed link: snapshot the paste boxes before
     // the innerHTML swap, put text (and focus) back after. setHTML skipping
     // identical markup covers most polls; this covers the rest.
@@ -8151,7 +8304,8 @@ async function refreshUnresolved() {
     const host = $("unresolveds");
     const html = banners.join("");
     const swapped = host._last !== html;
-    const seen = new Set([...host.querySelectorAll(".premiere")].map(el => el.dataset.bgm));
+    const hadLedger = !!host.querySelector(".unfiled");
+    const seen = new Set([...host.querySelectorAll(".unfiled-row")].map(el => el.dataset.bgm));
     setHTML(host, html);
     for (const [id, val, focused] of keep) {
       const inp = $(id);
@@ -8160,12 +8314,29 @@ async function refreshUnresolved() {
     if (swapped) {
       let k = 0;
       const settle = document.body.classList.contains("booted");   // see refreshPremieres
-      for (const el of host.querySelectorAll(".premiere")) {
+      const led = host.querySelector(".unfiled");
+      if (led && settle && hadLedger) led.classList.add("settled");
+      for (const el of host.querySelectorAll(".unfiled-row")) {
         if (settle && seen.has(el.dataset.bgm)) el.classList.add("settled");
         else el.style.setProperty("--i", k++);
       }
     }
   } catch (e) { /* transient */ }
+}
+
+// Fold or open the ledger in place: no re-render, so a half-typed link and the
+// row animations survive. The next poll renders the same state from ledgerOpen.
+function toggleLedger() {
+  ledgerOpen = !ledgerOpen;
+  localStorage.setItem("ledgerOpen", ledgerOpen ? "1" : "0");
+  const led = document.querySelector("#unresolveds .unfiled");
+  if (!led) return;
+  led.classList.toggle("open", ledgerOpen);
+  led.querySelector(".unfiled-head").setAttribute("aria-expanded", String(ledgerOpen));
+  led.querySelector(".unfiled-body").hidden = !ledgerOpen;
+  led.querySelector(".unfiled-chev").textContent = t(ledgerOpen ? "ledgerHide" : "ledgerShow");
+  $("unresolveds")._last = null;
+  if (ledgerOpen) { const first = led.querySelector(".unfiled-rows input"); if (first) first.focus(); }
 }
 
 async function dismissUnresolved(bgmId) {
