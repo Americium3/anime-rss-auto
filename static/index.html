@@ -7910,9 +7910,12 @@ async function refresh() {
     // it arrives) and with the gauges on their cold skeleton, the state that
     // skeleton exists for. Only the shelves used to be raced, so a slow
     // /api/progress held the curtain over a room that was already drawn.
+    // The four seconds count from the start of the opening, not from the
+    // moment overview lands: counted from there, a slow overview and a slow
+    // shelf added up (4.4s + 4s, the curtain at 8.3s).
     await Promise.race([
       Promise.all([shelves, notes, stuck, tracks]),
-      new Promise(r => setTimeout(r, 4000)),
+      new Promise(r => setTimeout(r, Math.max(0, 4000 - (Date.now() - bootT0)))),
     ]);
     // Banner titles follow the UI language, which needs the collections entry;
     // it is here now, so restate them before anything is shown. Deliberately

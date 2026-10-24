@@ -525,32 +525,61 @@ def _start_span_fill(bgm_ids: list[int]) -> None:
 # --------------------------------------------------------------------------- #
 # Aggregation helpers
 # --------------------------------------------------------------------------- #
+# The panel's reads of bgm are cached here and served stale while one background
+# thread refreshes them. The opening fires overview, progress and collections at
+# once; each used to make its own live bgm round trip, so the curtain was only as
+# fast as bgm.tv on that particular second. When bgm answered slowly or needed a
+# retry (1.2s + 2.4s of backoff in http_get), overview and progress took ~4.4s
+# apiece and a 2-minute-old collections cache re-fetched all five lists inside the
+# boot gate, holding the curtain to ~8.3s. The data only ever moves when a mark
+# changes on bgm, so a reading a poll or two old is the same reading.
+_reads: dict[str, tuple[float, object]] = {}
+_reads_busy: set[str] = set()
+_reads_lock = threading.Lock()
+
+
+def cached_read(key: str, ttl: float, fetch):
+    """fetch()'s last answer, refreshed behind the request once older than ttl.
+
+    Only a key that has never been read blocks. After that a stale answer is
+    returned at once and a single background refresh replaces it; a refresh that
+    fails leaves the last good answer in place, which is what the panel would
+    rather show than an error during a bgm hiccup.
+    """
+    with _reads_lock:
+        hit = _reads.get(key)
+        refresh = (hit is not None and time.time() - hit[0] >= ttl
+                   and key not in _reads_busy)
+        if refresh:
+            _reads_busy.add(key)
+    if hit is None:
+        val = fetch()
+        with _reads_lock:
+            _reads[key] = (time.time(), val)
+        return val
+    if refresh:
+        def run() -> None:
+            try:
+                val = fetch()
+                with _reads_lock:
+                    _reads[key] = (time.time(), val)
+            except Exception:  # noqa: BLE001 — keep serving the last good answer
+                pass
+            finally:
+                with _reads_lock:
+                    _reads_busy.discard(key)
+
+        threading.Thread(target=run, daemon=True).start()
+    return hit[1]
+
+
 def bgm_watching_rich(user: str) -> list[dict]:
-    """Like core.bgm_watching but keeps the cover image URL."""
-    out, offset = [], 0
-    while True:
-        url = (
-            f"{core.BGM_API}/v0/users/{user}/collections"
-            f"?subject_type=2&type=3&limit=50&offset={offset}"
-        )
-        d = json.loads(core.http_get(url).decode("utf-8", "replace"))
-        data = d.get("data", [])
-        for x in data:
-            s = x.get("subject", {})
-            img = s.get("images") or {}
-            out.append({
-                "bgm_id": x.get("subject_id"),
-                "name": s.get("name", ""),
-                "name_cn": s.get("name_cn", ""),
-                "date": s.get("date", ""),
-                "eps": s.get("eps") or None,
-                "image": img.get("common") or img.get("medium") or "",
-                "score": s.get("score") or None,
-            })
-        offset += len(data)
-        if offset >= d.get("total", 0) or not data:
-            break
-    return out
+    """The user's 在看 list with cover images, shared by overview and progress.
+
+    Both used to page through it live on every request, twice per poll.
+    """
+    return cached_read(f"watching:{user}", 30,
+                       lambda: core.bgm_collection_subjects(user, 3))
 
 
 def rule_subgroup(rdef: dict) -> tuple[int | None, int | None]:
@@ -732,7 +761,6 @@ def api_overview():
     }
 
 
-_collections_cache: dict = {"data": None, "ts": 0.0}
 # bgm collection type -> stable key used by the frontend filter.
 _COLL_TYPES = {3: "watching", 1: "want", 2: "done", 4: "onhold", 5: "dropped"}
 
@@ -801,12 +829,17 @@ def api_collections():
 
     Basic fields for every show; 在看/想看 additionally get a precise airing time
     (AniList) + bgm premiere date so the panel can show local-timezone premieres.
-    Cached ~2 min — one poll fans out to 5 bgm list calls + a few cached AniList hits.
+    Cached ~2 min and rebuilt behind the request once older: a rebuild fans out to
+    5 bgm list calls (the 看过 history alone is several pages) + a few cached
+    AniList hits, which is seconds when bgm is slow and must not sit in the boot gate.
     """
-    now = time.time()
-    if _collections_cache["data"] and now - _collections_cache["ts"] < 120:
-        return _mark_no_mikan(_collections_cache["data"])
     user = str(core.CONFIG.get("bgm_user"))
+    return _mark_no_mikan(cached_read(f"collections:{user}", 120,
+                                      lambda: _build_collections(user)))
+
+
+def _build_collections(user: str) -> dict:
+    airing_cache = _load_airing_cache()
     airing_cache = _load_airing_cache()
     groups: dict[str, list] = {}
     counts: dict[str, int] = {}
@@ -866,10 +899,7 @@ def api_collections():
     _save_span_cache()
     _start_title_fill(backfill)
     _start_span_fill(span_backfill)
-    out = {"groups": groups, "counts": counts}
-    _collections_cache["data"] = out
-    _collections_cache["ts"] = now
-    return _mark_no_mikan(out)
+    return {"groups": groups, "counts": counts}
 
 
 # --------------------------------------------------------------------------- #
@@ -1032,7 +1062,7 @@ def api_progress():
 
     user = str(core.CONFIG.get("bgm_user"))
     try:
-        watching = [s["bgm_id"] for s in core.bgm_collection_subjects(user, 3)]
+        watching = [s["bgm_id"] for s in bgm_watching_rich(user)]
     except Exception:  # noqa: BLE001
         watching = list(_progress)
 
@@ -1644,4 +1674,15 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 if __name__ == "__main__":
     print(f"=== anime-rss-auto webui on http://{HOST}:{PORT} ===", flush=True)
+
+    def _warm() -> None:
+        # The first page after a restart would otherwise pay every cold bgm read
+        # inside the boot gate. Best-effort: a failure here just means the first
+        # request does the read itself, as before.
+        with contextlib.suppress(Exception):
+            api_overview()
+        with contextlib.suppress(Exception):
+            api_collections()
+
+    threading.Thread(target=_warm, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
