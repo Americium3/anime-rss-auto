@@ -5,6 +5,8 @@ setlocal
 set PYTHONUTF8=1
 cd /d "X:\A-Code\Github\anime-rss-auto"
 echo [%date% %time%] webui (re)start >> webui.log
-python webui.py >> webui.log 2>&1
+rem "python3.11", not "python": an App Installer update can take over the
+rem bare python alias and point it at the Store redirector (2026-11-01).
+python3.11 webui.py >> webui.log 2>&1
 echo [%date% %time%] webui exited %errorlevel% >> webui.log
 endlocal
